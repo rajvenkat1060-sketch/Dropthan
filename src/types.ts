@@ -70,6 +70,8 @@ export interface PostItem {
   isLiked?: boolean;
   isSaved?: boolean;
   authorAvatar?: string;
+  createdAt?: string;
+  created_at?: string;
 }
 
 export interface ChatMessage {

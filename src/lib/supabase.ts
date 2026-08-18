@@ -40,71 +40,130 @@ export const subscribeToSupabasePosts = (onPostsChange: () => void) => {
 
 export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
   const cacheKey = 'dropthan_cached_supabase_posts';
+  const customPostsKey = 'dropthan_custom_posts';
+
+  let localCache: PostItem[] = [];
   try {
-    const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) localCache = JSON.parse(cached);
+    const custom = localStorage.getItem(customPostsKey);
+    if (custom) {
+      const parsedCustom = JSON.parse(custom);
+      if (Array.isArray(parsedCustom)) {
+        const idSet = new Set(localCache.map((p) => String(p.id)));
+        parsedCustom.forEach((p) => {
+          if (!idSet.has(String(p.id))) localCache.push(p);
+        });
+      }
+    }
+  } catch (e) {}
+
+  try {
+    // Query all records from Supabase posts table without restrictive filters
+    let { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // Fallback if created_at column is missing on older table instances
+    if (error && error.message?.includes('created_at')) {
+      const fallbackQuery = await supabase.from('posts').select('*');
+      data = fallbackQuery.data;
+      error = fallbackQuery.error;
+    }
+
     if (error) {
-      console.warn('Notice querying Supabase posts (using offline cache if available):', error.message);
-      const cached = localStorage.getItem(cacheKey);
-      return cached ? JSON.parse(cached) : [];
+      console.warn('Notice querying Supabase posts (using offline cache):', error.message);
+      return localCache;
     }
+
     if (!data || data.length === 0) {
-      const cached = localStorage.getItem(cacheKey);
-      return cached ? JSON.parse(cached) : [];
+      return localCache;
     }
+
     const mapped: PostItem[] = data.map((item: any) => {
       let imageList: string[] = [];
       if (Array.isArray(item.images) && item.images.length > 0) {
-        imageList = item.images;
+        imageList = item.images.filter(Boolean);
       } else if (typeof item.images === 'string' && item.images.startsWith('[')) {
         try {
-          imageList = JSON.parse(item.images);
+          imageList = JSON.parse(item.images).filter(Boolean);
         } catch (e) {
-          imageList = [item.img || ''];
+          imageList = [item.img || item.image || item.photo || ''];
         }
-      } else if (item.img) {
-        imageList = [item.img];
+      } else if (item.img || item.image || item.photo || item.image_url) {
+        imageList = [item.img || item.image || item.photo || item.image_url];
       }
 
+      const primaryImg =
+        item.img ||
+        item.image ||
+        item.photo ||
+        item.image_url ||
+        (imageList.length > 0 ? imageList[0] : '') ||
+        'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
+
       return {
-        id: String(item.id),
-        author: item.author || 'Dropthan Member',
-        role: item.role || 'wholesaler',
-        price: item.price || 'Rate on Request',
-        moq: item.moq || 'Custom MOQ',
-        caption: item.caption || '',
-        img: item.img || (imageList.length > 0 ? imageList[0] : ''),
-        images: imageList.length > 0 ? imageList : (item.img ? [item.img] : []),
-        phone: item.phone || '',
-        gstin: item.gstin || '',
-        location: item.location || '',
-        storeAddress: item.store_address || item.storeAddress || item.location || '',
+        id: String(item.id || `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`),
+        author:
+          item.author ||
+          item.company_name ||
+          item.companyName ||
+          item.display_name ||
+          item.displayName ||
+          item.full_name ||
+          item.fullName ||
+          item.name ||
+          item.user_name ||
+          'Dropthan Member',
+        role: item.role || item.user_role || item.category_role || 'wholesaler',
+        price: item.price || item.rate || item.unit_price || 'Rate on Request',
+        moq: item.moq || item.minimum_order_quantity || item.min_order || 'Custom MOQ',
+        caption: item.caption || item.description || item.content || item.details || item.text || '',
+        img: primaryImg,
+        images: imageList.length > 0 ? imageList : [primaryImg],
+        phone: item.phone || item.mobile || item.contact_number || item.contact || '',
+        gstin: item.gstin || item.gst || item.gst_number || '',
+        location: item.location || item.city || item.state || item.address || '',
+        storeAddress: item.store_address || item.storeAddress || item.location || item.city || '',
         lat: item.lat ? Number(item.lat) : undefined,
         lng: item.lng ? Number(item.lng) : undefined,
-        country: item.country || undefined,
-        category: item.category || 'Textiles & Apparel',
-        likesCount: item.likes_count || 15,
-        authorAvatar: item.author_avatar || '',
-        productName: item.product_name || item.productName || undefined,
-        materialDetails: item.material_details || item.materialDetails || undefined,
-        promotionDetails: item.promotion_details || item.promotionDetails || undefined,
-        exportProducts: item.export_products || item.exportProducts || undefined,
-        packagingMaterials: item.packaging_materials || item.packagingMaterials || undefined,
-        serviceDetails: item.service_details || item.serviceDetails || undefined,
+        country: item.country || 'India',
+        category: item.category || item.product_category || 'Textiles & Apparel',
+        likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 15,
+        authorAvatar: item.author_avatar || item.authorAvatar || item.avatar_url || item.avatarUrl || item.avatar || '',
+        productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
+        materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
+        promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
+        exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
+        packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
+        serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
         website: item.website || item.website_url || item.websiteUrl || undefined,
-        instagram: item.instagram || item.instagram_handle || undefined,
+        instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+        createdAt: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
+        created_at: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
       };
     });
 
-    if (mapped.length > 0) {
+    // Merge remote and cached posts deduplicating by ID
+    const mergedMap = new Map<string, PostItem>();
+    localCache.forEach((p) => mergedMap.set(String(p.id), p));
+    mapped.forEach((p) => mergedMap.set(String(p.id), p));
+    const allCombined = Array.from(mergedMap.values()).sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+
+    if (allCombined.length > 0) {
       try {
-        localStorage.setItem(cacheKey, JSON.stringify(mapped));
+        localStorage.setItem(cacheKey, JSON.stringify(allCombined));
       } catch (e) {}
     }
-    return mapped;
+    return allCombined;
   } catch (e: any) {
     console.warn('Supabase fetch posts network notice:', e?.message || e);
-    const cached = localStorage.getItem(cacheKey);
-    return cached ? JSON.parse(cached) : [];
+    return localCache;
   }
 };
 
@@ -1019,53 +1078,76 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
   } catch (e) {}
 
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
 
+    if (error && error.message?.includes('created_at')) {
+      const fallbackQuery = await supabase.from('profiles').select('*');
+      data = fallbackQuery.data;
+      error = fallbackQuery.error;
+    }
+
     if (!error && data && data.length > 0) {
-      const remoteProfiles: UserProfile[] = data.map((item: any) => ({
-        id: item.id || `usr_${item.phone?.replace(/\D/g, '')}`,
-        role: item.role || 'wholesaler',
-        phone: item.phone || '',
-        country: item.country || 'India',
-        location: item.location || '',
-        storeAddress: item.store_address || item.location || undefined,
-        lat: item.lat ? Number(item.lat) : undefined,
-        lng: item.lng ? Number(item.lng) : undefined,
-        companyName: item.company_name || undefined,
-        fullName: item.full_name || undefined,
-        displayName: item.display_name || item.company_name || 'Member',
-        bio: item.bio || item.description || undefined,
-        description: item.description || item.bio || undefined,
-        gstin: item.gstin || undefined,
-        iecCode: item.iec_code || undefined,
-        productName: item.product_name || item.productName || undefined,
-        materialDetails: item.material_details || item.materialDetails || undefined,
-        promotionDetails: item.promotion_details || item.promotionDetails || undefined,
-        exportProducts: item.export_products || item.exportProducts || undefined,
-        packagingMaterials: item.packaging_materials || item.packagingMaterials || undefined,
-        serviceDetails: item.service_details || item.serviceDetails || undefined,
-        website: item.website || item.website_url || item.websiteUrl || undefined,
-        websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
-        instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-        instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-        avatarUrl: item.avatar_url || item.avatarUrl || undefined,
-        createdAt: item.created_at || new Date().toISOString(),
-        status: (item.status as UserStatus) || 'Pending',
-        rejectionReason: item.rejection_reason || undefined,
-      }));
+      const remoteProfiles: UserProfile[] = data.map((item: any) => {
+        const cleanPhone = (item.phone || item.mobile || item.contact_number || item.contact || '').trim();
+        const compName = item.company_name || item.companyName || item.business_name || undefined;
+        const flName = item.full_name || item.fullName || item.name || undefined;
+        const dispName =
+          item.display_name ||
+          item.displayName ||
+          compName ||
+          flName ||
+          item.user_name ||
+          (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+
+        return {
+          id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
+          role: item.role || item.user_role || item.category_role || 'wholesaler',
+          phone: cleanPhone,
+          country: item.country || 'India',
+          location: item.location || item.city || item.state || '',
+          storeAddress: item.store_address || item.storeAddress || item.location || item.city || undefined,
+          lat: item.lat ? Number(item.lat) : undefined,
+          lng: item.lng ? Number(item.lng) : undefined,
+          companyName: compName,
+          fullName: flName,
+          displayName: dispName,
+          bio: item.bio || item.description || item.about || undefined,
+          description: item.description || item.bio || item.about || undefined,
+          gstin: item.gstin || item.gst || item.gst_number || undefined,
+          iecCode: item.iec_code || item.iecCode || item.iec || undefined,
+          productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
+          materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
+          promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
+          exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
+          packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
+          serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
+          website: item.website || item.website_url || item.websiteUrl || undefined,
+          websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
+          instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+          instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+          avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
+          createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+          status: (item.status as UserStatus) || 'Active',
+          rejectionReason: item.rejection_reason || undefined,
+        };
+      });
 
       const mergedMap = new Map<string, UserProfile>();
       localProfiles.forEach((p) => {
-        if (p.phone) mergedMap.set(p.phone, p);
+        const key = p.phone || p.id || p.displayName;
+        if (key) mergedMap.set(key, p);
       });
       remoteProfiles.forEach((p) => {
-        if (p.phone) mergedMap.set(p.phone, p);
+        const key = p.phone || p.id || p.displayName;
+        if (key) mergedMap.set(key, p);
       });
       const combined = Array.from(mergedMap.values());
-      localStorage.setItem(localKey, JSON.stringify(combined));
+      try {
+        localStorage.setItem(localKey, JSON.stringify(combined));
+      } catch (e) {}
       return combined;
     }
   } catch (err) {

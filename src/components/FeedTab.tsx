@@ -84,7 +84,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
         setAllProfiles(profilesList);
       }
     });
-  }, []);
+  }, [posts.length]);
 
   // Public profile modal state
   const [publicProfileState, setPublicProfileState] = useState<{

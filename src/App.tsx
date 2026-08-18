@@ -135,10 +135,19 @@ export default function App() {
       const remotePosts = await fetchSupabasePosts();
       if (remotePosts && remotePosts.length > 0) {
         setPosts((prev) => {
-          const remoteMap = new Map<string, PostItem>();
-          remotePosts.forEach((p) => remoteMap.set(String(p.id), p));
-          const localOnly = prev.filter((p) => !remoteMap.has(String(p.id)));
-          return [...remotePosts, ...localOnly];
+          const postMap = new Map<string, PostItem>();
+          // Base fallback posts
+          INITIAL_POSTS.forEach((p) => postMap.set(String(p.id), p));
+          // Locally created / current posts
+          prev.forEach((p) => postMap.set(String(p.id), p));
+          // All historical and newly fetched posts from Supabase cloud
+          remotePosts.forEach((p) => postMap.set(String(p.id), p));
+          
+          return Array.from(postMap.values()).sort((a, b) => {
+            const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+            const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+            return timeB - timeA;
+          });
         });
       }
     } catch (err) {
