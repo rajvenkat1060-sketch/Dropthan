@@ -19,6 +19,12 @@ export interface UserProfile {
   gstin?: string;
   iecCode?: string;
   businessRegNumber?: string;
+  productName?: string;
+  materialDetails?: string;
+  promotionDetails?: string;
+  exportProducts?: string;
+  packagingMaterials?: string;
+  serviceDetails?: string;
   website?: string;
   websiteUrl?: string;
   instagram?: string;
@@ -38,6 +44,12 @@ export interface PostItem {
   moq: string;
   moqPrice?: string;
   caption: string;
+  productName?: string;
+  materialDetails?: string;
+  promotionDetails?: string;
+  exportProducts?: string;
+  packagingMaterials?: string;
+  serviceDetails?: string;
   bio?: string;
   description?: string;
   img: string;

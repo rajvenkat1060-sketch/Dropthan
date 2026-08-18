@@ -1057,6 +1057,42 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                 </div>
               )}
 
+              {/* Social & Website Links */}
+              {(selectedUserForProfile.instagram || selectedUserForProfile.instagramHandle || selectedUserForProfile.website || selectedUserForProfile.websiteUrl) && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {(selectedUserForProfile.instagram || selectedUserForProfile.instagramHandle) && (
+                    (() => {
+                      const raw = selectedUserForProfile.instagram || selectedUserForProfile.instagramHandle || '';
+                      const handle = raw.replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/$/, '');
+                      return (
+                        <a
+                          href={`https://www.instagram.com/${handle}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-pink-700 bg-pink-50 hover:bg-pink-100 px-2.5 py-1 rounded-xl border border-pink-200 flex items-center gap-1.5 transition"
+                        >
+                          <span>📸</span>
+                          <span>@{handle}</span>
+                          <span className="text-[9px]">↗</span>
+                        </a>
+                      );
+                    })()
+                  )}
+                  {(selectedUserForProfile.website || selectedUserForProfile.websiteUrl) && (
+                    <a
+                      href={(selectedUserForProfile.website || selectedUserForProfile.websiteUrl || '').startsWith('http') ? (selectedUserForProfile.website || selectedUserForProfile.websiteUrl || '') : `https://${selectedUserForProfile.website || selectedUserForProfile.websiteUrl}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-[#0d47a1] bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-xl border border-blue-200 flex items-center gap-1.5 transition"
+                    >
+                      <span>🌐</span>
+                      <span className="truncate max-w-[150px]">{(selectedUserForProfile.website || selectedUserForProfile.websiteUrl || '').replace(/^https?:\/\//i, '')}</span>
+                      <span className="text-[9px]">↗</span>
+                    </a>
+                  )}
+                </div>
+              )}
+
               {/* GST & Registration Info */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">

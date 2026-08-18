@@ -361,6 +361,7 @@ export default function App() {
             posts={postsWithInteraction}
             currentUser={currentUser}
             searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
             onOpenVendorChat={handleOpenVendorChat}
             onToggleLike={handleToggleLike}
             onToggleSave={handleToggleSave}
@@ -386,6 +387,7 @@ export default function App() {
               posts={postsWithInteraction}
               currentUser={currentUser}
               searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
               onOpenVendorChat={handleOpenVendorChat}
               onToggleLike={handleToggleLike}
               onToggleSave={handleToggleSave}

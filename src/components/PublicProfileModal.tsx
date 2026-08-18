@@ -5,6 +5,7 @@ import { getOptimizedImageUrl } from '../utils/image';
 import { fetchUserRatingsFromSupabase, fetchFullUserProfileByPhone } from '../lib/supabase';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
+import { Instagram } from 'lucide-react';
 
 interface PublicProfileModalProps {
   isOpen: boolean;
@@ -72,6 +73,12 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   const instagram = vendorProfile?.instagram || vendorProfile?.instagramHandle || referencePost?.instagram;
   const website = vendorProfile?.website || vendorProfile?.websiteUrl || referencePost?.website;
   const companyName = vendorProfile?.companyName || cleanVendorName;
+  const productName = vendorProfile?.productName || vendorProfile?.materialDetails || referencePost?.productName || referencePost?.materialDetails;
+  const promotionDetails = vendorProfile?.promotionDetails || referencePost?.promotionDetails;
+  const exportProducts = vendorProfile?.exportProducts || referencePost?.exportProducts;
+  const packagingMaterials = vendorProfile?.packagingMaterials || referencePost?.packagingMaterials;
+  const serviceDetails = vendorProfile?.serviceDetails || referencePost?.serviceDetails;
+
   const userBio =
     vendorProfile?.bio ||
     vendorProfile?.description ||
@@ -308,6 +315,42 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                 )}
               </div>
 
+              {/* CATEGORY-SPECIFIC DETAILS PILLS */}
+              {(productName || promotionDetails || exportProducts || packagingMaterials || serviceDetails) && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {productName && (
+                    <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-900 border border-blue-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                      <span>🏷️ Products/Materials:</span>
+                      <span className="text-blue-700">{productName}</span>
+                    </span>
+                  )}
+                  {promotionDetails && (
+                    <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-900 border border-purple-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                      <span>⭐ Influencing Niches:</span>
+                      <span className="text-purple-700">{promotionDetails}</span>
+                    </span>
+                  )}
+                  {exportProducts && (
+                    <span className="inline-flex items-center gap-1 bg-sky-50 text-sky-900 border border-sky-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                      <span>🌐 Export Commodities:</span>
+                      <span className="text-sky-700">{exportProducts}</span>
+                    </span>
+                  )}
+                  {packagingMaterials && (
+                    <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                      <span>🖨️ Packaging Services:</span>
+                      <span className="text-amber-700">{packagingMaterials}</span>
+                    </span>
+                  )}
+                  {serviceDetails && (
+                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-900 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                      <span>📢 Agency Services:</span>
+                      <span className="text-emerald-700">{serviceDetails}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* INSTAGRAM-STYLE BIO / DESCRIPTION (Placed right below name, role, phone, and location) */}
               <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-2.5 text-xs text-slate-700 leading-relaxed">
                 <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-wider mb-0.5">
@@ -324,17 +367,27 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
               {/* EXTERNAL LINKS: SOCIAL & WEBSITE */}
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
                 {instagram && (
-                  <a
-                    href={instagram.startsWith('http') ? instagram : `https://${instagram.replace(/^@/, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition shadow-2xs"
-                    title="Visit Social Profile"
-                  >
-                    <span>🔗</span>
-                    <span>{instagram.startsWith('@') ? instagram : `@${instagram}`}</span>
-                    <span className="text-[9px]">↗</span>
-                  </a>
+                  (() => {
+                    const cleanHandle = instagram
+                      .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+                      .replace(/^@/, '')
+                      .replace(/\/$/, '');
+                    const instaUrl = `https://www.instagram.com/${cleanHandle}`;
+
+                    return (
+                      <a
+                        href={instaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-200 px-3 py-1.5 rounded-xl transition shadow-2xs active:scale-95 cursor-pointer"
+                        title={`Visit Instagram: @${cleanHandle}`}
+                      >
+                        <Instagram className="w-3.5 h-3.5 text-pink-600 flex-shrink-0" />
+                        <span>@{cleanHandle}</span>
+                        <span className="text-[9px] font-extrabold">↗</span>
+                      </a>
+                    );
+                  })()
                 )}
 
                 {website && (

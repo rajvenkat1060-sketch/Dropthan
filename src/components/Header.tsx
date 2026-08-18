@@ -29,23 +29,6 @@ export const Header: React.FC<HeaderProps> = ({
       {/* TOP LOGO BAR */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          {/* CONDITIONAL BACK BUTTON: Rendered when on Profile/Settings screen (NOT on main root login page) */}
-          {(activeTab === 'profile' || (activeTab !== 'login' && activeTab !== 'feed')) && (
-            <button
-              onClick={() => {
-                if (typeof window !== 'undefined' && window.history.length > 1) {
-                  window.history.back();
-                }
-                onSelectTab('feed');
-              }}
-              className="flex items-center space-x-1.5 bg-blue-800 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold px-3 py-1.5 rounded-xl border border-blue-300/40 transition cursor-pointer shadow-sm mr-1"
-              title="Go Back"
-            >
-              <span className="text-sm font-extrabold">←</span>
-              <span>Back</span>
-            </button>
-          )}
-
           <div className="flex items-center space-x-2 cursor-pointer" onClick={() => onSelectTab('feed')}>
             <div className="bg-white text-[#0d47a1] font-black text-lg px-2 py-0.5 rounded-lg italic tracking-tighter shadow-sm">
               dptn
@@ -101,7 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* REAL-TIME SEARCH BAR - RESTRICTED TO FEED TAB ONLY */}
+      {/* REAL-TIME DUAL SEARCH BAR - RESTRICTED TO FEED TAB ONLY */}
       {activeTab === 'feed' && (
         <div className="relative w-full">
           <span className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-blue-300 text-xs">
@@ -111,13 +94,14 @@ export const Header: React.FC<HeaderProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search by business name or category (e.g. 'Apex', 'Coconut', 'Apparel')..."
+            placeholder="Search products, suppliers, brands or categories (e.g. 'Cotton', 'Apex', 'Surat')..."
             className="w-full bg-blue-950/40 border border-blue-400/30 text-white placeholder-blue-200/70 rounded-xl pl-8 pr-7 py-1.5 text-xs focus:outline-none focus:bg-blue-950/70 focus:border-white transition shadow-inner"
           />
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
               className="absolute inset-y-0 right-2 flex items-center text-blue-200 hover:text-white text-xs font-bold cursor-pointer"
+              title="Clear search"
             >
               ✕
             </button>

@@ -4,6 +4,7 @@ import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl } from '../utils/image';
 import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
+import { Instagram } from 'lucide-react';
 
 interface ProfileTabProps {
   user: UserProfile | null;
@@ -95,8 +96,12 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     }
 
     let formattedInstagram = editInstagram.trim();
-    if (formattedInstagram && !formattedInstagram.startsWith('@') && !formattedInstagram.startsWith('http')) {
-      formattedInstagram = `@${formattedInstagram}`;
+    if (formattedInstagram) {
+      // Strip leading @, full URL prefix, and trailing slashes to extract pure username
+      formattedInstagram = formattedInstagram
+        .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+        .replace(/^@/, '')
+        .replace(/\/$/, '');
     }
 
     const updatedUser: UserProfile = {
@@ -360,25 +365,28 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             {/* WEBSITE & SOCIAL LINK DISPLAY */}
             <div className="pt-1 flex flex-wrap items-center gap-1.5">
               {(user.instagram || user.instagramHandle) && (
-                <a
-                  href={
-                    (user.instagram || user.instagramHandle || '').startsWith('http')
-                      ? (user.instagram || user.instagramHandle || '')
-                      : `https://${(user.instagram || user.instagramHandle || '').replace(/^@/, '')}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-xl border border-blue-200 flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-2xs"
-                  title="Visit Social Profile"
-                >
-                  <span className="text-sm">🔗</span>
-                  <span className="truncate max-w-[150px]">
-                    {(user.instagram || user.instagramHandle || '').startsWith('@')
-                      ? (user.instagram || user.instagramHandle)
-                      : `@${(user.instagram || user.instagramHandle || '').replace(/^https?:\/\/(www\.)?/i, '')}`}
-                  </span>
-                  <span className="text-[10px] font-extrabold">↗</span>
-                </a>
+                (() => {
+                  const raw = (user.instagram || user.instagramHandle || '').trim();
+                  const cleanHandle = raw
+                    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+                    .replace(/^@/, '')
+                    .replace(/\/$/, '');
+                  const instaUrl = `https://www.instagram.com/${cleanHandle}`;
+
+                  return (
+                    <a
+                      href={instaUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-bold text-pink-700 bg-pink-50 hover:bg-pink-100 active:scale-95 px-2.5 py-1 rounded-xl border border-pink-200 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                      title={`Visit Instagram: @${cleanHandle}`}
+                    >
+                      <Instagram className="w-3.5 h-3.5 text-pink-600 flex-shrink-0" />
+                      <span className="truncate max-w-[150px]">@{cleanHandle}</span>
+                      <span className="text-[10px] font-extrabold">↗</span>
+                    </a>
+                  );
+                })()
               )}
 
               {!isWebsiteHidden && (
@@ -1052,21 +1060,31 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               )}
 
-              {/* SOCIAL HANDLE FIELD */}
+              {/* INSTAGRAM PROFILE LINK FIELD */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-800 mb-1">
-                  Social Handle (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-800">
+                    Instagram Profile Link / Username (Optional)
+                  </label>
+                  <span className="text-[9px] text-pink-700 bg-pink-50 font-bold px-1.5 py-0.5 rounded border border-pink-200">
+                    📸 Instagram
+                  </span>
+                </div>
                 <div className="relative flex items-center">
-                  <span className="absolute left-3 text-slate-400 text-xs">🔗</span>
+                  <span className="absolute left-3 text-pink-500 text-xs flex items-center pointer-events-none">
+                    <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                  </span>
                   <input
                     type="text"
                     value={editInstagram}
                     onChange={(e) => setEditInstagram(e.target.value)}
-                    placeholder="e.g. @yourcompany or profile link"
-                    className="w-full bg-white border border-blue-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
+                    placeholder="e.g. your_instagram_handle or @yourcompany"
+                    className="w-full bg-white border border-blue-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
                   />
                 </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Opens https://www.instagram.com/[username] when tapped by buyers.
+                </p>
               </div>
 
               {/* WEBSITE LINK FIELD - HIDDEN FOR INFLUENCER & DROPSHIPPER/RESELLER */}

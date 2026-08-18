@@ -3,6 +3,7 @@ import { UserRole, UserProfile, UserStatus } from '../types';
 import { uploadAvatarToSupabase, saveUserProfileToSupabase, fetchFullUserProfileByPhone } from '../lib/supabase';
 import { InternationalPhoneInput, isPhoneValid as checkInternationalPhoneValid } from './InternationalPhoneInput';
 import { GoogleLocationInput } from './GoogleLocationInput';
+import { Instagram } from 'lucide-react';
 
 interface OnboardingModalProps {
   onComplete: (user: UserProfile) => void;
@@ -127,6 +128,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
     const initialStatus: UserStatus = isB2BOrGstRole ? 'Pending' : 'Active';
 
+    const cleanInstagram = instagram.trim()
+      ? instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/$/, '')
+      : undefined;
+
     const profile: UserProfile = {
       role: selectedRole,
       phone: formattedPhone,
@@ -142,8 +147,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       bio: bio.trim() || undefined,
       description: bio.trim() || undefined,
       avatarUrl: avatarUrl || undefined,
-      instagram: instagram.trim() ? (instagram.trim().startsWith('@') || instagram.trim().startsWith('http') ? instagram.trim() : `@${instagram.trim()}`) : undefined,
-      instagramHandle: instagram.trim() ? (instagram.trim().startsWith('@') || instagram.trim().startsWith('http') ? instagram.trim() : `@${instagram.trim()}`) : undefined,
+      instagram: cleanInstagram || undefined,
+      instagramHandle: cleanInstagram || undefined,
       website: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : undefined,
       websiteUrl: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : undefined,
       status: initialStatus,
@@ -531,21 +536,31 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               />
             </div>
 
-            {/* OPTIONAL SOCIAL HANDLE FIELD */}
+            {/* OPTIONAL INSTAGRAM PROFILE FIELD */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-800 mb-1">
-                Social Handle (Optional)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-800">
+                  Instagram Profile (Optional)
+                </label>
+                <span className="text-[9px] text-pink-700 bg-pink-50 font-bold px-1.5 py-0.5 rounded border border-pink-200">
+                  📸 Instagram
+                </span>
+              </div>
               <div className="relative flex items-center">
-                <span className="absolute left-3 text-slate-400 text-xs">🔗</span>
+                <span className="absolute left-3 text-pink-500 text-xs flex items-center pointer-events-none">
+                  <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                </span>
                 <input
                   type="text"
                   value={instagram}
                   onChange={(e) => setInstagram(e.target.value)}
-                  placeholder="e.g. @yourcompany or profile link"
-                  className="w-full bg-white border border-blue-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
+                  placeholder="e.g. your_instagram_handle or @yourcompany"
+                  className="w-full bg-white border border-blue-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
                 />
               </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Opens https://www.instagram.com/[username] when clicked on your public profile.
+              </p>
             </div>
 
             {/* OPTIONAL BUSINESS WEBSITE LINK FIELD (RIGHT BELOW SOCIAL HANDLE) - HIDDEN FOR INFLUENCER & DROPSHIPPER/RESELLER */}
