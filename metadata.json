@@ -1,0 +1,6 @@
+{
+  "name": "Dropthan",
+  "description": "B2B wholesale, dropshipping, marketing & packaging mobile marketplace with GST verification, direct supplier chat, and AI sourcing assistant.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
