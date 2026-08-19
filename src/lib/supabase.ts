@@ -935,48 +935,77 @@ export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<void>
 export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<UserProfile> => {
   const websiteVal = profile.website || profile.websiteUrl || null;
   const bioVal = profile.bio || profile.description || null;
+  const cleanPhone = (profile.phone || '').trim();
+  const userId = profile.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`);
+
   const currentPayload: Record<string, any> = {
-    id: profile.id || `usr_${profile.phone ? profile.phone.replace(/\D/g, '') : Date.now()}`,
-    phone: profile.phone,
+    id: userId,
+    phone: cleanPhone,
     role: profile.role || 'wholesaler',
     display_name: profile.displayName || profile.companyName || profile.fullName || 'Member',
     full_name: profile.fullName || profile.displayName || null,
     name: profile.fullName || profile.displayName || profile.companyName || 'Member',
+    company_name: profile.companyName || profile.displayName || null,
     location: profile.location || '',
     store_address: profile.storeAddress || profile.location || '',
-    country: profile.country || '',
+    country: profile.country || 'India',
     gstin: profile.gstin || null,
-    status: profile.status || 'Pending',
+    iec_code: profile.iecCode || null,
+    product_name: profile.productName || profile.materialDetails || null,
+    material_details: profile.materialDetails || profile.productName || null,
+    promotion_details: profile.promotionDetails || null,
+    export_products: profile.exportProducts || null,
+    packaging_materials: profile.packagingMaterials || null,
+    service_details: profile.serviceDetails || null,
+    website: websiteVal,
+    website_url: websiteVal,
+    instagram: profile.instagram || profile.instagramHandle || null,
+    instagram_handle: profile.instagram || profile.instagramHandle || null,
+    avatar_url: profile.avatarUrl || null,
+    status: profile.status || 'Active',
     created_at: profile.createdAt || new Date().toISOString(),
   };
 
-  // Optional fields
   if (bioVal) {
     currentPayload.bio = bioVal;
     currentPayload.description = bioVal;
   }
-  if (profile.companyName) currentPayload.company_name = profile.companyName;
-  if (profile.iecCode) currentPayload.iec_code = profile.iecCode;
   if (profile.lat) currentPayload.lat = profile.lat;
   if (profile.lng) currentPayload.lng = profile.lng;
-  if (websiteVal) currentPayload.website = websiteVal;
-  if (profile.instagram || profile.instagramHandle) currentPayload.instagram = profile.instagram || profile.instagramHandle;
-  if (profile.avatarUrl) currentPayload.avatar_url = profile.avatarUrl;
   if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
+
+  // Immediately update local all-profiles cache so instant UI lookups find this profile
+  try {
+    const localKey = 'dropthan_all_profiles';
+    const stored = localStorage.getItem(localKey);
+    let profilesList: UserProfile[] = stored ? JSON.parse(stored) : [];
+    const existingIndex = profilesList.findIndex(
+      (p) => (p.phone && p.phone === cleanPhone) || (p.id && p.id === userId)
+    );
+    if (existingIndex >= 0) {
+      profilesList[existingIndex] = { ...profilesList[existingIndex], ...profile, id: userId };
+    } else {
+      profilesList.unshift({ ...profile, id: userId });
+    }
+    localStorage.setItem(localKey, JSON.stringify(profilesList));
+  } catch (e) {}
 
   try {
     let success = false;
     let attempts = 0;
+    const payloadCopy = { ...currentPayload };
 
     while (!success && attempts < 8) {
       attempts++;
+      
+      // Strategy A: Upsert with phone conflict resolution
       const { error } = await supabase
         .from('profiles')
-        .upsert(currentPayload, { onConflict: 'phone' });
+        .upsert(payloadCopy, { onConflict: cleanPhone ? 'phone' : 'id' });
 
       if (!error) {
         success = true;
-        console.log('✅ Successfully upserted user profile into Supabase profiles table:', currentPayload.phone);
+        console.log('✅ Successfully persisted user profile to Supabase profiles table:', cleanPhone || userId);
         break;
       }
 
@@ -985,45 +1014,68 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
         error.message.match(/Could not find the '(\w+)' column/) ||
         error.message.match(/column "?(\w+)"? of relation "profiles" does not exist/);
 
-      if (missingColMatch && missingColMatch[1] && currentPayload[missingColMatch[1]] !== undefined) {
+      if (missingColMatch && missingColMatch[1] && payloadCopy[missingColMatch[1]] !== undefined) {
         const colToRemove = missingColMatch[1];
         console.log(`ℹ️ [Supabase Schema Adapt] Removing optional column '${colToRemove}' and retrying profile save...`);
-        delete currentPayload[colToRemove];
+        delete payloadCopy[colToRemove];
         continue;
       }
 
-      // Try minimal fallback
-      if (currentPayload.bio || currentPayload.description) {
-        delete currentPayload.bio;
-        delete currentPayload.description;
-        continue;
+      // Strategy B: If onConflict failed, try update by phone
+      if (cleanPhone) {
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update(payloadCopy)
+          .eq('phone', cleanPhone);
+        if (!updateErr) {
+          success = true;
+          console.log('✅ Successfully updated user profile in Supabase by phone:', cleanPhone);
+          break;
+        }
       }
-      if (currentPayload.company_name) {
-        delete currentPayload.company_name;
-        continue;
-      }
-      if (currentPayload.iec_code) {
-        delete currentPayload.iec_code;
-        continue;
-      }
-      if (currentPayload.store_address) {
-        delete currentPayload.store_address;
-        continue;
-      }
-      if (currentPayload.lat || currentPayload.lng) {
-        delete currentPayload.lat;
-        delete currentPayload.lng;
+
+      // Strip non-core optional columns step-by-step
+      if (payloadCopy.service_details || payloadCopy.packaging_materials || payloadCopy.export_products) {
+        delete payloadCopy.service_details;
+        delete payloadCopy.packaging_materials;
+        delete payloadCopy.export_products;
+        delete payloadCopy.promotion_details;
+        delete payloadCopy.product_name;
+        delete payloadCopy.material_details;
         continue;
       }
 
-      console.warn('Supabase profile upsert notice:', error.message);
+      if (payloadCopy.bio || payloadCopy.description) {
+        delete payloadCopy.bio;
+        delete payloadCopy.description;
+        continue;
+      }
+      if (payloadCopy.company_name) {
+        delete payloadCopy.company_name;
+        continue;
+      }
+      if (payloadCopy.iec_code) {
+        delete payloadCopy.iec_code;
+        continue;
+      }
+      if (payloadCopy.store_address) {
+        delete payloadCopy.store_address;
+        continue;
+      }
+      if (payloadCopy.lat || payloadCopy.lng) {
+        delete payloadCopy.lat;
+        delete payloadCopy.lng;
+        continue;
+      }
+
+      console.warn('Supabase profile save notice:', error.message);
       break;
     }
   } catch (err) {
     console.warn('Unexpected exception during Supabase profile save:', err);
   }
 
-  return profile;
+  return { ...profile, id: userId };
 };
 
 export const updateUserWebsiteInSupabase = async (
