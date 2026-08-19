@@ -30,7 +30,27 @@ export const subscribeToSupabasePosts = (onPostsChange: () => void) => {
       }
     )
     .subscribe((status) => {
-      console.log('📡 [Supabase Realtime Channel Status]:', status);
+      console.log('📡 [Supabase Realtime Channel Status - Posts]:', status);
+    });
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+};
+
+export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
+  const channel = supabase
+    .channel('public:profiles')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'profiles' },
+      (payload) => {
+        console.log('⚡ [Realtime Supabase] Profiles table update detected:', payload.eventType);
+        onProfilesChange();
+      }
+    )
+    .subscribe((status) => {
+      console.log('📡 [Supabase Realtime Channel Status - Profiles]:', status);
     });
 
   return () => {
@@ -536,19 +556,6 @@ export const subscribeToSupabaseMessages = (onMessagesChange: () => void) => {
   };
 };
 
-export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
-  const channel = supabase
-    .channel('public:profiles')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-      console.log('⚡ [Realtime Supabase] Profiles table update detected');
-      onProfilesChange();
-    })
-    .subscribe();
-  return () => {
-    supabase.removeChannel(channel);
-  };
-};
-
 export const subscribeToAdminRealtime = (callbacks: {
   onProfilesChange?: () => void;
   onPostsChange?: () => void;
@@ -998,40 +1005,78 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
     while (!success && attempts < 8) {
       attempts++;
       
-      // Strategy A: Upsert with phone conflict resolution
-      const { error } = await supabase
-        .from('profiles')
-        .upsert(payloadCopy, { onConflict: cleanPhone ? 'phone' : 'id' });
+      // Strategy A: Try Upsert with onConflict 'phone'
+      if (cleanPhone) {
+        const { error: upsertPhoneErr } = await supabase
+          .from('profiles')
+          .upsert(payloadCopy, { onConflict: 'phone' });
 
-      if (!error) {
+        if (!upsertPhoneErr) {
+          success = true;
+          console.log('✅ Successfully persisted user profile to Supabase (onConflict: phone):', cleanPhone);
+          break;
+        }
+
+        // Check if error is due to missing column
+        const missingCol = upsertPhoneErr.message.match(/Could not find the '(\w+)' column/) ||
+                           upsertPhoneErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/);
+        if (missingCol && missingCol[1] && payloadCopy[missingCol[1]] !== undefined) {
+          delete payloadCopy[missingCol[1]];
+          continue;
+        }
+      }
+
+      // Strategy B: Try Upsert with onConflict 'id'
+      const { error: upsertIdErr } = await supabase
+        .from('profiles')
+        .upsert(payloadCopy, { onConflict: 'id' });
+
+      if (!upsertIdErr) {
         success = true;
-        console.log('✅ Successfully persisted user profile to Supabase profiles table:', cleanPhone || userId);
+        console.log('✅ Successfully persisted user profile to Supabase (onConflict: id):', userId);
         break;
+      }
+
+      // Strategy C: Update if exists by phone, else Insert
+      if (cleanPhone) {
+        const { data: existingRows } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('phone', cleanPhone)
+          .limit(1);
+
+        if (existingRows && existingRows.length > 0) {
+          const { error: updateErr } = await supabase
+            .from('profiles')
+            .update(payloadCopy)
+            .eq('phone', cleanPhone);
+          if (!updateErr) {
+            success = true;
+            console.log('✅ Successfully updated user profile in Supabase by phone:', cleanPhone);
+            break;
+          }
+        } else {
+          const { error: insertErr } = await supabase
+            .from('profiles')
+            .insert(payloadCopy);
+          if (!insertErr) {
+            success = true;
+            console.log('✅ Successfully inserted new user profile in Supabase:', cleanPhone);
+            break;
+          }
+        }
       }
 
       // Check if error is due to an unknown column in user's schema
       const missingColMatch =
-        error.message.match(/Could not find the '(\w+)' column/) ||
-        error.message.match(/column "?(\w+)"? of relation "profiles" does not exist/);
+        upsertIdErr?.message?.match(/Could not find the '(\w+)' column/) ||
+        upsertIdErr?.message?.match(/column "?(\w+)"? of relation "profiles" does not exist/);
 
       if (missingColMatch && missingColMatch[1] && payloadCopy[missingColMatch[1]] !== undefined) {
         const colToRemove = missingColMatch[1];
         console.log(`ℹ️ [Supabase Schema Adapt] Removing optional column '${colToRemove}' and retrying profile save...`);
         delete payloadCopy[colToRemove];
         continue;
-      }
-
-      // Strategy B: If onConflict failed, try update by phone
-      if (cleanPhone) {
-        const { error: updateErr } = await supabase
-          .from('profiles')
-          .update(payloadCopy)
-          .eq('phone', cleanPhone);
-        if (!updateErr) {
-          success = true;
-          console.log('✅ Successfully updated user profile in Supabase by phone:', cleanPhone);
-          break;
-        }
       }
 
       // Strip non-core optional columns step-by-step
@@ -1068,7 +1113,7 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
         continue;
       }
 
-      console.warn('Supabase profile save notice:', error.message);
+      console.warn('Supabase profile save notice:', upsertIdErr?.message || 'schema fallback');
       break;
     }
   } catch (err) {
@@ -1207,6 +1252,74 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
   }
 
   return localProfiles;
+};
+
+export const fetchAllProfilesFromSupabase = fetchAllUserProfilesFromSupabase;
+
+export const searchProfilesFromSupabase = async (query: string): Promise<UserProfile[]> => {
+  const cleanQ = query.trim();
+  if (!cleanQ) return [];
+
+  try {
+    const filterStr = `display_name.ilike.%${cleanQ}%,company_name.ilike.%${cleanQ}%,full_name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%,material_details.ilike.%${cleanQ}%,service_details.ilike.%${cleanQ}%,export_products.ilike.%${cleanQ}%,packaging_materials.ilike.%${cleanQ}%,bio.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%`;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .or(filterStr)
+      .limit(50);
+
+    if (!error && data && data.length > 0) {
+      return data.map((item: any) => {
+        const cleanPhone = (item.phone || item.mobile || item.contact_number || item.contact || '').trim();
+        const compName = item.company_name || item.companyName || item.business_name || undefined;
+        const flName = item.full_name || item.fullName || item.name || undefined;
+        const dispName =
+          item.display_name ||
+          item.displayName ||
+          compName ||
+          flName ||
+          item.user_name ||
+          (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+
+        return {
+          id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
+          role: item.role || item.user_role || item.category_role || 'wholesaler',
+          phone: cleanPhone,
+          country: item.country || 'India',
+          location: item.location || item.city || item.state || '',
+          storeAddress: item.store_address || item.storeAddress || item.location || item.city || undefined,
+          lat: item.lat ? Number(item.lat) : undefined,
+          lng: item.lng ? Number(item.lng) : undefined,
+          companyName: compName,
+          fullName: flName,
+          displayName: dispName,
+          bio: item.bio || item.description || item.about || undefined,
+          description: item.description || item.bio || item.about || undefined,
+          gstin: item.gstin || item.gst || item.gst_number || undefined,
+          iecCode: item.iec_code || item.iecCode || item.iec || undefined,
+          productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
+          materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
+          promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
+          exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
+          packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
+          serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
+          website: item.website || item.website_url || item.websiteUrl || undefined,
+          websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
+          instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+          instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+          avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
+          createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+          status: (item.status as UserStatus) || 'Active',
+          rejectionReason: item.rejection_reason || undefined,
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('Direct search Supabase profiles notice:', err);
+  }
+
+  return [];
 };
 
 export const fetchAllSupabaseMessages = async (): Promise<PersistentMessage[]> => {

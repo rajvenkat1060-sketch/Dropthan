@@ -19,6 +19,7 @@ import {
   toggleSupabaseLike,
   fetchUserProfileStatus,
   subscribeToSupabasePosts,
+  saveUserProfileToSupabase,
 } from './lib/supabase';
 
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
@@ -256,6 +257,7 @@ export default function App() {
     const updatedUser: UserProfile = { ...currentUser, avatarUrl: newAvatarUrl };
     setCurrentUser(updatedUser);
     localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
+    saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Avatar supabase sync notice:', err));
   };
 
   const handleOpenVendorChat = useCallback((vendorPost: PostItem) => {
@@ -423,6 +425,7 @@ export default function App() {
             onUpdateProfile={(updatedUser) => {
               setCurrentUser(updatedUser);
               localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
+              saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Profile supabase sync notice:', err));
             }}
           />
         )}

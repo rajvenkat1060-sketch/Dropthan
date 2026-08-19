@@ -5,7 +5,7 @@ import { ImageCarousel } from './ImageCarousel';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
-import { fetchAllUserProfilesFromSupabase } from '../lib/supabase';
+import { fetchAllUserProfilesFromSupabase, subscribeToSupabaseProfiles, searchProfilesFromSupabase } from '../lib/supabase';
 
 interface FeedTabProps {
   posts: PostItem[];
@@ -77,14 +77,51 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
   const observerRef = useRef<HTMLDivElement | null>(null);
 
-  // Fetch all Supabase profiles for dual search
+  // Fetch all Supabase profiles for dual search and subscribe to realtime profile updates
   useEffect(() => {
-    fetchAllUserProfilesFromSupabase().then((profilesList) => {
-      if (profilesList && profilesList.length > 0) {
-        setAllProfiles(profilesList);
+    const loadProfiles = () => {
+      fetchAllUserProfilesFromSupabase().then((profilesList) => {
+        if (profilesList && profilesList.length > 0) {
+          setAllProfiles(profilesList);
+        }
+      });
+    };
+
+    loadProfiles();
+
+    // Realtime Supabase listener on profiles table
+    const unsubscribe = subscribeToSupabaseProfiles(() => {
+      console.log('⚡ [Realtime Profiles Sync] Reloading all profiles from Supabase...');
+      loadProfiles();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [posts.length]);
+
+  // Execute direct Supabase search query on search query update
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+
+    searchProfilesFromSupabase(trimmed).then((directMatches) => {
+      if (directMatches && directMatches.length > 0) {
+        setAllProfiles((prev) => {
+          const map = new Map<string, UserProfile>();
+          prev.forEach((p) => {
+            const key = p.phone || p.id || p.displayName;
+            if (key) map.set(key, p);
+          });
+          directMatches.forEach((p) => {
+            const key = p.phone || p.id || p.displayName;
+            if (key) map.set(key, p);
+          });
+          return Array.from(map.values());
+        });
       }
     });
-  }, [posts.length]);
+  }, [searchQuery]);
 
   // Public profile modal state
   const [publicProfileState, setPublicProfileState] = useState<{
