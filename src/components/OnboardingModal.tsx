@@ -40,6 +40,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
   const [website, setWebsite] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const isWholesalerRole = selectedRole === 'wholesaler';
   const isGstinHidden = selectedRole === 'organic_wholesaler' || selectedRole === 'reseller' || selectedRole === 'dropshipper' || selectedRole === 'influencer';
@@ -101,17 +102,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
     const formattedPhone = phone.trim();
     const formattedGstin = gstin.trim().toUpperCase();
 
+    let existingProfile: UserProfile | null = null;
     try {
-      // 1 PHONE NUMBER = 1 FIXED ROLE LOCK CHECK
-      // Check if user account already exists in Supabase for this phone number
-      const existingProfile = await fetchFullUserProfileByPhone(formattedPhone);
+      existingProfile = await fetchFullUserProfileByPhone(formattedPhone);
       if (existingProfile) {
-        console.log('🔒 Account found! Restoring permanently locked user role & profile for:', formattedPhone);
-        // Persist session to localStorage
-        localStorage.setItem('dropthan_user', JSON.stringify(existingProfile));
-        setIsSubmitting(false);
-        onComplete(existingProfile);
-        return;
+        console.log('🔒 Account found! Merging and updating user profile for:', formattedPhone);
       }
     } catch (err) {
       console.warn('Notice checking existing profile:', err);
@@ -126,51 +121,55 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       selectedRole === 'printing' ||
       Boolean(formattedGstin && formattedGstin.trim().length > 0);
 
-    const initialStatus: UserStatus = isB2BOrGstRole ? 'Pending' : 'Active';
+    const initialStatus: UserStatus = existingProfile?.status || (isB2BOrGstRole ? 'Pending' : 'Active');
 
     const cleanInstagram = instagram.trim()
       ? instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/$/, '')
       : undefined;
 
-    const profile: UserProfile = {
-      role: selectedRole,
+    const profileToSave: UserProfile = {
+      role: existingProfile?.role || selectedRole,
       phone: formattedPhone,
-      country: country.trim(),
-      location: location.trim(),
-      storeAddress: isWholesalerRole ? (storeAddress.trim() || location.trim()) : undefined,
-      lat: coords.lat,
-      lng: coords.lng,
-      createdAt: new Date().toISOString(),
-      displayName: isCompanyRole ? companyName.trim() : fullName.trim(),
-      fullName: fullName.trim() || (isCompanyRole ? companyName.trim() : undefined),
-      companyName: isCompanyRole ? companyName.trim() : undefined,
-      bio: bio.trim() || undefined,
-      description: bio.trim() || undefined,
-      avatarUrl: avatarUrl || undefined,
-      instagram: cleanInstagram || undefined,
-      instagramHandle: cleanInstagram || undefined,
-      website: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : undefined,
-      websiteUrl: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : undefined,
+      country: country.trim() || existingProfile?.country || 'India',
+      location: location.trim() || existingProfile?.location || '',
+      storeAddress: isWholesalerRole ? (storeAddress.trim() || location.trim() || existingProfile?.storeAddress) : undefined,
+      lat: coords.lat ?? existingProfile?.lat,
+      lng: coords.lng ?? existingProfile?.lng,
+      createdAt: existingProfile?.createdAt || new Date().toISOString(),
+      displayName: isCompanyRole ? (companyName.trim() || existingProfile?.displayName || 'Member') : (fullName.trim() || existingProfile?.displayName || 'Member'),
+      fullName: fullName.trim() || existingProfile?.fullName || (isCompanyRole ? companyName.trim() : undefined),
+      companyName: isCompanyRole ? (companyName.trim() || existingProfile?.companyName) : undefined,
+      bio: bio.trim() || existingProfile?.bio || undefined,
+      description: bio.trim() || existingProfile?.description || undefined,
+      avatarUrl: avatarUrl || existingProfile?.avatarUrl || undefined,
+      instagram: cleanInstagram || existingProfile?.instagram || undefined,
+      instagramHandle: cleanInstagram || existingProfile?.instagramHandle || undefined,
+      website: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : existingProfile?.website,
+      websiteUrl: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : existingProfile?.websiteUrl,
       status: initialStatus,
     };
 
     if (isCompanyRole && !isGstinHidden) {
-      profile.gstin = formattedGstin;
+      profileToSave.gstin = formattedGstin || existingProfile?.gstin;
     }
     if (isExporterRole) {
-      profile.iecCode = iecCode.trim().toUpperCase();
-      profile.businessRegNumber = businessRegNumber.trim() || undefined;
+      profileToSave.iecCode = iecCode.trim().toUpperCase() || existingProfile?.iecCode;
+      profileToSave.businessRegNumber = businessRegNumber.trim() || existingProfile?.businessRegNumber || undefined;
     }
 
     try {
       // Explicitly call and await Supabase insert/upsert to save user details into 'profiles' table permanently
-      await saveUserProfileToSupabase(profile);
-      localStorage.setItem('dropthan_user', JSON.stringify(profile));
+      const saved = await saveUserProfileToSupabase(profileToSave);
+      localStorage.setItem('dropthan_user', JSON.stringify(saved));
+      try {
+        window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+      } catch (e) {}
     } catch (err) {
       console.warn('Notice saving user profile during signup:', err);
+      localStorage.setItem('dropthan_user', JSON.stringify(profileToSave));
     } finally {
       setIsSubmitting(false);
-      onComplete(profile);
+      onComplete(profileToSave);
     }
   };
 
@@ -601,23 +600,40 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
             {/* OPTIONAL PROFILE PHOTO UPLOAD */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-800 mb-1">Profile Photo / DP (Optional)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-800">Profile Photo / DP (Optional)</label>
+                {avatarUrl && (
+                  <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                    ✓ Cloudinary Ready
+                  </span>
+                )}
+              </div>
               <div className="flex items-center space-x-3 bg-white border border-blue-200 rounded-xl p-2.5">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="Avatar" className="w-10 h-10 rounded-full object-cover border border-[#0d47a1]" />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-blue-100 text-[#0d47a1] font-bold text-xs flex items-center justify-center">
-                    📷
+                    {isUploadingAvatar ? '⏳' : '📷'}
                   </div>
                 )}
-                <label className="flex-1 text-center bg-blue-50 hover:bg-blue-100 text-[#0d47a1] font-bold text-xs py-2 rounded-lg border border-blue-200 cursor-pointer transition">
-                  {avatarUrl ? 'Change Photo' : 'Upload Profile Photo'}
+                <label className={`flex-1 text-center font-bold text-xs py-2 rounded-lg border transition ${
+                  isUploadingAvatar
+                    ? 'bg-blue-100 text-blue-800 border-blue-300 cursor-wait'
+                    : 'bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border-blue-200 cursor-pointer'
+                }`}>
+                  {isUploadingAvatar
+                    ? 'Uploading to Cloudinary...'
+                    : avatarUrl
+                    ? 'Change Photo'
+                    : 'Upload Profile Photo'}
                   <input
                     type="file"
                     accept="image/*"
+                    disabled={isUploadingAvatar}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
+                        setIsUploadingAvatar(true);
                         try {
                           const publicUrl = await uploadAvatarToSupabase(
                             file,
@@ -633,6 +649,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                             }
                           };
                           reader.readAsDataURL(file);
+                        } finally {
+                          setIsUploadingAvatar(false);
                         }
                       }
                     }}

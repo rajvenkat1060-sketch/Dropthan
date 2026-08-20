@@ -30,9 +30,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [likesList, setLikesList] = useState<LikeRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'approvals' | 'users' | 'daily' | 'chat' | 'products' | 'interactions'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'users' | 'daily' | 'chat' | 'products' | 'interactions' | 'sql'>('approvals');
   const [approvalFilter, setApprovalFilter] = useState<'pending' | 'all' | 'active' | 'rejected'>('pending');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isCopiedSql, setIsCopiedSql] = useState(false);
   
   // Security PIN states
   const [pinInput, setPinInput] = useState('');
@@ -459,6 +460,17 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
             }`}
           >
             <span>❤️ Likes & Engagement</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('sql')}
+            className={`px-3 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'sql'
+                ? 'bg-[#0d47a1] text-white shadow-sm'
+                : 'bg-white text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <span>⚡ Supabase SQL & RLS</span>
           </button>
         </div>
 
@@ -985,6 +997,204 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: SUPABASE SQL & RLS HEALTH */}
+          {activeTab === 'sql' && (
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">⚡</span>
+                    <div>
+                      <h4 className="text-sm font-black text-blue-950">Supabase Table Schema & Public RLS Policies</h4>
+                      <p className="text-xs text-blue-800">
+                        Run this script in your Supabase SQL Editor to make sure all tables (profiles, posts, messages, likes) exist with completely public read/write policies.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const sqlScript = `-- ============================================================
+-- DROPTHAN GLOBAL MARKETPLACE: FAIL-SAFE SUPABASE SETUP SCRIPT
+-- Run this in your Supabase SQL Editor to automatically add any missing
+-- columns and enable open RLS policies without errors!
+-- ============================================================
+
+-- 1. PROFILES TABLE (Create table & add all required columns)
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id TEXT PRIMARY KEY
+);
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'wholesaler';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS store_address TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS country TEXT DEFAULT 'India';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lat NUMERIC;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lng NUMERIC;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gstin TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS iec_code TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS product_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS material_details TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS promotion_details TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS export_products TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS packaging_materials TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS service_details TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS website TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS website_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS instagram TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS instagram_handle TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Create search indexes safely
+CREATE INDEX IF NOT EXISTS idx_profiles_phone ON public.profiles(phone);
+CREATE INDEX IF NOT EXISTS idx_profiles_company_name ON public.profiles(company_name);
+CREATE INDEX IF NOT EXISTS idx_profiles_display_name ON public.profiles(display_name);
+CREATE INDEX IF NOT EXISTS idx_profiles_full_name ON public.profiles(full_name);
+
+-- Open RLS policies for profiles
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view all profiles" ON public.profiles;
+CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Anyone can insert profiles" ON public.profiles;
+CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can update profiles" ON public.profiles;
+CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);
+
+-- 2. POSTS TABLE
+CREATE TABLE IF NOT EXISTS public.posts (
+  id TEXT PRIMARY KEY
+);
+
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_id TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_avatar TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_phone TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS role TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_url TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_type TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS views INT DEFAULT 0;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS like_count INT DEFAULT 0;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS verified_seller BOOLEAN DEFAULT false;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS gstin TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view all posts" ON public.posts;
+CREATE POLICY "Public can view all posts" ON public.posts FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Anyone can insert posts" ON public.posts;
+CREATE POLICY "Anyone can insert posts" ON public.posts FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can update posts" ON public.posts;
+CREATE POLICY "Anyone can update posts" ON public.posts FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Anyone can delete posts" ON public.posts;
+CREATE POLICY "Anyone can delete posts" ON public.posts FOR DELETE USING (true);
+
+-- 3. MESSAGES TABLE
+CREATE TABLE IF NOT EXISTS public.messages (
+  id TEXT PRIMARY KEY
+);
+
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS chat_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS receiver_id TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender_name TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_url TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_type TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view all messages" ON public.messages;
+CREATE POLICY "Public can view all messages" ON public.messages FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Anyone can insert messages" ON public.messages;
+CREATE POLICY "Anyone can insert messages" ON public.messages FOR INSERT WITH CHECK (true);
+
+-- 4. LIKES TABLE
+CREATE TABLE IF NOT EXISTS public.likes (
+  id TEXT PRIMARY KEY
+);
+
+ALTER TABLE public.likes ADD COLUMN IF NOT EXISTS post_id TEXT;
+ALTER TABLE public.likes ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.likes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public can view likes" ON public.likes;
+CREATE POLICY "Public can view likes" ON public.likes FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Anyone can insert likes" ON public.likes;
+CREATE POLICY "Anyone can insert likes" ON public.likes FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Anyone can delete likes" ON public.likes;
+CREATE POLICY "Anyone can delete likes" ON public.likes FOR DELETE USING (true);
+`;
+                      navigator.clipboard.writeText(sqlScript);
+                      setIsCopiedSql(true);
+                      setTimeout(() => setIsCopiedSql(false), 3000);
+                    }}
+                    className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-black px-4 py-2 rounded-xl transition shadow cursor-pointer flex items-center gap-1.5 active:scale-95"
+                  >
+                    <span>{isCopiedSql ? '✅ Copied to Clipboard!' : '📋 Copy Full SQL Script'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* LIVE DATABASE STATUS CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-1">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Live Profiles In Memory</span>
+                  <div className="text-2xl font-black text-slate-900">{profiles.length} Users</div>
+                  <p className="text-[10px] text-emerald-600 font-bold">● Globally Searchable</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-1">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Live Catalog Posts</span>
+                  <div className="text-2xl font-black text-slate-900">{posts.length} Items</div>
+                  <p className="text-[10px] text-blue-600 font-bold">● Real-time Synced</p>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-1">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Chat Message Records</span>
+                  <div className="text-2xl font-black text-slate-900">{recentMessages.length} Messages</div>
+                  <p className="text-[10px] text-purple-600 font-bold">● Direct Messenger</p>
+                </div>
+              </div>
+
+              {/* CODE BLOCK PREVIEW */}
+              <div className="bg-slate-900 text-emerald-400 p-4 rounded-2xl font-mono text-[11px] overflow-x-auto max-h-[350px] leading-relaxed border border-slate-800 shadow-inner">
+                <pre>{`-- 1. PROFILES TABLE (AUTOMATICALLY ADDS ANY MISSING COLUMNS)
+CREATE TABLE IF NOT EXISTS public.profiles (id TEXT PRIMARY KEY);
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'wholesaler';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS store_address TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gstin TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS iec_code TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active';
+
+-- Open RLS policies so all registered users are searchable by everyone
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);`}</pre>
               </div>
             </div>
           )}

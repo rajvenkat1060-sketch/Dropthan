@@ -95,8 +95,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       loadProfiles();
     });
 
+    const handleLocalProfileUpdate = () => {
+      loadProfiles();
+    };
+    window.addEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
     };
   }, [posts.length]);
 
@@ -240,48 +246,18 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return roleClean === catId || catClean.includes(catId);
   };
 
-  // Compile full list of suppliers/businesses from profiles + posts
+  // Compile full list of suppliers/businesses from live Supabase profiles
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
     const map = new Map<string, UserProfile>();
 
-    // 1. Add all registered profiles
+    // 1. Add all registered profiles from live Supabase database
     allProfiles.forEach((prof) => {
-      const key = (prof.companyName || prof.displayName || prof.phone).toLowerCase().trim();
+      const key = (prof.phone || prof.id || prof.displayName || prof.companyName).toLowerCase().trim();
       if (key) map.set(key, prof);
     });
 
-    // 2. Synthesize vendor profile from posts if not already present
-    posts.forEach((p) => {
-      const key = (p.author || '').toLowerCase().trim();
-      if (key && !map.has(key)) {
-        map.set(key, {
-          displayName: p.author,
-          companyName: p.author,
-          role: p.role,
-          phone: p.phone,
-          location: p.location || 'India',
-          storeAddress: p.storeAddress || p.location,
-          gstin: p.gstin,
-          iecCode: p.iecCode,
-          productName: p.productName || p.materialDetails,
-          materialDetails: p.materialDetails || p.productName,
-          promotionDetails: p.promotionDetails,
-          exportProducts: p.exportProducts,
-          packagingMaterials: p.packagingMaterials,
-          serviceDetails: p.serviceDetails,
-          avatarUrl: p.authorAvatar || p.img,
-          bio: p.caption ? p.caption.slice(0, 100) + '...' : undefined,
-          country: p.country || 'India',
-          createdAt: new Date().toISOString(),
-          status: 'Active',
-          website: p.website,
-          instagram: p.instagram,
-        });
-      }
-    });
-
     return Array.from(map.values());
-  }, [allProfiles, posts]);
+  }, [allProfiles]);
 
   // SMART DUAL SEARCH ALGORITHM (Names & Products)
   const { matchingPosts, matchingProfiles } = useMemo(() => {
@@ -291,7 +267,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     if (!rawQuery) {
       return {
         matchingPosts: categoryFilteredPosts,
-        matchingProfiles: [],
+        matchingProfiles: combinedSuppliers,
       };
     }
 
@@ -311,7 +287,8 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
     const uniqueExpandedTokens = Array.from(new Set(expandedTokens));
 
-    // 1. MATCH PROFILES / BUSINESSES / SUPPLIERS (Name Search & Category Details)
+    // 1. MATCH PROFILES / BUSINESSES / SUPPLIERS (Global User Search Across All Database Users)
+    const rawQueryDigits = rawQuery.replace(/\D/g, '');
     const matchedProfiles = combinedSuppliers.filter((prof) => {
       const nameClean = (prof.displayName || '').toLowerCase();
       const companyClean = (prof.companyName || '').toLowerCase();
@@ -321,6 +298,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       const bioClean = (prof.bio || prof.description || '').toLowerCase();
       const gstinClean = (prof.gstin || '').toLowerCase();
       const phoneClean = (prof.phone || '').toLowerCase();
+      const phoneDigits = (prof.phone || '').replace(/\D/g, '');
       const productDetailsClean = (prof.productName || prof.materialDetails || '').toLowerCase();
       const promotionClean = (prof.promotionDetails || '').toLowerCase();
       const exportClean = (prof.exportProducts || '').toLowerCase();
@@ -329,8 +307,19 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
       const profileCorpus = `${nameClean} ${companyClean} ${fullNameClean} ${roleClean} ${locationClean} ${bioClean} ${gstinClean} ${phoneClean} ${productDetailsClean} ${promotionClean} ${exportClean} ${packagingClean} ${serviceClean}`;
 
-      // Direct name or product detail match
-      const directNameMatch = queryTokens.some(
+      // A. Direct full query match against names, phone, or company
+      if (
+        nameClean.includes(rawQuery) ||
+        companyClean.includes(rawQuery) ||
+        fullNameClean.includes(rawQuery) ||
+        phoneClean.includes(rawQuery) ||
+        (rawQueryDigits.length >= 3 && phoneDigits.includes(rawQueryDigits))
+      ) {
+        return true;
+      }
+
+      // B. Tokenized matching across names or product details
+      const directTokenMatch = queryTokens.some(
         (tok) =>
           nameClean.includes(tok) ||
           companyClean.includes(tok) ||
@@ -341,13 +330,13 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           packagingClean.includes(tok) ||
           serviceClean.includes(tok)
       );
-      if (directNameMatch) return true;
+      if (directTokenMatch) return true;
 
-      // Match across corpus tokens
+      // C. Match all tokens across full corpus
       const matchesCorpus = queryTokens.every((tok) => profileCorpus.includes(tok));
       if (matchesCorpus) return true;
 
-      // Match expanded synonyms
+      // D. Match expanded synonyms
       const matchesExpanded = uniqueExpandedTokens.some((tok) => profileCorpus.includes(tok));
       return matchesExpanded;
     });
@@ -520,23 +509,108 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     <div className="space-y-3.5">
       {/* Category filter buttons (rendered when not searching or in normal browse mode) */}
       {!searchQuery && (
-        <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
-          {categories.map((cat) => {
-            const isActive = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`text-xs font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer ${
-                  isActive
-                    ? 'bg-[#0d47a1] text-white shadow'
-                    : 'bg-white text-[#0d47a1] border border-blue-200 hover:bg-blue-50'
-                }`}
-              >
-                {cat.label}
-              </button>
-            );
-          })}
+        <div className="space-y-2.5">
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+            {categories.map((cat) => {
+              const isActive = activeCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(cat.id)}
+                  className={`text-xs font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer ${
+                    isActive
+                      ? 'bg-[#0d47a1] text-white shadow'
+                      : 'bg-white text-[#0d47a1] border border-blue-200 hover:bg-blue-50'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* DISCOVERY VIEW TABS (ALL FEED | SUPPLIERS | PRODUCTS) */}
+          <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto scrollbar-none">
+            <button
+              onClick={() => setSearchTab('all')}
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                searchTab === 'all'
+                  ? 'bg-[#0d47a1] text-white shadow-xs'
+                  : 'bg-white text-slate-700 border border-blue-200 hover:bg-blue-50'
+              }`}
+            >
+              <span>🔥</span>
+              <span>All Feed</span>
+            </button>
+            <button
+              onClick={() => setSearchTab('suppliers')}
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                searchTab === 'suppliers'
+                  ? 'bg-[#0d47a1] text-white shadow-xs'
+                  : 'bg-white text-slate-700 border border-blue-200 hover:bg-blue-50'
+              }`}
+            >
+              <span>🏢</span>
+              <span>Verified Suppliers ({matchingProfiles.length})</span>
+            </button>
+            <button
+              onClick={() => setSearchTab('products')}
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                searchTab === 'products'
+                  ? 'bg-[#0d47a1] text-white shadow-xs'
+                  : 'bg-white text-slate-700 border border-blue-200 hover:bg-blue-50'
+              }`}
+            >
+              <span>📦</span>
+              <span>Products &amp; Offers ({matchingPosts.length})</span>
+            </button>
+          </div>
+
+          {/* FEATURED VERIFIED SUPPLIERS & CREATORS STORY CAROUSEL */}
+          {searchTab === 'all' && matchingProfiles.length > 0 && (
+            <div className="bg-white border border-blue-100 rounded-2xl p-3 shadow-2xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-extrabold text-slate-900 flex items-center gap-1">
+                  <span>✨</span>
+                  <span>Verified Suppliers &amp; Creators</span>
+                </span>
+                <button
+                  onClick={() => setSearchTab('suppliers')}
+                  className="text-[10px] font-bold text-[#0d47a1] hover:underline cursor-pointer"
+                >
+                  View All ({matchingProfiles.length}) ↗
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-3 overflow-x-auto pb-1 scrollbar-none pt-1">
+                {matchingProfiles.slice(0, 15).map((supplier, sIdx) => {
+                  const avatar = getAvatarUrl(supplier.avatarUrl, supplier.role);
+                  const cleanName = supplier.companyName || supplier.displayName || 'Vendor';
+                  return (
+                    <div
+                      key={`story-${supplier.id || supplier.phone || sIdx}`}
+                      onClick={() => openSupplierProfile(supplier)}
+                      className="flex flex-col items-center space-y-1 cursor-pointer flex-shrink-0 group w-16 text-center"
+                    >
+                      <div className="w-13 h-13 rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-rose-500 to-[#0d47a1] group-hover:scale-105 transition shadow-2xs">
+                        <img
+                          src={avatar}
+                          alt={cleanName}
+                          className="w-full h-full rounded-full border-2 border-white object-cover bg-white"
+                        />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-800 truncate w-full group-hover:text-[#0d47a1] transition">
+                        {cleanName}
+                      </span>
+                      <span className="text-[8px] font-extrabold uppercase text-blue-600 bg-blue-50 px-1 rounded truncate max-w-full">
+                        {supplier.role.slice(0, 10)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -600,7 +674,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       )}
 
       {/* SECTION 1: MATCHING VERIFIED SUPPLIERS & BUSINESSES */}
-      {searchQuery && (searchTab === 'all' || searchTab === 'suppliers') && matchingProfiles.length > 0 && (
+      {(searchTab === 'suppliers' || (searchQuery && searchTab === 'all')) && matchingProfiles.length > 0 && (
         <div className="space-y-2.5">
           <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
@@ -616,6 +690,10 @@ export const FeedTab: React.FC<FeedTabProps> = ({
             {matchingProfiles.map((supplier, idx) => {
               const avatar = getAvatarUrl(supplier.avatarUrl, supplier.role);
               const cleanName = supplier.companyName || supplier.displayName || 'Verified Supplier';
+              const cleanPhone = (supplier.phone || '').replace(/\D/g, '');
+              const intlPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+              const waMessage = encodeURIComponent(`Hi ${cleanName}, I found your profile on Dropthan and would like to connect.`);
+
               return (
                 <div
                   key={`supplier-${supplier.id || supplier.phone || idx}`}
@@ -716,30 +794,43 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   )}
 
                   {/* SUPPLIER ACTION BUTTONS */}
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs flex-wrap gap-2">
                     <button
                       onClick={() => openSupplierProfile(supplier)}
                       className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold px-3 py-1.5 rounded-xl transition cursor-pointer"
                     >
-                      📄 View Profile &amp; Catalog
+                      📄 Profile &amp; Catalog
                     </button>
 
-                    <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center space-x-1.5 flex-wrap">
                       {supplier.phone && (
-                        <a
-                          href={`tel:${supplier.phone}`}
-                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1"
-                        >
-                          <span>📞</span>
-                          <span>Call</span>
-                        </a>
+                        <>
+                          <a
+                            href={`tel:${supplier.phone}`}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-[11px] font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1"
+                            title="Direct Phone Call"
+                          >
+                            <span>📞</span>
+                            <span>Call</span>
+                          </a>
+                          <a
+                            href={`https://wa.me/${intlPhone}?text=${waMessage}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 shadow-2xs"
+                            title="Chat on WhatsApp"
+                          >
+                            <span>💬</span>
+                            <span>WhatsApp</span>
+                          </a>
+                        </>
                       )}
                       <button
                         onClick={() => handleSupplierChat(supplier)}
                         className="bg-[#0d47a1] hover:bg-blue-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
                       >
-                        <span>💬</span>
-                        <span>Direct Chat</span>
+                        <span>✉️</span>
+                        <span>Chat</span>
                       </button>
                     </div>
                   </div>
@@ -1003,24 +1094,49 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   </div>
 
                   {/* PRICE & CHAT CTA */}
-                  <div className="flex items-center justify-between pt-2 border-t border-blue-100">
+                  <div className="flex items-center justify-between pt-2 border-t border-blue-100 flex-wrap gap-2">
                     <div className="flex flex-col">
                       <span className="text-sm font-extrabold text-[#0d47a1]">{post.price}</span>
                       <span className="text-[10px] font-semibold text-slate-500">{post.moq}</span>
                     </div>
-                    <div className="flex items-center space-x-2">
+
+                    <div className="flex items-center space-x-1.5 flex-wrap">
+                      {post.phone && (
+                        <>
+                          <a
+                            href={`tel:${post.phone}`}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+                            title="Call Vendor Directly"
+                          >
+                            <span>📞</span>
+                            <span>Call</span>
+                          </a>
+                          <a
+                            href={`https://wa.me/${post.phone.replace(/\D/g, '').length === 10 ? `91${post.phone.replace(/\D/g, '')}` : post.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${post.author}, I found your post on Dropthan and would like to inquire.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 shadow-2xs"
+                            title="Chat on WhatsApp"
+                          >
+                            <span>💬</span>
+                            <span>WhatsApp</span>
+                          </a>
+                        </>
+                      )}
                       <button
                         onClick={() => openPublicProfile(post)}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer border border-slate-300"
-                        title="View Public Profile"
+                        className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition cursor-pointer"
+                        title="View Public Profile & Catalog"
                       >
-                        Profile 👤
+                        <span>👤</span>
+                        <span>Profile</span>
                       </button>
                       <button
                         onClick={() => onOpenVendorChat(post)}
-                        className="bg-[#0d47a1] hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow transition cursor-pointer flex items-center gap-1"
+                        className="bg-[#0d47a1] hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow transition cursor-pointer flex items-center gap-1"
                       >
-                        💬 Chat &amp; Call
+                        <span>✉️</span>
+                        <span>Chat</span>
                       </button>
                     </div>
                   </div>

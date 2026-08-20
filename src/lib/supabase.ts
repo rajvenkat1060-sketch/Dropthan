@@ -236,6 +236,10 @@ export const saveSupabasePost = async (post: PostItem) => {
     } else {
       console.log('Successfully saved post to Supabase posts table:', post.id);
     }
+
+    try {
+      window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
+    } catch (e) {}
   } catch (e) {
     console.warn('Exception saving post to Supabase (locally preserved):', e);
   }
@@ -939,20 +943,41 @@ export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<void>
 // USER PROFILES & GST VERIFICATION MANAGEMENT
 // ==========================================
 
+// Helper to validate and generate UUIDs for Supabase PostgreSQL tables
+const isUuid = (v?: string): boolean =>
+  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+
+const generateValidUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch (e) {}
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<UserProfile> => {
   const websiteVal = profile.website || profile.websiteUrl || null;
   const bioVal = profile.bio || profile.description || null;
   const cleanPhone = (profile.phone || '').trim();
-  const userId = profile.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`);
+  const validId = isUuid(profile.id) ? profile.id! : generateValidUUID();
+  const dispName = profile.displayName || profile.companyName || profile.fullName || 'Member';
+  const flName = profile.fullName || profile.displayName || profile.companyName || null;
+  const compName = profile.companyName || profile.displayName || null;
 
+  // Build clean payload with all standard and alternative column variations
   const currentPayload: Record<string, any> = {
-    id: userId,
+    id: validId,
     phone: cleanPhone,
     role: profile.role || 'wholesaler',
-    display_name: profile.displayName || profile.companyName || profile.fullName || 'Member',
-    full_name: profile.fullName || profile.displayName || null,
-    name: profile.fullName || profile.displayName || profile.companyName || 'Member',
-    company_name: profile.companyName || profile.displayName || null,
+    display_name: dispName,
+    full_name: flName,
+    name: flName || dispName,
+    company_name: compName,
     location: profile.location || '',
     store_address: profile.storeAddress || profile.location || '',
     country: profile.country || 'India',
@@ -981,18 +1006,21 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
   if (profile.lng) currentPayload.lng = profile.lng;
   if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
 
-  // Immediately update local all-profiles cache so instant UI lookups find this profile
+  // Immediately update local cache for zero-latency UI reflection across all tabs
   try {
     const localKey = 'dropthan_all_profiles';
     const stored = localStorage.getItem(localKey);
     let profilesList: UserProfile[] = stored ? JSON.parse(stored) : [];
     const existingIndex = profilesList.findIndex(
-      (p) => (p.phone && p.phone === cleanPhone) || (p.id && p.id === userId)
+      (p) =>
+        (p.phone && cleanPhone && p.phone.replace(/\D/g, '') === cleanPhone.replace(/\D/g, '')) ||
+        (p.id && (p.id === profile.id || p.id === validId))
     );
+    const updatedProfileObj: UserProfile = { ...profile, id: profile.id || validId };
     if (existingIndex >= 0) {
-      profilesList[existingIndex] = { ...profilesList[existingIndex], ...profile, id: userId };
+      profilesList[existingIndex] = { ...profilesList[existingIndex], ...updatedProfileObj };
     } else {
-      profilesList.unshift({ ...profile, id: userId });
+      profilesList.unshift(updatedProfileObj);
     }
     localStorage.setItem(localKey, JSON.stringify(profilesList));
   } catch (e) {}
@@ -1000,12 +1028,50 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
   try {
     let success = false;
     let attempts = 0;
-    const payloadCopy = { ...currentPayload };
+    let payloadCopy = { ...currentPayload };
 
-    while (!success && attempts < 8) {
+    console.log('🚀 [saveUserProfileToSupabase] Direct Supabase persistence initiated for:', cleanPhone, dispName);
+
+    while (!success && attempts < 10) {
       attempts++;
-      
-      // Strategy A: Try Upsert with onConflict 'phone'
+
+      // 1. Try direct update if record with this phone number already exists
+      if (cleanPhone) {
+        const { data: existingRows, error: checkErr } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('phone', cleanPhone)
+          .limit(1);
+
+        if (!checkErr && existingRows && existingRows.length > 0) {
+          const dbId = existingRows[0].id;
+          const updatePayload = { ...payloadCopy };
+          if (dbId) updatePayload.id = dbId;
+
+          const { error: updateErr } = await supabase
+            .from('profiles')
+            .update(updatePayload)
+            .eq('phone', cleanPhone);
+
+          if (!updateErr) {
+            success = true;
+            console.log('✅ [saveUserProfileToSupabase] Profile successfully updated in Supabase by phone:', cleanPhone);
+            break;
+          }
+
+          const colErr =
+            updateErr.message.match(/Could not find the '(\w+)' column/) ||
+            updateErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
+            updateErr.message.match(/column "(\w+)" does not exist/);
+          if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
+            console.log(`ℹ️ [saveUserProfileToSupabase] Pruning column '${colErr[1]}' and retrying update...`);
+            delete payloadCopy[colErr[1]];
+            continue;
+          }
+        }
+      }
+
+      // 2. Try Upsert with onConflict 'phone'
       if (cleanPhone) {
         const { error: upsertPhoneErr } = await supabase
           .from('profiles')
@@ -1013,73 +1079,74 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
 
         if (!upsertPhoneErr) {
           success = true;
-          console.log('✅ Successfully persisted user profile to Supabase (onConflict: phone):', cleanPhone);
+          console.log('✅ [saveUserProfileToSupabase] Profile successfully upserted in Supabase (onConflict: phone):', cleanPhone);
           break;
         }
 
-        // Check if error is due to missing column
-        const missingCol = upsertPhoneErr.message.match(/Could not find the '(\w+)' column/) ||
-                           upsertPhoneErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/);
-        if (missingCol && missingCol[1] && payloadCopy[missingCol[1]] !== undefined) {
-          delete payloadCopy[missingCol[1]];
+        // Check for UUID constraint error on id
+        if (upsertPhoneErr.message.includes('uuid') || upsertPhoneErr.message.includes('invalid input syntax for type uuid')) {
+          delete payloadCopy.id;
+          continue;
+        }
+
+        const colErr =
+          upsertPhoneErr.message.match(/Could not find the '(\w+)' column/) ||
+          upsertPhoneErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
+          upsertPhoneErr.message.match(/column "(\w+)" does not exist/);
+        if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
+          delete payloadCopy[colErr[1]];
           continue;
         }
       }
 
-      // Strategy B: Try Upsert with onConflict 'id'
-      const { error: upsertIdErr } = await supabase
-        .from('profiles')
-        .upsert(payloadCopy, { onConflict: 'id' });
-
-      if (!upsertIdErr) {
-        success = true;
-        console.log('✅ Successfully persisted user profile to Supabase (onConflict: id):', userId);
-        break;
-      }
-
-      // Strategy C: Update if exists by phone, else Insert
-      if (cleanPhone) {
-        const { data: existingRows } = await supabase
+      // 3. Try Upsert with onConflict 'id'
+      if (payloadCopy.id) {
+        const { error: upsertIdErr } = await supabase
           .from('profiles')
-          .select('id')
-          .eq('phone', cleanPhone)
-          .limit(1);
+          .upsert(payloadCopy, { onConflict: 'id' });
 
-        if (existingRows && existingRows.length > 0) {
-          const { error: updateErr } = await supabase
-            .from('profiles')
-            .update(payloadCopy)
-            .eq('phone', cleanPhone);
-          if (!updateErr) {
-            success = true;
-            console.log('✅ Successfully updated user profile in Supabase by phone:', cleanPhone);
-            break;
-          }
-        } else {
-          const { error: insertErr } = await supabase
-            .from('profiles')
-            .insert(payloadCopy);
-          if (!insertErr) {
-            success = true;
-            console.log('✅ Successfully inserted new user profile in Supabase:', cleanPhone);
-            break;
-          }
+        if (!upsertIdErr) {
+          success = true;
+          console.log('✅ [saveUserProfileToSupabase] Profile successfully upserted in Supabase (onConflict: id):', payloadCopy.id);
+          break;
+        }
+
+        const colErr =
+          upsertIdErr.message.match(/Could not find the '(\w+)' column/) ||
+          upsertIdErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
+          upsertIdErr.message.match(/column "(\w+)" does not exist/);
+        if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
+          delete payloadCopy[colErr[1]];
+          continue;
         }
       }
 
-      // Check if error is due to an unknown column in user's schema
-      const missingColMatch =
-        upsertIdErr?.message?.match(/Could not find the '(\w+)' column/) ||
-        upsertIdErr?.message?.match(/column "?(\w+)"? of relation "profiles" does not exist/);
+      // 4. Fallback: Direct Insert
+      const { error: insertErr } = await supabase
+        .from('profiles')
+        .insert(payloadCopy);
 
-      if (missingColMatch && missingColMatch[1] && payloadCopy[missingColMatch[1]] !== undefined) {
-        const colToRemove = missingColMatch[1];
-        console.log(`ℹ️ [Supabase Schema Adapt] Removing optional column '${colToRemove}' and retrying profile save...`);
-        delete payloadCopy[colToRemove];
+      if (!insertErr) {
+        success = true;
+        console.log('✅ [saveUserProfileToSupabase] Direct Supabase insert succeeded for phone:', cleanPhone);
+        break;
+      }
+
+      if (insertErr.message.includes('uuid') || insertErr.message.includes('invalid input syntax for type uuid')) {
+        delete payloadCopy.id;
         continue;
       }
 
-      // Strip non-core optional columns step-by-step
+      const colErr =
+        insertErr.message.match(/Could not find the '(\w+)' column/) ||
+        insertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
+        insertErr.message.match(/column "(\w+)" does not exist/);
+      if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
+        delete payloadCopy[colErr[1]];
+        continue;
+      }
+
+      // Progressively prune non-core optional columns if schema is strict
       if (payloadCopy.service_details || payloadCopy.packaging_materials || payloadCopy.export_products) {
         delete payloadCopy.service_details;
         delete payloadCopy.packaging_materials;
@@ -1090,37 +1157,37 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
         continue;
       }
 
-      if (payloadCopy.bio || payloadCopy.description) {
-        delete payloadCopy.bio;
-        delete payloadCopy.description;
-        continue;
-      }
-      if (payloadCopy.company_name) {
-        delete payloadCopy.company_name;
-        continue;
-      }
-      if (payloadCopy.iec_code) {
-        delete payloadCopy.iec_code;
-        continue;
-      }
-      if (payloadCopy.store_address) {
+      if (payloadCopy.store_address || payloadCopy.description || payloadCopy.website_url || payloadCopy.instagram_handle) {
         delete payloadCopy.store_address;
+        delete payloadCopy.description;
+        delete payloadCopy.website_url;
+        delete payloadCopy.instagram_handle;
         continue;
       }
-      if (payloadCopy.lat || payloadCopy.lng) {
+
+      if (payloadCopy.iec_code || payloadCopy.rejection_reason || payloadCopy.lat || payloadCopy.lng) {
+        delete payloadCopy.iec_code;
+        delete payloadCopy.rejection_reason;
         delete payloadCopy.lat;
         delete payloadCopy.lng;
         continue;
       }
 
-      console.warn('Supabase profile save notice:', upsertIdErr?.message || 'schema fallback');
+      console.warn('⚠️ [saveUserProfileToSupabase] Notice on profile save retry:', insertErr?.message);
       break;
     }
+
+    if (success) {
+      console.log('🎉 [saveUserProfileToSupabase] Profile successfully saved to Supabase profiles table!');
+      try {
+        window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+      } catch (e) {}
+    }
   } catch (err) {
-    console.warn('Unexpected exception during Supabase profile save:', err);
+    console.warn('⚠️ [saveUserProfileToSupabase] Unexpected exception during Supabase profile save:', err);
   }
 
-  return { ...profile, id: userId };
+  return { ...profile, id: profile.id || validId };
 };
 
 export const updateUserWebsiteInSupabase = async (
@@ -1132,20 +1199,15 @@ export const updateUserWebsiteInSupabase = async (
 
   try {
     console.log(`🌐 [Supabase Realtime Update] Updating website for user phone ${phone} -> "${cleanUrl}"...`);
-    // Attempt real-time update on Supabase 'profiles' table
     let { error } = await supabase
       .from('profiles')
       .update({ website: cleanUrl, website_url: cleanUrl })
       .eq('phone', phone);
 
     if (error) {
-      console.warn('Realtime website update dual-key warning, trying single website column:', error.message);
       const { error: err1 } = await supabase.from('profiles').update({ website: cleanUrl }).eq('phone', phone);
       if (err1) {
-        const { error: err2 } = await supabase.from('profiles').update({ website_url: cleanUrl }).eq('phone', phone);
-        if (err2) {
-          console.warn('Supabase website column update fallback notice:', err2.message);
-        }
+        await supabase.from('profiles').update({ website_url: cleanUrl }).eq('phone', phone);
       }
     }
 
@@ -1164,7 +1226,6 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     if (stored) {
       localProfiles = JSON.parse(stored);
     }
-    // Also include logged in user if available
     const cur = localStorage.getItem('dropthan_user');
     if (cur) {
       const u = JSON.parse(cur);
@@ -1232,20 +1293,12 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         };
       });
 
-      const mergedMap = new Map<string, UserProfile>();
-      localProfiles.forEach((p) => {
-        const key = p.phone || p.id || p.displayName;
-        if (key) mergedMap.set(key, p);
-      });
-      remoteProfiles.forEach((p) => {
-        const key = p.phone || p.id || p.displayName;
-        if (key) mergedMap.set(key, p);
-      });
-      const combined = Array.from(mergedMap.values());
+      // Update local cache with live database records
       try {
-        localStorage.setItem(localKey, JSON.stringify(combined));
+        localStorage.setItem(localKey, JSON.stringify(remoteProfiles));
       } catch (e) {}
-      return combined;
+
+      return remoteProfiles;
     }
   } catch (err) {
     console.warn('Notice fetching profiles from Supabase:', err);
@@ -1258,19 +1311,28 @@ export const fetchAllProfilesFromSupabase = fetchAllUserProfilesFromSupabase;
 
 export const searchProfilesFromSupabase = async (query: string): Promise<UserProfile[]> => {
   const cleanQ = query.trim();
-  if (!cleanQ) return [];
+  console.log('🔍 [searchProfilesFromSupabase] Querying live Supabase database for:', `"${cleanQ}"`);
 
+  if (!cleanQ) {
+    const all = await fetchAllUserProfilesFromSupabase();
+    console.log('🔍 [searchProfilesFromSupabase] Empty query - returning all profiles count:', all.length);
+    return all;
+  }
+
+  const directResults: UserProfile[] = [];
+
+  // 1. Direct Supabase query with case-insensitive .ilike() across core columns
   try {
-    const filterStr = `display_name.ilike.%${cleanQ}%,company_name.ilike.%${cleanQ}%,full_name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%,material_details.ilike.%${cleanQ}%,service_details.ilike.%${cleanQ}%,export_products.ilike.%${cleanQ}%,packaging_materials.ilike.%${cleanQ}%,bio.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%`;
+    const safeFilter = `display_name.ilike.%${cleanQ}%,company_name.ilike.%${cleanQ}%,full_name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,bio.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%`;
 
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .or(filterStr)
-      .limit(50);
+      .or(safeFilter)
+      .limit(60);
 
     if (!error && data && data.length > 0) {
-      return data.map((item: any) => {
+      data.forEach((item: any) => {
         const cleanPhone = (item.phone || item.mobile || item.contact_number || item.contact || '').trim();
         const compName = item.company_name || item.companyName || item.business_name || undefined;
         const flName = item.full_name || item.fullName || item.name || undefined;
@@ -1282,7 +1344,7 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
           item.user_name ||
           (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
 
-        return {
+        directResults.push({
           id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
           role: item.role || item.user_role || item.category_role || 'wholesaler',
           phone: cleanPhone,
@@ -1312,14 +1374,65 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
           createdAt: item.created_at || item.createdAt || new Date().toISOString(),
           status: (item.status as UserStatus) || 'Active',
           rejectionReason: item.rejection_reason || undefined,
-        };
+        });
       });
     }
   } catch (err) {
-    console.warn('Direct search Supabase profiles notice:', err);
+    console.warn('Direct search notice:', err);
   }
 
-  return [];
+  // 2. Comprehensive multi-attribute matching across all live profiles
+  const allLiveProfiles = await fetchAllUserProfilesFromSupabase();
+  const queryLower = cleanQ.toLowerCase();
+  const queryDigits = cleanQ.replace(/\D/g, '');
+  const tokens = queryLower.split(/\s+/).filter(Boolean);
+
+  const matchedMemory = allLiveProfiles.filter((p) => {
+    const name = (p.displayName || '').toLowerCase();
+    const comp = (p.companyName || '').toLowerCase();
+    const full = (p.fullName || '').toLowerCase();
+    const phone = (p.phone || '').toLowerCase();
+    const phoneDigits = (p.phone || '').replace(/\D/g, '');
+    const bio = (p.bio || p.description || '').toLowerCase();
+    const role = (p.role || '').toLowerCase().replace(/_/g, ' ');
+    const loc = (p.location || p.storeAddress || '').toLowerCase();
+    const prod = (p.productName || p.materialDetails || '').toLowerCase();
+    const promo = (p.promotionDetails || '').toLowerCase();
+    const exp = (p.exportProducts || '').toLowerCase();
+    const pack = (p.packagingMaterials || '').toLowerCase();
+    const serv = (p.serviceDetails || '').toLowerCase();
+    const gstin = (p.gstin || '').toLowerCase();
+
+    const corpus = `${name} ${comp} ${full} ${phone} ${bio} ${role} ${loc} ${prod} ${promo} ${exp} ${pack} ${serv} ${gstin}`;
+
+    // Direct name or phone prefix/substring match
+    if (
+      name.includes(queryLower) ||
+      comp.includes(queryLower) ||
+      full.includes(queryLower) ||
+      phone.includes(queryLower) ||
+      (queryDigits.length >= 3 && phoneDigits.includes(queryDigits))
+    ) {
+      return true;
+    }
+
+    return tokens.some((t) => corpus.includes(t));
+  });
+
+  // Combine and deduplicate
+  const resultMap = new Map<string, UserProfile>();
+  directResults.forEach((p) => {
+    const key = (p.phone || p.id || p.displayName).toLowerCase();
+    if (key) resultMap.set(key, p);
+  });
+  matchedMemory.forEach((p) => {
+    const key = (p.phone || p.id || p.displayName).toLowerCase();
+    if (key) resultMap.set(key, p);
+  });
+
+  const finalMatched = Array.from(resultMap.values());
+  console.log(`🎯 [searchProfilesFromSupabase] Matched ${finalMatched.length} live profiles for "${cleanQ}":`, finalMatched.map((p) => p.displayName || p.companyName));
+  return finalMatched;
 };
 
 export const fetchAllSupabaseMessages = async (): Promise<PersistentMessage[]> => {

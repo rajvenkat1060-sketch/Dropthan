@@ -112,13 +112,17 @@ export default function App() {
       } catch (e) {}
     }
 
-    // Fetch authentic user likes from Supabase if user is logged in
+    // Fetch authentic user likes from Supabase if user is logged in & ensure user profile is synced to database
     if (resolvedUser) {
       const uid = getUserId(resolvedUser);
       fetchUserLikesFromSupabase(uid).then((supabaseLikes) => {
         if (supabaseLikes && supabaseLikes.length > 0) {
           setLikedPostIds((prev) => Array.from(new Set([...prev, ...supabaseLikes])));
         }
+      });
+      // Guarantee registered user profile exists in live Supabase database
+      saveUserProfileToSupabase(resolvedUser).catch((err) => {
+        console.warn('Initial profile sync to Supabase notice:', err);
       });
     }
 
@@ -167,6 +171,11 @@ export default function App() {
       syncPostsFromSupabase();
     });
 
+    const handleLocalPostsUpdated = () => {
+      syncPostsFromSupabase();
+    };
+    window.addEventListener('dropthan_posts_updated', handleLocalPostsUpdated);
+
     // 7-second background polling fallback for multi-device sync
     const pollInterval = setInterval(() => {
       syncPostsFromSupabase();
@@ -174,6 +183,7 @@ export default function App() {
 
     return () => {
       unsubscribe();
+      window.removeEventListener('dropthan_posts_updated', handleLocalPostsUpdated);
       clearInterval(pollInterval);
     };
   }, [syncPostsFromSupabase]);
@@ -229,6 +239,13 @@ export default function App() {
     setCurrentUser(userWithId);
     localStorage.setItem('dropthan_user', JSON.stringify(userWithId));
 
+    // Force sync to Supabase live profiles table
+    try {
+      await saveUserProfileToSupabase(userWithId);
+    } catch (e) {
+      console.warn('Onboarding profile save notice:', e);
+    }
+
     // Global Auth Guard: Verify status directly against Supabase database on login/signup completion
     if (userWithId.phone) {
       const latest = await fetchUserProfileStatus(userWithId.phone);
@@ -252,12 +269,17 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  const handleUpdateAvatar = (newAvatarUrl: string) => {
+  const handleUpdateAvatar = async (newAvatarUrl: string) => {
     if (!currentUser) return;
     const updatedUser: UserProfile = { ...currentUser, avatarUrl: newAvatarUrl };
     setCurrentUser(updatedUser);
     localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
-    saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Avatar supabase sync notice:', err));
+    try {
+      await saveUserProfileToSupabase(updatedUser);
+      showToast('✓ Profile picture updated & saved to Supabase!');
+    } catch (err) {
+      console.warn('Avatar supabase sync notice:', err);
+    }
   };
 
   const handleOpenVendorChat = useCallback((vendorPost: PostItem) => {
