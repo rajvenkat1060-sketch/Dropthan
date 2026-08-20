@@ -113,7 +113,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       bio: editBio.trim() || undefined,
       description: editBio.trim() || undefined,
       location: editLocation.trim() || user.location,
-      storeAddress: isWholesalerRole ? (editStoreAddress.trim() || undefined) : undefined,
+      storeAddress: editStoreAddress.trim() || (isWholesalerRole ? editLocation.trim() : undefined),
       lat: editLat ?? user.lat,
       lng: editLng ?? user.lng,
       gstin: !isGstinHidden ? (editGstin.trim().toUpperCase() || undefined) : undefined,

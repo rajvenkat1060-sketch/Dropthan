@@ -127,12 +127,16 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       ? instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/$/, '')
       : undefined;
 
+    const phoneDigits = formattedPhone.replace(/\D/g, '');
+    const validId = existingProfile?.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`);
+
     const profileToSave: UserProfile = {
+      id: validId,
       role: existingProfile?.role || selectedRole,
       phone: formattedPhone,
       country: country.trim() || existingProfile?.country || 'India',
       location: location.trim() || existingProfile?.location || '',
-      storeAddress: isWholesalerRole ? (storeAddress.trim() || location.trim() || existingProfile?.storeAddress) : undefined,
+      storeAddress: isWholesalerRole ? (storeAddress.trim() || location.trim() || existingProfile?.storeAddress) : (location.trim() || undefined),
       lat: coords.lat ?? existingProfile?.lat,
       lng: coords.lng ?? existingProfile?.lng,
       createdAt: existingProfile?.createdAt || new Date().toISOString(),
@@ -157,10 +161,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       profileToSave.businessRegNumber = businessRegNumber.trim() || existingProfile?.businessRegNumber || undefined;
     }
 
+    let finalProfile = profileToSave;
+
     try {
       // Explicitly call and await Supabase insert/upsert to save user details into 'profiles' table permanently
       const saved = await saveUserProfileToSupabase(profileToSave);
-      localStorage.setItem('dropthan_user', JSON.stringify(saved));
+      if (saved) {
+        finalProfile = saved;
+      }
+      localStorage.setItem('dropthan_user', JSON.stringify(finalProfile));
       try {
         window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
       } catch (e) {}
@@ -169,7 +178,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       localStorage.setItem('dropthan_user', JSON.stringify(profileToSave));
     } finally {
       setIsSubmitting(false);
-      onComplete(profileToSave);
+      onComplete(finalProfile);
     }
   };
 

@@ -961,49 +961,50 @@ const generateValidUUID = (): string => {
 };
 
 export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<UserProfile> => {
+  const cleanPhone = (profile.phone || '').trim();
+  const validId = profile.id && profile.id.trim()
+    ? profile.id.trim()
+    : (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : generateValidUUID());
+
+  const compName = profile.companyName?.trim() || null;
+  const flName = profile.fullName?.trim() || null;
+  const dispName = profile.displayName?.trim() || compName || flName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
   const websiteVal = profile.website || profile.websiteUrl || null;
   const bioVal = profile.bio || profile.description || null;
-  const cleanPhone = (profile.phone || '').trim();
-  const validId = isUuid(profile.id) ? profile.id! : generateValidUUID();
-  const dispName = profile.displayName || profile.companyName || profile.fullName || 'Member';
-  const flName = profile.fullName || profile.displayName || profile.companyName || null;
-  const compName = profile.companyName || profile.displayName || null;
 
-  // Build clean payload with all standard and alternative column variations
+  // Build clean payload with all primary and alternative column mappings
   const currentPayload: Record<string, any> = {
     id: validId,
-    phone: cleanPhone,
+    phone: cleanPhone || null,
     role: profile.role || 'wholesaler',
     display_name: dispName,
-    full_name: flName,
+    full_name: flName || dispName,
     name: flName || dispName,
-    company_name: compName,
+    company_name: compName || dispName,
     location: profile.location || '',
     store_address: profile.storeAddress || profile.location || '',
     country: profile.country || 'India',
+    avatar_url: profile.avatarUrl || null,
+    bio: bioVal,
+    description: bioVal,
     gstin: profile.gstin || null,
     iec_code: profile.iecCode || null,
-    product_name: profile.productName || profile.materialDetails || null,
-    material_details: profile.materialDetails || profile.productName || null,
-    promotion_details: profile.promotionDetails || null,
-    export_products: profile.exportProducts || null,
-    packaging_materials: profile.packagingMaterials || null,
-    service_details: profile.serviceDetails || null,
     website: websiteVal,
     website_url: websiteVal,
     instagram: profile.instagram || profile.instagramHandle || null,
     instagram_handle: profile.instagram || profile.instagramHandle || null,
-    avatar_url: profile.avatarUrl || null,
     status: profile.status || 'Active',
     created_at: profile.createdAt || new Date().toISOString(),
   };
 
-  if (bioVal) {
-    currentPayload.bio = bioVal;
-    currentPayload.description = bioVal;
-  }
-  if (profile.lat) currentPayload.lat = profile.lat;
-  if (profile.lng) currentPayload.lng = profile.lng;
+  if (profile.lat !== undefined && profile.lat !== null) currentPayload.lat = Number(profile.lat);
+  if (profile.lng !== undefined && profile.lng !== null) currentPayload.lng = Number(profile.lng);
+  if (profile.productName) currentPayload.product_name = profile.productName;
+  if (profile.materialDetails) currentPayload.material_details = profile.materialDetails;
+  if (profile.promotionDetails) currentPayload.promotion_details = profile.promotionDetails;
+  if (profile.exportProducts) currentPayload.export_products = profile.exportProducts;
+  if (profile.packagingMaterials) currentPayload.packaging_materials = profile.packagingMaterials;
+  if (profile.serviceDetails) currentPayload.service_details = profile.serviceDetails;
   if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
 
   // Immediately update local cache for zero-latency UI reflection across all tabs
@@ -1011,12 +1012,20 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
     const localKey = 'dropthan_all_profiles';
     const stored = localStorage.getItem(localKey);
     let profilesList: UserProfile[] = stored ? JSON.parse(stored) : [];
+    const normalizedPhone = cleanPhone.replace(/\D/g, '');
     const existingIndex = profilesList.findIndex(
       (p) =>
-        (p.phone && cleanPhone && p.phone.replace(/\D/g, '') === cleanPhone.replace(/\D/g, '')) ||
+        (p.phone && normalizedPhone && p.phone.replace(/\D/g, '') === normalizedPhone) ||
         (p.id && (p.id === profile.id || p.id === validId))
     );
-    const updatedProfileObj: UserProfile = { ...profile, id: profile.id || validId };
+    const updatedProfileObj: UserProfile = {
+      ...profile,
+      id: validId,
+      displayName: dispName,
+      fullName: flName || undefined,
+      companyName: compName || undefined,
+      phone: cleanPhone,
+    };
     if (existingIndex >= 0) {
       profilesList[existingIndex] = { ...profilesList[existingIndex], ...updatedProfileObj };
     } else {
@@ -1026,168 +1035,113 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
   } catch (e) {}
 
   try {
-    let success = false;
-    let attempts = 0;
-    let payloadCopy = { ...currentPayload };
+    let payloadToSave = { ...currentPayload };
+    let saved = false;
 
-    console.log('🚀 [saveUserProfileToSupabase] Direct Supabase persistence initiated for:', cleanPhone, dispName);
+    console.log('🚀 [saveUserProfileToSupabase] Direct Supabase upsert into public.profiles for:', cleanPhone, dispName);
 
-    while (!success && attempts < 10) {
-      attempts++;
-
-      // 1. Try direct update if record with this phone number already exists
-      if (cleanPhone) {
-        const { data: existingRows, error: checkErr } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('phone', cleanPhone)
-          .limit(1);
-
-        if (!checkErr && existingRows && existingRows.length > 0) {
-          const dbId = existingRows[0].id;
-          const updatePayload = { ...payloadCopy };
-          if (dbId) updatePayload.id = dbId;
-
-          const { error: updateErr } = await supabase
-            .from('profiles')
-            .update(updatePayload)
-            .eq('phone', cleanPhone);
-
-          if (!updateErr) {
-            success = true;
-            console.log('✅ [saveUserProfileToSupabase] Profile successfully updated in Supabase by phone:', cleanPhone);
-            break;
-          }
-
-          const colErr =
-            updateErr.message.match(/Could not find the '(\w+)' column/) ||
-            updateErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
-            updateErr.message.match(/column "(\w+)" does not exist/);
-          if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
-            console.log(`ℹ️ [saveUserProfileToSupabase] Pruning column '${colErr[1]}' and retrying update...`);
-            delete payloadCopy[colErr[1]];
-            continue;
-          }
-        }
-      }
-
-      // 2. Try Upsert with onConflict 'phone'
-      if (cleanPhone) {
-        const { error: upsertPhoneErr } = await supabase
-          .from('profiles')
-          .upsert(payloadCopy, { onConflict: 'phone' });
-
-        if (!upsertPhoneErr) {
-          success = true;
-          console.log('✅ [saveUserProfileToSupabase] Profile successfully upserted in Supabase (onConflict: phone):', cleanPhone);
-          break;
-        }
-
-        // Check for UUID constraint error on id
-        if (upsertPhoneErr.message.includes('uuid') || upsertPhoneErr.message.includes('invalid input syntax for type uuid')) {
-          delete payloadCopy.id;
-          continue;
-        }
-
-        const colErr =
-          upsertPhoneErr.message.match(/Could not find the '(\w+)' column/) ||
-          upsertPhoneErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
-          upsertPhoneErr.message.match(/column "(\w+)" does not exist/);
-        if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
-          delete payloadCopy[colErr[1]];
-          continue;
-        }
-      }
-
-      // 3. Try Upsert with onConflict 'id'
-      if (payloadCopy.id) {
-        const { error: upsertIdErr } = await supabase
-          .from('profiles')
-          .upsert(payloadCopy, { onConflict: 'id' });
-
-        if (!upsertIdErr) {
-          success = true;
-          console.log('✅ [saveUserProfileToSupabase] Profile successfully upserted in Supabase (onConflict: id):', payloadCopy.id);
-          break;
-        }
-
-        const colErr =
-          upsertIdErr.message.match(/Could not find the '(\w+)' column/) ||
-          upsertIdErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
-          upsertIdErr.message.match(/column "(\w+)" does not exist/);
-        if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
-          delete payloadCopy[colErr[1]];
-          continue;
-        }
-      }
-
-      // 4. Fallback: Direct Insert
-      const { error: insertErr } = await supabase
+    for (let attempt = 0; attempt < 8; attempt++) {
+      // 1. Direct UPSERT on id
+      const { error: upsertErr } = await supabase
         .from('profiles')
-        .insert(payloadCopy);
+        .upsert(payloadToSave, { onConflict: 'id' });
 
-      if (!insertErr) {
-        success = true;
-        console.log('✅ [saveUserProfileToSupabase] Direct Supabase insert succeeded for phone:', cleanPhone);
+      if (!upsertErr) {
+        saved = true;
+        console.log('✅ [saveUserProfileToSupabase] Successfully upserted profile by id into public.profiles!');
         break;
       }
 
-      if (insertErr.message.includes('uuid') || insertErr.message.includes('invalid input syntax for type uuid')) {
-        delete payloadCopy.id;
+      console.warn(`⚠️ [saveUserProfileToSupabase] Attempt ${attempt + 1} upsert notice:`, upsertErr.message);
+
+      // Handle UUID data type if database schema specifies UUID for id
+      if (upsertErr.message.includes('invalid input syntax for type uuid') || upsertErr.message.includes('type uuid')) {
+        payloadToSave.id = generateValidUUID();
         continue;
       }
 
-      const colErr =
-        insertErr.message.match(/Could not find the '(\w+)' column/) ||
-        insertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/) ||
-        insertErr.message.match(/column "(\w+)" does not exist/);
-      if (colErr && colErr[1] && payloadCopy[colErr[1]] !== undefined) {
-        delete payloadCopy[colErr[1]];
+      // Check for missing column error and prune it
+      const missingCol =
+        upsertErr.message.match(/Could not find the '(\w+)' column/i) ||
+        upsertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/i) ||
+        upsertErr.message.match(/column "(\w+)" does not exist/i);
+
+      if (missingCol && missingCol[1] && payloadToSave[missingCol[1]] !== undefined) {
+        console.log(`ℹ️ [saveUserProfileToSupabase] Pruning unmapped column '${missingCol[1]}' and retrying...`);
+        delete payloadToSave[missingCol[1]];
         continue;
       }
 
-      // Progressively prune non-core optional columns if schema is strict
-      if (payloadCopy.service_details || payloadCopy.packaging_materials || payloadCopy.export_products) {
-        delete payloadCopy.service_details;
-        delete payloadCopy.packaging_materials;
-        delete payloadCopy.export_products;
-        delete payloadCopy.promotion_details;
-        delete payloadCopy.product_name;
-        delete payloadCopy.material_details;
+      // 2. Try upsert with onConflict 'phone' if phone is unique
+      if (cleanPhone) {
+        const { error: phoneUpsertErr } = await supabase
+          .from('profiles')
+          .upsert(payloadToSave, { onConflict: 'phone' });
+
+        if (!phoneUpsertErr) {
+          saved = true;
+          console.log('✅ [saveUserProfileToSupabase] Successfully upserted profile by phone into public.profiles!');
+          break;
+        }
+
+        // 3. Try direct update by phone
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update(payloadToSave)
+          .eq('phone', cleanPhone);
+
+        if (!updateErr) {
+          const { data: checkData } = await supabase.from('profiles').select('id').eq('phone', cleanPhone);
+          if (checkData && checkData.length > 0) {
+            saved = true;
+            console.log('✅ [saveUserProfileToSupabase] Successfully updated profile by phone in public.profiles!');
+            break;
+          }
+        }
+      }
+
+      // 4. Try direct INSERT
+      const { error: insertErr } = await supabase
+        .from('profiles')
+        .insert(payloadToSave);
+
+      if (!insertErr) {
+        saved = true;
+        console.log('✅ [saveUserProfileToSupabase] Successfully inserted new profile into public.profiles!');
+        break;
+      }
+
+      const insertCol =
+        insertErr.message.match(/Could not find the '(\w+)' column/i) ||
+        insertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/i) ||
+        insertErr.message.match(/column "(\w+)" does not exist/i);
+
+      if (insertCol && insertCol[1] && payloadToSave[insertCol[1]] !== undefined) {
+        delete payloadToSave[insertCol[1]];
         continue;
       }
 
-      if (payloadCopy.store_address || payloadCopy.description || payloadCopy.website_url || payloadCopy.instagram_handle) {
-        delete payloadCopy.store_address;
-        delete payloadCopy.description;
-        delete payloadCopy.website_url;
-        delete payloadCopy.instagram_handle;
-        continue;
-      }
-
-      if (payloadCopy.iec_code || payloadCopy.rejection_reason || payloadCopy.lat || payloadCopy.lng) {
-        delete payloadCopy.iec_code;
-        delete payloadCopy.rejection_reason;
-        delete payloadCopy.lat;
-        delete payloadCopy.lng;
-        continue;
-      }
-
-      console.warn('⚠️ [saveUserProfileToSupabase] Notice on profile save retry:', insertErr?.message);
       break;
     }
 
-    if (success) {
-      console.log('🎉 [saveUserProfileToSupabase] Profile successfully saved to Supabase profiles table!');
+    if (saved) {
+      console.log('🎉 [saveUserProfileToSupabase] Profile successfully saved to Supabase public.profiles!');
       try {
         window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
       } catch (e) {}
     }
   } catch (err) {
-    console.warn('⚠️ [saveUserProfileToSupabase] Unexpected exception during Supabase profile save:', err);
+    console.error('❌ [saveUserProfileToSupabase] Exception during Supabase persistence:', err);
   }
 
-  return { ...profile, id: profile.id || validId };
+  return {
+    ...profile,
+    id: validId,
+    displayName: dispName,
+    fullName: flName || undefined,
+    companyName: compName || undefined,
+    phone: cleanPhone,
+  };
 };
 
 export const updateUserWebsiteInSupabase = async (
@@ -1311,7 +1265,7 @@ export const fetchAllProfilesFromSupabase = fetchAllUserProfilesFromSupabase;
 
 export const searchProfilesFromSupabase = async (query: string): Promise<UserProfile[]> => {
   const cleanQ = query.trim();
-  console.log('🔍 [searchProfilesFromSupabase] Querying live Supabase database for:', `"${cleanQ}"`);
+  console.log('🔍 [searchProfilesFromSupabase] Querying live Supabase profiles table for:', `"${cleanQ}"`);
 
   if (!cleanQ) {
     const all = await fetchAllUserProfilesFromSupabase();
@@ -1323,13 +1277,21 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
 
   // 1. Direct Supabase query with case-insensitive .ilike() across core columns
   try {
-    const safeFilter = `display_name.ilike.%${cleanQ}%,company_name.ilike.%${cleanQ}%,full_name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,bio.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%,product_name.ilike.%${cleanQ}%`;
+    const safeFilter = `display_name.ilike.%${cleanQ}%,company_name.ilike.%${cleanQ}%,full_name.ilike.%${cleanQ}%,name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%`;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .or(safeFilter)
-      .limit(60);
+      .limit(100);
+
+    if (error) {
+      console.warn('Primary .ilike() filter notice, running resilient fallback query:', error.message);
+      const fallbackFilter = `display_name.ilike.%${cleanQ}%,phone.ilike.%${cleanQ}%,location.ilike.%${cleanQ}%`;
+      const res = await supabase.from('profiles').select('*').or(fallbackFilter).limit(100);
+      data = res.data;
+      error = res.error;
+    }
 
     if (!error && data && data.length > 0) {
       data.forEach((item: any) => {

@@ -259,10 +259,46 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return Array.from(map.values());
   }, [allProfiles]);
 
+  // Profile lookup map for dynamic enrichment of post author details & avatars
+  const profileLookupMap = useMemo(() => {
+    const map = new Map<string, UserProfile>();
+    allProfiles.forEach((p) => {
+      if (p.phone) map.set(p.phone.replace(/\D/g, ''), p);
+      if (p.id) map.set(p.id.toLowerCase(), p);
+      if (p.displayName) map.set(p.displayName.toLowerCase().trim(), p);
+      if (p.companyName) map.set(p.companyName.toLowerCase().trim(), p);
+      if (p.fullName) map.set(p.fullName.toLowerCase().trim(), p);
+    });
+    return map;
+  }, [allProfiles]);
+
+  // Dynamically enrich posts with latest author avatar and company details
+  const enrichedPosts = useMemo<PostItem[]>(() => {
+    return posts.map((post) => {
+      const cleanPhone = (post.phone || '').replace(/\D/g, '');
+      const authorKey = (post.author || '').toLowerCase().trim();
+      const matchedProfile = (cleanPhone ? profileLookupMap.get(cleanPhone) : null) || profileLookupMap.get(authorKey);
+
+      if (matchedProfile) {
+        return {
+          ...post,
+          authorAvatar: matchedProfile.avatarUrl || post.authorAvatar,
+          location: matchedProfile.location || post.location,
+          country: matchedProfile.country || post.country,
+          gstin: matchedProfile.gstin || post.gstin,
+          iecCode: matchedProfile.iecCode || post.iecCode,
+          website: matchedProfile.website || matchedProfile.websiteUrl || post.website,
+          instagram: matchedProfile.instagram || matchedProfile.instagramHandle || post.instagram,
+        };
+      }
+      return post;
+    });
+  }, [posts, profileLookupMap]);
+
   // SMART DUAL SEARCH ALGORITHM (Names & Products)
   const { matchingPosts, matchingProfiles } = useMemo(() => {
     const rawQuery = searchQuery.trim().toLowerCase();
-    const categoryFilteredPosts = posts.filter((p) => matchCategory(p, activeCategory));
+    const categoryFilteredPosts = enrichedPosts.filter((p) => matchCategory(p, activeCategory));
 
     if (!rawQuery) {
       return {
@@ -398,7 +434,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       matchingPosts: sortedPosts,
       matchingProfiles: matchedProfiles,
     };
-  }, [posts, combinedSuppliers, activeCategory, searchQuery]);
+  }, [enrichedPosts, combinedSuppliers, activeCategory, searchQuery]);
 
   // Slice visible items for virtualization / DOM optimization
   const visiblePosts = useMemo(() => {
