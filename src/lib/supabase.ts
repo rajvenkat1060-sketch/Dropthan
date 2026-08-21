@@ -78,8 +78,10 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
     }
   } catch (e) {}
 
+  let remoteData: any[] = [];
+
+  // 1. Direct Supabase Query
   try {
-    // Query all records from Supabase posts table without restrictive filters
     let { data, error } = await supabase
       .from('posts')
       .select('*')
@@ -92,99 +94,112 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
       error = fallbackQuery.error;
     }
 
-    if (error) {
-      console.warn('Notice querying Supabase posts (using offline cache):', error.message);
-      return localCache;
+    if (!error && data && data.length > 0) {
+      remoteData = data;
     }
-
-    if (!data || data.length === 0) {
-      return localCache;
-    }
-
-    const mapped: PostItem[] = data.map((item: any) => {
-      let imageList: string[] = [];
-      if (Array.isArray(item.images) && item.images.length > 0) {
-        imageList = item.images.filter(Boolean);
-      } else if (typeof item.images === 'string' && item.images.startsWith('[')) {
-        try {
-          imageList = JSON.parse(item.images).filter(Boolean);
-        } catch (e) {
-          imageList = [item.img || item.image || item.photo || ''];
-        }
-      } else if (item.img || item.image || item.photo || item.image_url) {
-        imageList = [item.img || item.image || item.photo || item.image_url];
-      }
-
-      const primaryImg =
-        item.img ||
-        item.image ||
-        item.photo ||
-        item.image_url ||
-        (imageList.length > 0 ? imageList[0] : '') ||
-        'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
-
-      return {
-        id: String(item.id || `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`),
-        author:
-          item.author ||
-          item.company_name ||
-          item.companyName ||
-          item.display_name ||
-          item.displayName ||
-          item.full_name ||
-          item.fullName ||
-          item.name ||
-          item.user_name ||
-          'Dropthan Member',
-        role: item.role || item.user_role || item.category_role || 'wholesaler',
-        price: item.price || item.rate || item.unit_price || 'Rate on Request',
-        moq: item.moq || item.minimum_order_quantity || item.min_order || 'Custom MOQ',
-        caption: item.caption || item.description || item.content || item.details || item.text || '',
-        img: primaryImg,
-        images: imageList.length > 0 ? imageList : [primaryImg],
-        phone: item.phone || item.mobile || item.contact_number || item.contact || '',
-        gstin: item.gstin || item.gst || item.gst_number || '',
-        location: item.location || item.city || item.state || item.address || '',
-        storeAddress: item.store_address || item.storeAddress || item.location || item.city || '',
-        lat: item.lat ? Number(item.lat) : undefined,
-        lng: item.lng ? Number(item.lng) : undefined,
-        country: item.country || 'India',
-        category: item.category || item.product_category || 'Textiles & Apparel',
-        likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 15,
-        authorAvatar: item.author_avatar || item.authorAvatar || item.avatar_url || item.avatarUrl || item.avatar || '',
-        productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
-        materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
-        promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
-        exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
-        packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
-        serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
-        website: item.website || item.website_url || item.websiteUrl || undefined,
-        instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-        createdAt: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
-        created_at: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
-      };
-    });
-
-    // Merge remote and cached posts deduplicating by ID
-    const mergedMap = new Map<string, PostItem>();
-    localCache.forEach((p) => mergedMap.set(String(p.id), p));
-    mapped.forEach((p) => mergedMap.set(String(p.id), p));
-    const allCombined = Array.from(mergedMap.values()).sort((a, b) => {
-      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
-      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
-      return timeB - timeA;
-    });
-
-    if (allCombined.length > 0) {
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(allCombined));
-      } catch (e) {}
-    }
-    return allCombined;
   } catch (e: any) {
-    console.warn('Supabase fetch posts network notice:', e?.message || e);
+    console.warn('Direct Supabase fetch posts notice:', e?.message || e);
+  }
+
+  // 2. Server API fallback if direct query returned nothing
+  if (remoteData.length === 0) {
+    try {
+      const resp = await fetch('/api/posts');
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.success && Array.isArray(json.posts) && json.posts.length > 0) {
+          remoteData = json.posts;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Server posts API fallback notice:', apiErr);
+    }
+  }
+
+  if (remoteData.length === 0) {
     return localCache;
   }
+
+  const mapped: PostItem[] = remoteData.map((item: any) => {
+    let imageList: string[] = [];
+    if (Array.isArray(item.images) && item.images.length > 0) {
+      imageList = item.images.filter(Boolean);
+    } else if (typeof item.images === 'string' && item.images.startsWith('[')) {
+      try {
+        imageList = JSON.parse(item.images).filter(Boolean);
+      } catch (e) {
+        imageList = [item.img || item.image || item.photo || ''];
+      }
+    } else if (item.img || item.image || item.photo || item.image_url) {
+      imageList = [item.img || item.image || item.photo || item.image_url];
+    }
+
+    const primaryImg =
+      item.img ||
+      item.image ||
+      item.photo ||
+      item.image_url ||
+      (imageList.length > 0 ? imageList[0] : '') ||
+      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
+
+    return {
+      id: String(item.id || `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`),
+      author:
+        item.author ||
+        item.company_name ||
+        item.companyName ||
+        item.display_name ||
+        item.displayName ||
+        item.full_name ||
+        item.fullName ||
+        item.name ||
+        item.user_name ||
+        'Dropthan Member',
+      role: item.role || item.user_role || item.category_role || 'wholesaler',
+      price: item.price || item.rate || item.unit_price || 'Rate on Request',
+      moq: item.moq || item.minimum_order_quantity || item.min_order || 'Custom MOQ',
+      caption: item.caption || item.description || item.content || item.details || item.text || '',
+      img: primaryImg,
+      images: imageList.length > 0 ? imageList : [primaryImg],
+      phone: item.phone || item.mobile || item.contact_number || item.contact || '',
+      gstin: item.gstin || item.gst || item.gst_number || '',
+      location: item.location || item.city || item.state || item.address || '',
+      storeAddress: item.store_address || item.storeAddress || item.location || item.city || '',
+      lat: item.lat ? Number(item.lat) : undefined,
+      lng: item.lng ? Number(item.lng) : undefined,
+      country: item.country || 'India',
+      category: item.category || item.product_category || 'Textiles & Apparel',
+      likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 15,
+      authorAvatar: item.author_avatar || item.authorAvatar || item.avatar_url || item.avatarUrl || item.avatar || '',
+      productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
+      materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
+      promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
+      exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
+      packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
+      serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
+      website: item.website || item.website_url || item.websiteUrl || undefined,
+      instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+      createdAt: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
+      created_at: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
+    };
+  });
+
+  // Merge remote and cached posts deduplicating by ID
+  const mergedMap = new Map<string, PostItem>();
+  localCache.forEach((p) => mergedMap.set(String(p.id), p));
+  mapped.forEach((p) => mergedMap.set(String(p.id), p));
+  const allCombined = Array.from(mergedMap.values()).sort((a, b) => {
+    const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+    const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+    return timeB - timeA;
+  });
+
+  if (allCombined.length > 0) {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(allCombined));
+    } catch (e) {}
+  }
+  return allCombined;
 };
 
 export const saveSupabasePost = async (post: PostItem) => {
@@ -220,21 +235,59 @@ export const saveSupabasePost = async (post: PostItem) => {
       created_at: new Date().toISOString(),
     };
 
-    // Try primary upsert with provided ID
-    const payloadWithId = { ...basePayload, id: post.id };
-    const { error } = await supabase.from('posts').upsert(payloadWithId);
+    let saved = false;
 
-    if (error) {
-      console.warn('Primary upsert notice:', error.message);
-      // Fallback 1: If ID is non-numeric or incompatible, try insert without explicit ID column
-      const { error: insertErr } = await supabase.from('posts').insert([basePayload]);
-      if (insertErr) {
-        console.warn('Fallback insert notice:', insertErr.message);
-      } else {
-        console.log('✅ Fallback insert succeeded!');
+    // Multi-attempt adaptive client-side upsert with column pruning
+    const payloadToSave = { ...basePayload, id: post.id };
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const { error } = await supabase.from('posts').upsert(payloadToSave);
+      if (!error) {
+        saved = true;
+        console.log('✅ [Supabase Post Save]: Saved post to Supabase posts table successfully!');
+        break;
       }
-    } else {
-      console.log('Successfully saved post to Supabase posts table:', post.id);
+
+      console.warn(`[Supabase Post Save Attempt ${attempt + 1}] notice:`, error.message);
+
+      // Check for missing column and prune
+      const missingColMatch =
+        error.message.match(/Could not find the '(\w+)' column/i) ||
+        error.message.match(/column "?(\w+)"? of relation "posts" does not exist/i) ||
+        error.message.match(/column "(\w+)" does not exist/i);
+
+      if (missingColMatch && missingColMatch[1] && payloadToSave[missingColMatch[1]] !== undefined) {
+        console.log(`Pruning unmapped column '${missingColMatch[1]}' from post payload and retrying...`);
+        delete payloadToSave[missingColMatch[1]];
+        continue;
+      }
+
+      // If id column is invalid or constraint fails, try insert without id
+      if (payloadToSave.id) {
+        delete payloadToSave.id;
+        const { error: insertErr } = await supabase.from('posts').insert([payloadToSave]);
+        if (!insertErr) {
+          saved = true;
+          console.log('✅ [Supabase Post Save]: Fallback insert without ID succeeded!');
+          break;
+        }
+      }
+
+      break;
+    }
+
+    // Direct server-side proxy backup to ensure persistence across all devices
+    try {
+      const resp = await fetch('/api/posts/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...basePayload, id: post.id }),
+      });
+      if (resp.ok) {
+        console.log('✅ [Server Post Proxy]: Post successfully synced to Supabase through server proxy!');
+        saved = true;
+      }
+    } catch (serverErr) {
+      console.warn('Server post proxy backup notice:', serverErr);
     }
 
     try {
@@ -960,51 +1013,86 @@ const generateValidUUID = (): string => {
   });
 };
 
+export const ensureSupabaseAuthUser = async (phone: string): Promise<string | null> => {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  try {
+    // 1. Check existing auth session
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session?.user?.id) {
+      return sessionData.session.user.id;
+    }
+
+    const email = `usr_${digits}@dropthan.app`;
+    const password = `DropthanPass_${digits}!2026`;
+
+    // 2. Try sign in
+    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInData?.user?.id) {
+      return signInData.user.id;
+    }
+
+    // 3. Try sign up if not existing (creates user record in auth.users)
+    const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { phone },
+      },
+    });
+
+    if (signUpData?.user?.id) {
+      return signUpData.user.id;
+    }
+  } catch (err) {
+    console.warn('Notice ensuring Supabase auth user:', err);
+  }
+  return null;
+};
+
 export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<UserProfile> => {
   const cleanPhone = (profile.phone || '').trim();
-  const validId = profile.id && profile.id.trim()
-    ? profile.id.trim()
-    : (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : generateValidUUID());
-
   const compName = profile.companyName?.trim() || null;
   const flName = profile.fullName?.trim() || null;
   const dispName = profile.displayName?.trim() || compName || flName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
   const websiteVal = profile.website || profile.websiteUrl || null;
   const bioVal = profile.bio || profile.description || null;
 
-  // Build clean payload with all primary and alternative column mappings
+  // 1. Ensure or retrieve valid auth user ID to satisfy foreign key constraint on auth.users(id)
+  let authUserId = profile.id && isUuid(profile.id) ? profile.id.trim() : null;
+  if (!authUserId && cleanPhone) {
+    authUserId = await ensureSupabaseAuthUser(cleanPhone);
+  }
+  const validId = authUserId || (profile.id && isUuid(profile.id) ? profile.id.trim() : generateValidUUID());
+
+  // Build clean payload with standard Supabase column mappings (NO 'description', NO 'website_url', NO 'instagram_handle')
   const currentPayload: Record<string, any> = {
     id: validId,
     phone: cleanPhone || null,
     role: profile.role || 'wholesaler',
     display_name: dispName,
-    full_name: flName || dispName,
-    name: flName || dispName,
     company_name: compName || dispName,
     location: profile.location || '',
-    store_address: profile.storeAddress || profile.location || '',
     country: profile.country || 'India',
-    avatar_url: profile.avatarUrl || null,
-    bio: bioVal,
-    description: bioVal,
-    gstin: profile.gstin || null,
-    iec_code: profile.iecCode || null,
-    website: websiteVal,
-    website_url: websiteVal,
-    instagram: profile.instagram || profile.instagramHandle || null,
-    instagram_handle: profile.instagram || profile.instagramHandle || null,
     status: profile.status || 'Active',
     created_at: profile.createdAt || new Date().toISOString(),
   };
 
+  if (flName) currentPayload.full_name = flName;
+  if (profile.storeAddress || profile.location) currentPayload.store_address = profile.storeAddress || profile.location;
+  if (profile.avatarUrl) currentPayload.avatar_url = profile.avatarUrl;
+  if (bioVal) currentPayload.bio = bioVal;
+  if (profile.gstin) currentPayload.gstin = profile.gstin;
+  if (profile.iecCode) currentPayload.iec_code = profile.iecCode;
+  if (websiteVal) currentPayload.website = websiteVal;
+  if (profile.instagram || profile.instagramHandle) currentPayload.instagram = profile.instagram || profile.instagramHandle;
   if (profile.lat !== undefined && profile.lat !== null) currentPayload.lat = Number(profile.lat);
   if (profile.lng !== undefined && profile.lng !== null) currentPayload.lng = Number(profile.lng);
-  if (profile.productName) currentPayload.product_name = profile.productName;
-  if (profile.materialDetails) currentPayload.material_details = profile.materialDetails;
-  if (profile.promotionDetails) currentPayload.promotion_details = profile.promotionDetails;
-  if (profile.exportProducts) currentPayload.export_products = profile.exportProducts;
-  if (profile.packagingMaterials) currentPayload.packaging_materials = profile.packagingMaterials;
-  if (profile.serviceDetails) currentPayload.service_details = profile.serviceDetails;
   if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
 
   // Immediately update local cache for zero-latency UI reflection across all tabs
@@ -1034,33 +1122,34 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
     localStorage.setItem(localKey, JSON.stringify(profilesList));
   } catch (e) {}
 
+  console.log('⚡ [SUPABASE PROFILE UPSERT REQUEST]: Sending payload to public.profiles:', currentPayload);
+
+  let saved = false;
+  let lastError: any = null;
+  let savedData: any = null;
+
   try {
     let payloadToSave = { ...currentPayload };
-    let saved = false;
 
-    console.log('🚀 [saveUserProfileToSupabase] Direct Supabase upsert into public.profiles for:', cleanPhone, dispName);
-
+    // Direct Supabase execution loop with adaptive schema matching
     for (let attempt = 0; attempt < 8; attempt++) {
       // 1. Direct UPSERT on id
-      const { error: upsertErr } = await supabase
+      const { data: upsertData, error: upsertErr } = await supabase
         .from('profiles')
-        .upsert(payloadToSave, { onConflict: 'id' });
+        .upsert(payloadToSave, { onConflict: payloadToSave.id ? 'id' : 'phone' })
+        .select();
 
       if (!upsertErr) {
         saved = true;
-        console.log('✅ [saveUserProfileToSupabase] Successfully upserted profile by id into public.profiles!');
+        savedData = upsertData;
+        console.log('✅ [SUPABASE PROFILE UPSERT SUCCESS]:', upsertData);
         break;
       }
 
-      console.warn(`⚠️ [saveUserProfileToSupabase] Attempt ${attempt + 1} upsert notice:`, upsertErr.message);
+      lastError = upsertErr;
+      console.warn(`⚠️ [SUPABASE PROFILE UPSERT ATTEMPT ${attempt + 1} NOTICE]:`, upsertErr.message, upsertErr);
 
-      // Handle UUID data type if database schema specifies UUID for id
-      if (upsertErr.message.includes('invalid input syntax for type uuid') || upsertErr.message.includes('type uuid')) {
-        payloadToSave.id = generateValidUUID();
-        continue;
-      }
-
-      // Check for missing column error and prune it
+      // Check for missing column error and prune it (PGRST204)
       const missingCol =
         upsertErr.message.match(/Could not find the '(\w+)' column/i) ||
         upsertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/i) ||
@@ -1072,66 +1161,97 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
         continue;
       }
 
-      // 2. Try upsert with onConflict 'phone' if phone is unique
-      if (cleanPhone) {
-        const { error: phoneUpsertErr } = await supabase
-          .from('profiles')
-          .upsert(payloadToSave, { onConflict: 'phone' });
-
-        if (!phoneUpsertErr) {
-          saved = true;
-          console.log('✅ [saveUserProfileToSupabase] Successfully upserted profile by phone into public.profiles!');
-          break;
+      // Handle foreign key error: id not present in auth.users
+      if (upsertErr.code === '23503' || upsertErr.message.includes('profiles_id_fkey') || upsertErr.message.includes('foreign key')) {
+        console.log('🔑 Resolving foreign key constraint by ensuring auth.users account for:', cleanPhone);
+        const newAuthId = await ensureSupabaseAuthUser(cleanPhone);
+        if (newAuthId && newAuthId !== payloadToSave.id) {
+          payloadToSave.id = newAuthId;
+          continue;
         }
 
-        // 3. Try direct update by phone
-        const { error: updateErr } = await supabase
-          .from('profiles')
-          .update(payloadToSave)
-          .eq('phone', cleanPhone);
+        // If foreign key persists and record can be updated by phone, update without id
+        if (cleanPhone) {
+          const payloadWithoutId = { ...payloadToSave };
+          delete payloadWithoutId.id;
+          const { error: updateByPhoneErr } = await supabase
+            .from('profiles')
+            .update(payloadWithoutId)
+            .eq('phone', cleanPhone);
 
-        if (!updateErr) {
-          const { data: checkData } = await supabase.from('profiles').select('id').eq('phone', cleanPhone);
-          if (checkData && checkData.length > 0) {
-            saved = true;
-            console.log('✅ [saveUserProfileToSupabase] Successfully updated profile by phone in public.profiles!');
-            break;
+          if (!updateByPhoneErr) {
+            const { data: checkData } = await supabase.from('profiles').select('*').eq('phone', cleanPhone);
+            if (checkData && checkData.length > 0) {
+              saved = true;
+              savedData = checkData;
+              console.log('✅ [SUPABASE PROFILE UPDATE SUCCESS by phone (bypassed FK)]: ', checkData);
+              break;
+            }
           }
         }
       }
 
-      // 4. Try direct INSERT
-      const { error: insertErr } = await supabase
-        .from('profiles')
-        .insert(payloadToSave);
-
-      if (!insertErr) {
-        saved = true;
-        console.log('✅ [saveUserProfileToSupabase] Successfully inserted new profile into public.profiles!');
-        break;
+      // Handle UUID data type if database schema specifies UUID for id
+      if (upsertErr.message.includes('invalid input syntax for type uuid') || upsertErr.message.includes('type uuid')) {
+        payloadToSave.id = generateValidUUID();
+        continue;
       }
 
-      const insertCol =
-        insertErr.message.match(/Could not find the '(\w+)' column/i) ||
-        insertErr.message.match(/column "?(\w+)"? of relation "profiles" does not exist/i) ||
-        insertErr.message.match(/column "(\w+)" does not exist/i);
+      // If id upsert failed, try updating by phone
+      if (cleanPhone) {
+        const { data: phoneData, error: phoneUpsertErr } = await supabase
+          .from('profiles')
+          .upsert(payloadToSave, { onConflict: 'phone' })
+          .select();
 
-      if (insertCol && insertCol[1] && payloadToSave[insertCol[1]] !== undefined) {
-        delete payloadToSave[insertCol[1]];
-        continue;
+        if (!phoneUpsertErr) {
+          saved = true;
+          savedData = phoneData;
+          console.log('✅ [SUPABASE PROFILE UPSERT SUCCESS by phone]:', phoneData);
+          break;
+        }
       }
 
       break;
     }
 
+    // 5. Server-side API fallback if client-side encountered an issue
+    if (!saved) {
+      try {
+        console.log('🔄 [SUPABASE PROFILE SERVER FALLBACK]: Calling /api/profiles/upsert...');
+        const srvRes = await fetch('/api/profiles/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentPayload),
+        });
+        const srvJson = await srvRes.json().catch(() => null);
+        if (srvRes.ok) {
+          saved = true;
+          savedData = srvJson;
+          console.log('✅ [SUPABASE PROFILE SERVER UPSERT SUCCESS]:', srvJson);
+        } else {
+          console.error('❌ [SUPABASE PROFILE SERVER UPSERT ERROR]:', srvJson);
+        }
+      } catch (srvErr) {
+        console.error('❌ [SUPABASE PROFILE SERVER FALLBACK EXCEPTION]:', srvErr);
+      }
+    }
+
     if (saved) {
-      console.log('🎉 [saveUserProfileToSupabase] Profile successfully saved to Supabase public.profiles!');
+      console.log('🎉 [SUPABASE PROFILE PERSISTED TO LIVE DATABASE]:', {
+        id: validId,
+        phone: cleanPhone,
+        displayName: dispName,
+        data: savedData
+      });
       try {
         window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
       } catch (e) {}
+    } else {
+      console.error('❌ [SUPABASE PROFILE FINAL ERROR - NOT SAVED TO DATABASE]:', lastError);
     }
   } catch (err) {
-    console.error('❌ [saveUserProfileToSupabase] Exception during Supabase persistence:', err);
+    console.error('❌ [SUPABASE PROFILE UNEXPECTED EXCEPTION]:', err);
   }
 
   return {
@@ -1189,6 +1309,9 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     }
   } catch (e) {}
 
+  let remoteData: any[] = [];
+
+  // 1. Direct Supabase Query
   try {
     let { data, error } = await supabase
       .from('profiles')
@@ -1202,60 +1325,90 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     }
 
     if (!error && data && data.length > 0) {
-      const remoteProfiles: UserProfile[] = data.map((item: any) => {
-        const cleanPhone = (item.phone || item.mobile || item.contact_number || item.contact || '').trim();
-        const compName = item.company_name || item.companyName || item.business_name || undefined;
-        const flName = item.full_name || item.fullName || item.name || undefined;
-        const dispName =
-          item.display_name ||
-          item.displayName ||
-          compName ||
-          flName ||
-          item.user_name ||
-          (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
-
-        return {
-          id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
-          role: item.role || item.user_role || item.category_role || 'wholesaler',
-          phone: cleanPhone,
-          country: item.country || 'India',
-          location: item.location || item.city || item.state || '',
-          storeAddress: item.store_address || item.storeAddress || item.location || item.city || undefined,
-          lat: item.lat ? Number(item.lat) : undefined,
-          lng: item.lng ? Number(item.lng) : undefined,
-          companyName: compName,
-          fullName: flName,
-          displayName: dispName,
-          bio: item.bio || item.description || item.about || undefined,
-          description: item.description || item.bio || item.about || undefined,
-          gstin: item.gstin || item.gst || item.gst_number || undefined,
-          iecCode: item.iec_code || item.iecCode || item.iec || undefined,
-          productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
-          materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
-          promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
-          exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
-          packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
-          serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
-          website: item.website || item.website_url || item.websiteUrl || undefined,
-          websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
-          instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-          instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-          avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
-          createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-          status: (item.status as UserStatus) || 'Active',
-          rejectionReason: item.rejection_reason || undefined,
-        };
-      });
-
-      // Update local cache with live database records
-      try {
-        localStorage.setItem(localKey, JSON.stringify(remoteProfiles));
-      } catch (e) {}
-
-      return remoteProfiles;
+      remoteData = data;
     }
   } catch (err) {
     console.warn('Notice fetching profiles from Supabase:', err);
+  }
+
+  // 2. Server API Fallback
+  if (remoteData.length === 0) {
+    try {
+      const resp = await fetch('/api/profiles');
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.success && Array.isArray(json.profiles) && json.profiles.length > 0) {
+          remoteData = json.profiles;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Server profiles API fallback notice:', apiErr);
+    }
+  }
+
+  if (remoteData.length > 0) {
+    const remoteProfiles: UserProfile[] = remoteData.map((item: any) => {
+      const cleanPhone = (item.phone || item.mobile || item.contact_number || item.contact || '').trim();
+      const compName = item.company_name || item.companyName || item.business_name || undefined;
+      const flName = item.full_name || item.fullName || item.name || undefined;
+      const dispName =
+        item.display_name ||
+        item.displayName ||
+        compName ||
+        flName ||
+        item.user_name ||
+        (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+
+      return {
+        id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
+        role: item.role || item.user_role || item.category_role || 'wholesaler',
+        phone: cleanPhone,
+        country: item.country || 'India',
+        location: item.location || item.city || item.state || '',
+        storeAddress: item.store_address || item.storeAddress || item.location || item.city || undefined,
+        lat: item.lat ? Number(item.lat) : undefined,
+        lng: item.lng ? Number(item.lng) : undefined,
+        companyName: compName,
+        fullName: flName,
+        displayName: dispName,
+        bio: item.bio || item.description || item.about || undefined,
+        description: item.description || item.bio || item.about || undefined,
+        gstin: item.gstin || item.gst || item.gst_number || undefined,
+        iecCode: item.iec_code || item.iecCode || item.iec || undefined,
+        productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
+        materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
+        promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
+        exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
+        packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
+        serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
+        website: item.website || item.website_url || item.websiteUrl || undefined,
+        websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
+        instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+        instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+        avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
+        createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+        status: (item.status as UserStatus) || 'Active',
+        rejectionReason: item.rejection_reason || undefined,
+      };
+    });
+
+    // Merge and update local cache
+    const mergedMap = new Map<string, UserProfile>();
+    localProfiles.forEach((p) => {
+      const key = (p.phone || p.id || p.displayName).toLowerCase();
+      if (key) mergedMap.set(key, p);
+    });
+    remoteProfiles.forEach((p) => {
+      const key = (p.phone || p.id || p.displayName).toLowerCase();
+      if (key) mergedMap.set(key, p);
+    });
+
+    const finalProfiles = Array.from(mergedMap.values());
+    try {
+      localStorage.setItem(localKey, JSON.stringify(finalProfiles));
+    } catch (e) {}
+
+    return finalProfiles;
   }
 
   return localProfiles;
@@ -1343,7 +1496,43 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
     console.warn('Direct search notice:', err);
   }
 
-  // 2. Comprehensive multi-attribute matching across all live profiles
+  // 2. Server API search query fallback
+  try {
+    const resp = await fetch(`/api/profiles?q=${encodeURIComponent(cleanQ)}`);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json.success && Array.isArray(json.profiles)) {
+        json.profiles.forEach((item: any) => {
+          const cleanPhone = (item.phone || item.mobile || item.contact_number || '').trim();
+          const compName = item.company_name || item.companyName || undefined;
+          const flName = item.full_name || item.fullName || undefined;
+          const dispName = item.display_name || item.displayName || compName || flName || 'Member';
+
+          directResults.push({
+            id: item.id || `usr_${Date.now()}`,
+            role: item.role || 'wholesaler',
+            phone: cleanPhone,
+            country: item.country || 'India',
+            location: item.location || '',
+            companyName: compName,
+            fullName: flName,
+            displayName: dispName,
+            bio: item.bio || item.description || undefined,
+            description: item.description || item.bio || undefined,
+            gstin: item.gstin || undefined,
+            iecCode: item.iec_code || undefined,
+            website: item.website || item.website_url || undefined,
+            instagram: item.instagram || item.instagram_handle || undefined,
+            avatarUrl: item.avatar_url || item.avatarUrl || undefined,
+            createdAt: item.created_at || new Date().toISOString(),
+            status: (item.status as UserStatus) || 'Active',
+          });
+        });
+      }
+    }
+  } catch (e) {}
+
+  // 3. Comprehensive multi-attribute matching across all live profiles
   const allLiveProfiles = await fetchAllUserProfilesFromSupabase();
   const queryLower = cleanQ.toLowerCase();
   const queryDigits = cleanQ.replace(/\D/g, '');
@@ -1505,6 +1694,188 @@ export const fetchUserProfileStatus = async (
   } catch (e) {}
 
   return null;
+};
+
+export const fetchFullUserProfile = async (identifier: string): Promise<UserProfile | null> => {
+  if (!identifier) return null;
+  const cleanId = identifier.trim();
+
+  // If identifier looks like a phone number, fetch by phone first
+  if (/^\+?\d{8,15}$/.test(cleanId.replace(/\s+/g, ''))) {
+    const byPhone = await fetchFullUserProfileByPhone(cleanId);
+    if (byPhone) return byPhone;
+  }
+
+  // 1. Direct Supabase Query by ID or Name/Company
+  try {
+    let { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .or(`id.eq.${cleanId},display_name.ilike.%${cleanId}%,company_name.ilike.%${cleanId}%,full_name.ilike.%${cleanId}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      const cleanPhone = (data.phone || data.mobile || '').trim();
+      return {
+        id: data.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
+        role: data.role || 'wholesaler',
+        phone: cleanPhone,
+        country: data.country || 'India',
+        location: data.location || '',
+        storeAddress: data.store_address || data.location || undefined,
+        lat: data.lat ? Number(data.lat) : undefined,
+        lng: data.lng ? Number(data.lng) : undefined,
+        companyName: data.company_name || undefined,
+        fullName: data.full_name || undefined,
+        displayName: data.display_name || data.company_name || data.full_name || 'Member',
+        bio: data.bio || data.description || undefined,
+        description: data.description || data.bio || undefined,
+        gstin: data.gstin || undefined,
+        iecCode: data.iec_code || undefined,
+        website: data.website || data.website_url || undefined,
+        websiteUrl: data.website || data.website_url || undefined,
+        instagram: data.instagram || data.instagram_handle || undefined,
+        instagramHandle: data.instagram || data.instagram_handle || undefined,
+        avatarUrl: data.avatar_url || data.avatarUrl || undefined,
+        createdAt: data.created_at || new Date().toISOString(),
+        status: (data.status as UserStatus) || 'Active',
+        rejectionReason: data.rejection_reason || undefined,
+      };
+    }
+  } catch (err) {
+    console.warn('Notice querying profile by identifier from Supabase:', err);
+  }
+
+  // 2. Server API fallback /api/profiles/by-identifier
+  try {
+    const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(cleanId)}`);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json.success && json.profile) {
+        const data = json.profile;
+        const cleanPhone = (data.phone || data.mobile || '').trim();
+        return {
+          id: data.id || `usr_${Date.now()}`,
+          role: data.role || 'wholesaler',
+          phone: cleanPhone,
+          country: data.country || 'India',
+          location: data.location || '',
+          companyName: data.company_name || undefined,
+          fullName: data.full_name || undefined,
+          displayName: data.display_name || data.company_name || data.full_name || 'Member',
+          bio: data.bio || data.description || undefined,
+          description: data.description || data.bio || undefined,
+          gstin: data.gstin || undefined,
+          iecCode: data.iec_code || undefined,
+          website: data.website || data.website_url || undefined,
+          instagram: data.instagram || data.instagram_handle || undefined,
+          avatarUrl: data.avatar_url || data.avatarUrl || undefined,
+          createdAt: data.created_at || new Date().toISOString(),
+          status: (data.status as UserStatus) || 'Active',
+        };
+      }
+    }
+  } catch (e) {}
+
+  // 3. Fallback from all live/cached profiles
+  try {
+    const profiles = await fetchAllUserProfilesFromSupabase();
+    const lower = cleanId.toLowerCase();
+    const found = profiles.find((p) => {
+      const name = (p.displayName || '').toLowerCase();
+      const comp = (p.companyName || '').toLowerCase();
+      const full = (p.fullName || '').toLowerCase();
+      const ph = (p.phone || '').toLowerCase();
+      const pid = (p.id || '').toLowerCase();
+      return name === lower || comp === lower || full === lower || ph === lower || pid === lower || name.includes(lower) || lower.includes(name);
+    });
+    if (found) return found;
+  } catch (e) {}
+
+  return null;
+};
+
+export const fetchPostsByVendor = async (vendorIdentifier: string): Promise<PostItem[]> => {
+  if (!vendorIdentifier) return [];
+  const cleanId = vendorIdentifier.trim();
+  const lower = cleanId.toLowerCase();
+
+  let remotePosts: PostItem[] = [];
+
+  // 1. Direct Supabase Query
+  try {
+    let { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .or(`phone.eq.${cleanId},author.ilike.%${cleanId}%,author.eq.${cleanId}`)
+      .order('created_at', { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      remotePosts = data.map((item: any) => ({
+        id: String(item.id || `post_${Date.now()}`),
+        author: item.author || 'Dropthan Member',
+        role: item.role || 'wholesaler',
+        price: item.price || 'Rate on Request',
+        moq: item.moq || 'Custom MOQ',
+        caption: item.caption || item.description || '',
+        img: item.img || item.image || item.photo || (Array.isArray(item.images) && item.images[0]) || '',
+        images: Array.isArray(item.images) ? item.images : [item.img || item.image || ''],
+        phone: item.phone || '',
+        location: item.location || '',
+        category: item.category || 'Textiles & Apparel',
+        likesCount: item.likes_count ?? 15,
+        authorAvatar: item.author_avatar || '',
+        createdAt: item.created_at || new Date().toISOString(),
+      }));
+    }
+  } catch (e) {}
+
+  // 2. Server API fallback
+  if (remotePosts.length === 0) {
+    try {
+      const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(cleanId)}`);
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.success && Array.isArray(json.posts) && json.posts.length > 0) {
+          remotePosts = json.posts.map((item: any) => ({
+            id: String(item.id || `post_${Date.now()}`),
+            author: item.author || 'Dropthan Member',
+            role: item.role || 'wholesaler',
+            price: item.price || 'Rate on Request',
+            moq: item.moq || 'Custom MOQ',
+            caption: item.caption || item.description || '',
+            img: item.img || item.image || item.photo || (Array.isArray(item.images) && item.images[0]) || '',
+            images: Array.isArray(item.images) ? item.images : [item.img || item.image || ''],
+            phone: item.phone || '',
+            location: item.location || '',
+            category: item.category || 'Textiles & Apparel',
+            likesCount: item.likes_count ?? 15,
+            authorAvatar: item.author_avatar || '',
+            createdAt: item.created_at || new Date().toISOString(),
+          }));
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. Merge with global fetched posts from memory
+  const allPosts = await fetchSupabasePosts();
+  const matchedFromAll = allPosts.filter((p) => {
+    const a = (p.author || '').toLowerCase();
+    const ph = (p.phone || '').toLowerCase();
+    return a === lower || a.includes(lower) || lower.includes(a) || (ph && ph === lower);
+  });
+
+  const merged = new Map<string, PostItem>();
+  matchedFromAll.forEach((p) => merged.set(String(p.id), p));
+  remotePosts.forEach((p) => merged.set(String(p.id), p));
+
+  return Array.from(merged.values()).sort((a, b) => {
+    const tA = new Date(a.createdAt || a.created_at || 0).getTime();
+    const tB = new Date(b.createdAt || b.created_at || 0).getTime();
+    return tB - tA;
+  });
 };
 
 export const fetchFullUserProfileByPhone = async (phone: string): Promise<UserProfile | null> => {

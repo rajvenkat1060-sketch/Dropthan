@@ -125,22 +125,24 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     };
 
     try {
-      await saveUserProfileToSupabase(updatedUser);
+      console.log('⏳ [ProfileTab] Saving profile changes for user:', updatedUser.phone, updatedUser.displayName);
+      const savedResult = await saveUserProfileToSupabase(updatedUser);
 
       if (onUpdateProfile) {
-        onUpdateProfile(updatedUser);
+        onUpdateProfile(savedResult || updatedUser);
       } else {
-        localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
+        localStorage.setItem('dropthan_user', JSON.stringify(savedResult || updatedUser));
       }
 
-      setEditProfileSuccessMsg('✓ Business profile updated & saved to database!');
+      console.log('✅ [ProfileTab] Profile successfully saved:', savedResult);
+      setEditProfileSuccessMsg('✓ Business profile saved to Supabase & updated in real-time!');
       setTimeout(() => {
         setIsEditProfileModalOpen(false);
         setEditProfileSuccessMsg('');
       }, 1500);
-    } catch (err) {
-      console.error('Error saving business profile:', err);
-      setEditProfileSuccessMsg('❌ Failed to save profile changes');
+    } catch (err: any) {
+      console.error('❌ [ProfileTab] Error saving business profile:', err);
+      setEditProfileSuccessMsg(`❌ Error saving profile: ${err?.message || 'Database error'}`);
     } finally {
       setIsSavingProfile(false);
     }

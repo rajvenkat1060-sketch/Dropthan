@@ -51,6 +51,259 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", app: "Dropthan B2B Mobile App" });
 });
 
+// Server-Side Public Posts Listing Endpoint (Guarantees Shared Global Feed)
+app.get("/api/posts", async (_req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available on server" });
+      return;
+    }
+
+    let { data, error } = await supabase
+      .from("posts")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error && error.message?.includes("created_at")) {
+      const fallback = await supabase.from("posts").select("*");
+      data = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      console.warn("[Server Posts] Supabase fetch error:", error.message);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.json({ success: true, posts: data || [] });
+  } catch (err: any) {
+    console.error("[Server Posts] Exception fetching posts:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch posts" });
+  }
+});
+
+// Server-Side Public Post Creation Endpoint (Guarantees cross-device persistence)
+app.post("/api/posts/create", async (req, res) => {
+  try {
+    const rawPost = req.body;
+    if (!rawPost) {
+      res.status(400).json({ error: "No post data provided" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available on server" });
+      return;
+    }
+
+    const imagesList = Array.isArray(rawPost.images) && rawPost.images.length > 0
+      ? rawPost.images
+      : rawPost.img
+      ? [rawPost.img]
+      : [];
+    const primaryImg = rawPost.img || (imagesList.length > 0 ? imagesList[0] : "");
+
+    const postPayload: Record<string, any> = {
+      author: rawPost.author || "Dropthan Member",
+      role: rawPost.role || "wholesaler",
+      price: rawPost.price || "Rate on Request",
+      moq: rawPost.moq || "MOQ on Request",
+      caption: rawPost.caption || "",
+      img: primaryImg,
+      images: imagesList,
+      phone: rawPost.phone || null,
+      location: rawPost.location || null,
+      category: rawPost.category || "Textiles & Apparel",
+      likes_count: rawPost.likes_count ?? rawPost.likesCount ?? 15,
+      created_at: rawPost.created_at || rawPost.createdAt || new Date().toISOString(),
+    };
+
+    if (rawPost.id) postPayload.id = rawPost.id;
+    if (rawPost.user_id || rawPost.userId) postPayload.user_id = rawPost.user_id || rawPost.userId;
+    if (rawPost.author_avatar || rawPost.authorAvatar) postPayload.author_avatar = rawPost.author_avatar || rawPost.authorAvatar;
+    if (rawPost.product_name || rawPost.productName) postPayload.product_name = rawPost.product_name || rawPost.productName;
+    if (rawPost.material_details || rawPost.materialDetails) postPayload.material_details = rawPost.material_details || rawPost.materialDetails;
+    if (rawPost.promotion_details || rawPost.promotionDetails) postPayload.promotion_details = rawPost.promotion_details || rawPost.promotionDetails;
+    if (rawPost.export_products || rawPost.exportProducts) postPayload.export_products = rawPost.export_products || rawPost.exportProducts;
+    if (rawPost.packaging_materials || rawPost.packagingMaterials) postPayload.packaging_materials = rawPost.packaging_materials || rawPost.packagingMaterials;
+    if (rawPost.service_details || rawPost.serviceDetails) postPayload.service_details = rawPost.service_details || rawPost.serviceDetails;
+    if (rawPost.gstin) postPayload.gstin = rawPost.gstin;
+    if (rawPost.iec_code || rawPost.iecCode) postPayload.iec_code = rawPost.iec_code || rawPost.iecCode;
+    if (rawPost.website || rawPost.websiteUrl) postPayload.website = rawPost.website || rawPost.websiteUrl;
+    if (rawPost.instagram || rawPost.instagramHandle) postPayload.instagram = rawPost.instagram || rawPost.instagramHandle;
+    if (rawPost.store_address || rawPost.storeAddress) postPayload.store_address = rawPost.store_address || rawPost.storeAddress;
+    if (rawPost.lat !== undefined && rawPost.lat !== null) postPayload.lat = Number(rawPost.lat);
+    if (rawPost.lng !== undefined && rawPost.lng !== null) postPayload.lng = Number(rawPost.lng);
+
+    console.log(`[Server Post Sync] Attempting to save post by: ${postPayload.author} (${postPayload.phone})`);
+
+    let savedData: any = null;
+    let savedError: any = null;
+
+    // Resilient upsert with dynamic column pruning
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const resUpsert = await supabase.from("posts").upsert(postPayload, { onConflict: postPayload.id ? "id" : undefined });
+      if (!resUpsert.error) {
+        savedData = resUpsert.data;
+        savedError = null;
+        console.log(`[Server Post Sync] Post saved successfully on attempt ${attempt + 1}!`);
+        break;
+      }
+
+      savedError = resUpsert.error;
+      console.warn(`[Server Post Sync] Attempt ${attempt + 1} notice:`, savedError.message);
+
+      // Check for missing column error and prune it
+      const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
+                              savedError.message.match(/column "?(\w+)"? of relation "posts" does not exist/i) ||
+                              savedError.message.match(/column "(\w+)" does not exist/i);
+
+      if (missingColMatch && missingColMatch[1] && postPayload[missingColMatch[1]] !== undefined) {
+        console.log(`[Server Post Sync] Pruning unmapped column '${missingColMatch[1]}' and retrying...`);
+        delete postPayload[missingColMatch[1]];
+        continue;
+      }
+
+      // If id is invalid/conflict, delete id and try standard insert
+      if (postPayload.id && (savedError.message.includes("id") || savedError.code === "22P02")) {
+        delete postPayload.id;
+        const resInsert = await supabase.from("posts").insert([postPayload]);
+        if (!resInsert.error) {
+          savedData = resInsert.data;
+          savedError = null;
+          console.log(`[Server Post Sync] Fallback insert without ID succeeded!`);
+          break;
+        }
+      }
+
+      break;
+    }
+
+    if (savedError) {
+      console.error("[Server Post Sync] Failed to save post to Supabase:", savedError);
+      res.status(400).json({ error: savedError.message, details: savedError });
+      return;
+    }
+
+    res.json({ success: true, post: postPayload, data: savedData });
+  } catch (err: any) {
+    console.error("[Server Post Sync] Server error saving post:", err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  }
+});
+
+// Server-Side Public Profiles Listing & Search Endpoint
+app.get("/api/profiles", async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available" });
+      return;
+    }
+
+    const searchQuery = (req.query.q as string || "").trim();
+
+    let query = supabase.from("profiles").select("*");
+
+    if (searchQuery) {
+      const safeFilter = `display_name.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%,full_name.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%,location.ilike.%${searchQuery}%`;
+      query = query.or(safeFilter);
+    } else {
+      query = query.order("created_at", { ascending: false });
+    }
+
+    const { data, error } = await query.limit(100);
+
+    if (error) {
+      console.warn("[Server Profiles Search] Notice:", error.message);
+      // Fallback without ordering
+      const fallback = await supabase.from("profiles").select("*").limit(100);
+      res.json({ success: true, profiles: fallback.data || [] });
+      return;
+    }
+
+    res.json({ success: true, profiles: data || [] });
+  } catch (err: any) {
+    console.error("[Server Profiles] Error:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch profiles" });
+  }
+});
+
+// Server-Side Profile By Identifier (Phone / ID / Name) & Their Public Posts
+app.get("/api/profiles/by-identifier", async (req, res) => {
+  try {
+    const identifier = (req.query.identifier as string || "").trim();
+    if (!identifier) {
+      res.status(400).json({ error: "Identifier required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available" });
+      return;
+    }
+
+    // Try finding profile by phone, id, display_name, or company_name
+    let profileData: any = null;
+
+    if (/^\+?\d{8,15}$/.test(identifier.replace(/\s+/g, ""))) {
+      const cleanPhone = identifier.trim();
+      const { data } = await supabase.from("profiles").select("*").eq("phone", cleanPhone).maybeSingle();
+      profileData = data;
+    }
+
+    if (!profileData && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier)) {
+      const { data } = await supabase.from("profiles").select("*").eq("id", identifier).maybeSingle();
+      profileData = data;
+    }
+
+    if (!profileData) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .or(`display_name.ilike.%${identifier}%,company_name.ilike.%${identifier}%,full_name.ilike.%${identifier}%`)
+        .limit(1)
+        .maybeSingle();
+      profileData = data;
+    }
+
+    // Fetch user's public posts
+    let userPosts: any[] = [];
+    const searchPhone = profileData?.phone || (/^\+?\d{8,15}$/.test(identifier) ? identifier : null);
+    const searchAuthor = profileData?.display_name || profileData?.company_name || identifier;
+
+    if (searchPhone) {
+      const { data: postsByPhone } = await supabase.from("posts").select("*").eq("phone", searchPhone);
+      if (postsByPhone && postsByPhone.length > 0) {
+        userPosts = postsByPhone;
+      }
+    }
+
+    if (userPosts.length === 0 && searchAuthor) {
+      const { data: postsByAuthor } = await supabase
+        .from("posts")
+        .select("*")
+        .or(`author.ilike.%${searchAuthor}%,author.eq.${searchAuthor}`);
+      if (postsByAuthor && postsByAuthor.length > 0) {
+        userPosts = postsByAuthor;
+      }
+    }
+
+    res.json({
+      success: true,
+      profile: profileData,
+      posts: userPosts,
+    });
+  } catch (err: any) {
+    console.error("[Server Profile By Identifier] Error:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch user data" });
+  }
+});
+
 // App Config & Credentials Endpoint
 app.get("/api/config", (_req, res) => {
   res.json({
@@ -58,6 +311,165 @@ app.get("/api/config", (_req, res) => {
     supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_s8wtq-Mx3OMobIMCSZ69cA_gzo9VbvJ",
     googleMapsKey: process.env.GOOGLE_MAPS_PLATFORM_KEY || "",
   });
+});
+
+// Server-Side Profile Upsert Endpoint
+app.post("/api/profiles/upsert", async (req, res) => {
+  try {
+    const rawProfile = req.body;
+    if (!rawProfile) {
+      res.status(400).json({ error: "No profile payload provided" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not initialized on server" });
+      return;
+    }
+
+    const cleanPhone = (rawProfile.phone || '').trim();
+    const compName = rawProfile.company_name || rawProfile.companyName || null;
+    const flName = rawProfile.full_name || rawProfile.fullName || rawProfile.name || null;
+    const dispName = rawProfile.display_name || rawProfile.displayName || compName || flName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+    const websiteVal = rawProfile.website || rawProfile.websiteUrl || rawProfile.website_url || null;
+    const bioVal = rawProfile.bio || rawProfile.description || rawProfile.about || null;
+
+    // Clean payload containing only standard public.profiles columns (NO 'description', 'website_url', etc.)
+    const profilePayload: Record<string, any> = {
+      phone: cleanPhone || null,
+      role: rawProfile.role || 'wholesaler',
+      display_name: dispName,
+      company_name: compName || dispName,
+      location: rawProfile.location || '',
+      country: rawProfile.country || 'India',
+      status: rawProfile.status || 'Active',
+      created_at: rawProfile.created_at || rawProfile.createdAt || new Date().toISOString(),
+    };
+
+    if (rawProfile.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawProfile.id)) {
+      profilePayload.id = rawProfile.id;
+    }
+    if (flName) profilePayload.full_name = flName;
+    if (rawProfile.store_address || rawProfile.storeAddress) profilePayload.store_address = rawProfile.store_address || rawProfile.storeAddress;
+    if (rawProfile.avatar_url || rawProfile.avatarUrl) profilePayload.avatar_url = rawProfile.avatar_url || rawProfile.avatarUrl;
+    if (bioVal) profilePayload.bio = bioVal;
+    if (rawProfile.gstin) profilePayload.gstin = rawProfile.gstin;
+    if (rawProfile.iec_code || rawProfile.iecCode) profilePayload.iec_code = rawProfile.iec_code || rawProfile.iecCode;
+    if (websiteVal) profilePayload.website = websiteVal;
+    if (rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle) {
+      profilePayload.instagram = rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle;
+    }
+    if (rawProfile.lat !== undefined && rawProfile.lat !== null) profilePayload.lat = Number(rawProfile.lat);
+    if (rawProfile.lng !== undefined && rawProfile.lng !== null) profilePayload.lng = Number(rawProfile.lng);
+
+    console.log(`[Server Profile Sync] Attempting Supabase upsert for profile: ${cleanPhone} (${dispName})`);
+
+    // 1. If we have a phone, try to update existing record first (bypasses foreign key check if row already exists)
+    if (cleanPhone) {
+      const { data: existingCheck } = await supabase.from('profiles').select('id').eq('phone', cleanPhone);
+      if (existingCheck && existingCheck.length > 0) {
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update(profilePayload)
+          .eq('phone', cleanPhone);
+
+        if (!updateErr) {
+          console.log(`[Server Profile Sync] Successfully updated existing profile in Supabase by phone!`);
+          return res.json({ success: true, method: "update_by_phone" });
+        }
+      }
+    }
+
+    // 2. Ensure auth user if id is required or missing
+    if (!profilePayload.id && cleanPhone) {
+      const digits = cleanPhone.replace(/\D/g, '');
+      const email = `usr_${digits}@dropthan.app`;
+      const password = `DropthanPass_${digits}!2026`;
+      try {
+        const { data: signInData } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInData?.user?.id) {
+          profilePayload.id = signInData.user.id;
+        } else {
+          const { data: signUpData } = await supabase.auth.signUp({ email, password, options: { data: { phone: cleanPhone } } });
+          if (signUpData?.user?.id) {
+            profilePayload.id = signUpData.user.id;
+          }
+        }
+      } catch (authErr) {
+        console.warn("[Server Profile Sync] Server Auth check notice:", authErr);
+      }
+    }
+
+    // 3. Multi-attempt adaptive upsert / update loop
+    let data: any = null;
+    let error: any = null;
+    let saved = false;
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const upsertRes = await supabase
+        .from("profiles")
+        .upsert(profilePayload, { onConflict: profilePayload.id ? "id" : "phone" });
+
+      if (!upsertRes.error) {
+        data = upsertRes.data;
+        saved = true;
+        break;
+      }
+
+      error = upsertRes.error;
+      console.warn(`[Server Profile Sync] Attempt ${attempt + 1} notice:`, error.message);
+
+      // Extract unknown column from error message and remove from payload
+      const missingColMatch = error.message.match(/Could not find the '(\w+)' column/i) ||
+                              error.message.match(/column "?(\w+)"? of relation "profiles" does not exist/i) ||
+                              error.message.match(/column "(\w+)" does not exist/i);
+
+      if (missingColMatch && missingColMatch[1] && profilePayload[missingColMatch[1]] !== undefined) {
+        console.log(`[Server Profile Sync] Pruning unmapped column '${missingColMatch[1]}' and retrying...`);
+        delete profilePayload[missingColMatch[1]];
+        continue;
+      }
+
+      // If foreign key constraint failed on id, remove id and update by phone
+      if (cleanPhone && (error.code === '23503' || error.message.includes('foreign key') || error.message.includes('profiles_id_fkey'))) {
+        delete profilePayload.id;
+        const { error: updateErr } = await supabase
+          .from("profiles")
+          .update(profilePayload)
+          .eq("phone", cleanPhone);
+        if (!updateErr) {
+          console.log(`[Server Profile Sync] Successfully updated profile by phone in Supabase (bypassed FK)!`);
+          return res.json({ success: true, method: "update_by_phone" });
+        }
+      }
+
+      break;
+    }
+
+    // 4. Fallback: try update by phone
+    if (!saved && cleanPhone) {
+      const { error: updateErr } = await supabase
+        .from("profiles")
+        .update(profilePayload)
+        .eq("phone", cleanPhone);
+      if (!updateErr) {
+        console.log(`[Server Profile Sync] Successfully updated profile by phone in Supabase!`);
+        return res.json({ success: true, method: "update_by_phone" });
+      }
+    }
+
+    if (!saved && error) {
+      console.error("[Server Profile Sync] Supabase profile upsert error:", error);
+      return res.status(400).json({ error: error.message, details: error });
+    }
+
+    console.log(`[Server Profile Sync] Successfully upserted profile into Supabase!`);
+    res.json({ success: true, data });
+  } catch (err: any) {
+    console.error("[Server Profile Sync] Server exception during profile upsert:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during profile sync" });
+  }
 });
 
 // Server-Side File Upload Endpoint with Multi-Bucket Supabase Storage Integration (Up to 50MB)

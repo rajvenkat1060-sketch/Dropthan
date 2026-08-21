@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PostItem, UserProfile, RatingSummary, ReviewItem, UserRole } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl } from '../utils/image';
-import { fetchUserRatingsFromSupabase, fetchFullUserProfileByPhone } from '../lib/supabase';
+import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor } from '../lib/supabase';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { Instagram } from 'lucide-react';
@@ -44,19 +44,39 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
   const [vendorProfile, setVendorProfile] = useState<UserProfile | null>(null);
+  const [fetchedVendorPosts, setFetchedVendorPosts] = useState<PostItem[]>([]);
 
   // Normalize vendor identifier
   const cleanVendorName = (vendorName || vendorPost?.author || '').trim();
 
-  // Filter all posts by this vendor
+  // Filter all posts by this vendor combining provided posts and live database query
   const vendorPosts = useMemo(() => {
-    if (!cleanVendorName) return [];
     const lower = cleanVendorName.toLowerCase();
-    return allPosts.filter((p) => {
+    const phone = (vendorProfile?.phone || vendorPost?.phone || '').trim();
+
+    const merged = new Map<string, PostItem>();
+
+    allPosts.forEach((p) => {
       const author = (p.author || '').trim().toLowerCase();
-      return author === lower || author.includes(lower) || lower.includes(author);
+      const pPhone = (p.phone || '').trim();
+      if (
+        (cleanVendorName && (author === lower || author.includes(lower) || lower.includes(author))) ||
+        (phone && pPhone && phone === pPhone)
+      ) {
+        merged.set(String(p.id), p);
+      }
     });
-  }, [allPosts, cleanVendorName]);
+
+    fetchedVendorPosts.forEach((p) => {
+      merged.set(String(p.id), p);
+    });
+
+    return Array.from(merged.values()).sort((a, b) => {
+      const tA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const tB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return tB - tA;
+    });
+  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile?.phone, vendorPost?.phone]);
 
   // Derive consolidated metadata from available post / profile
   const referencePost = vendorPost || (vendorPosts.length > 0 ? vendorPosts[0] : null);
@@ -72,7 +92,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   const iecCode = vendorProfile?.iecCode || referencePost?.iecCode;
   const instagram = vendorProfile?.instagram || vendorProfile?.instagramHandle || referencePost?.instagram;
   const website = vendorProfile?.website || vendorProfile?.websiteUrl || referencePost?.website;
-  const companyName = vendorProfile?.companyName || cleanVendorName;
+  const companyName = vendorProfile?.companyName || vendorProfile?.displayName || cleanVendorName;
   const productName = vendorProfile?.productName || vendorProfile?.materialDetails || referencePost?.productName || referencePost?.materialDetails;
   const promotionDetails = vendorProfile?.promotionDetails || referencePost?.promotionDetails;
   const exportProducts = vendorProfile?.exportProducts || referencePost?.exportProducts;
@@ -99,12 +119,18 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       }
     );
 
-    // If reference post has phone, fetch full user profile
-    if (referencePost?.phone) {
-      fetchFullUserProfileByPhone(referencePost.phone).then((prof) => {
-        if (prof) setVendorProfile(prof);
-      });
-    }
+    // Fetch complete user profile from Supabase
+    const targetIdentifier = referencePost?.phone || cleanVendorName;
+    fetchFullUserProfile(targetIdentifier).then((prof) => {
+      if (prof) setVendorProfile(prof);
+    });
+
+    // Fetch all posts by this vendor from database
+    fetchPostsByVendor(targetIdentifier).then((posts) => {
+      if (posts && posts.length > 0) {
+        setFetchedVendorPosts(posts);
+      }
+    });
   }, [isOpen, cleanVendorName, referencePost?.phone, currentUser]);
 
   if (!isOpen) return null;
