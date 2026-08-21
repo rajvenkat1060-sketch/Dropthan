@@ -53,16 +53,29 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   const vendorPosts = useMemo(() => {
     const lower = cleanVendorName.toLowerCase();
     const phone = (vendorProfile?.phone || vendorPost?.phone || '').trim();
+    const phoneDigits = phone.replace(/\D/g, '');
+    const compLower = (vendorProfile?.companyName || '').toLowerCase().trim();
+    const dispLower = (vendorProfile?.displayName || '').toLowerCase().trim();
+    const fullLower = (vendorProfile?.fullName || '').toLowerCase().trim();
 
     const merged = new Map<string, PostItem>();
 
     allPosts.forEach((p) => {
       const author = (p.author || '').trim().toLowerCase();
       const pPhone = (p.phone || '').trim();
-      if (
+      const pDigits = pPhone.replace(/\D/g, '');
+
+      const isAuthorMatch =
         (cleanVendorName && (author === lower || author.includes(lower) || lower.includes(author))) ||
-        (phone && pPhone && phone === pPhone)
-      ) {
+        (compLower && (author === compLower || author.includes(compLower) || compLower.includes(author))) ||
+        (dispLower && (author === dispLower || author.includes(dispLower) || dispLower.includes(author))) ||
+        (fullLower && (author === fullLower || author.includes(fullLower) || fullLower.includes(author)));
+
+      const isPhoneMatch =
+        Boolean(phone && pPhone && phone === pPhone) ||
+        Boolean(phoneDigits && pDigits && (phoneDigits === pDigits || phoneDigits.endsWith(pDigits) || pDigits.endsWith(phoneDigits)));
+
+      if (isAuthorMatch || isPhoneMatch) {
         merged.set(String(p.id), p);
       }
     });
@@ -76,7 +89,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       const tB = new Date(b.createdAt || b.created_at || 0).getTime();
       return tB - tA;
     });
-  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile?.phone, vendorPost?.phone]);
+  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile, vendorPost?.phone]);
 
   // Derive consolidated metadata from available post / profile
   const referencePost = vendorPost || (vendorPosts.length > 0 ? vendorPosts[0] : null);
@@ -119,18 +132,45 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       }
     );
 
+    const loadPostsForVendor = (targetProf?: UserProfile | null) => {
+      const targetIdentifier = {
+        id: targetProf?.id || undefined,
+        phone: targetProf?.phone || referencePost?.phone || (cleanVendorName.match(/^\+?\d+$/) ? cleanVendorName : undefined),
+        displayName: targetProf?.displayName || undefined,
+        companyName: targetProf?.companyName || undefined,
+        fullName: targetProf?.fullName || undefined,
+        author: cleanVendorName,
+      };
+
+      fetchPostsByVendor(targetIdentifier).then((posts) => {
+        if (posts && posts.length > 0) {
+          setFetchedVendorPosts(posts);
+        }
+      });
+    };
+
     // Fetch complete user profile from Supabase
     const targetIdentifier = referencePost?.phone || cleanVendorName;
     fetchFullUserProfile(targetIdentifier).then((prof) => {
-      if (prof) setVendorProfile(prof);
-    });
-
-    // Fetch all posts by this vendor from database
-    fetchPostsByVendor(targetIdentifier).then((posts) => {
-      if (posts && posts.length > 0) {
-        setFetchedVendorPosts(posts);
+      if (prof) {
+        setVendorProfile(prof);
+        loadPostsForVendor(prof);
+      } else {
+        loadPostsForVendor(null);
       }
     });
+
+    // Also trigger initial load with available reference
+    loadPostsForVendor(null);
+
+    const handlePostsUpdated = () => {
+      loadPostsForVendor(vendorProfile);
+    };
+    window.addEventListener('dropthan_posts_updated', handlePostsUpdated);
+
+    return () => {
+      window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
+    };
   }, [isOpen, cleanVendorName, referencePost?.phone, currentUser]);
 
   if (!isOpen) return null;

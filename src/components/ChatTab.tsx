@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PostItem, UserProfile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { getOptimizedImageUrl } from '../utils/image';
 import { LocationMapModal } from './LocationMapModal';
 import {
   ChatConversation,
   PersistentMessage,
   fetchSupabaseMessages,
   saveSupabaseMessage,
+  subscribeToSupabaseMessages,
+  uploadMediaToSmartBucket,
+  generateValidUUID,
 } from '../lib/supabase';
 
 interface ChatTabProps {
@@ -81,6 +85,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
   const [inputText, setInputText] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [callNotification, setCallNotification] = useState<string | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [selectedMediaUrl, setSelectedMediaUrl] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 768;
@@ -90,6 +96,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Responsive tracker
   useEffect(() => {
@@ -140,11 +147,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     }
   }, [activeVendor]);
 
-  // Load persistent messages when activeChatId changes
+  // Load persistent messages when activeChatId changes & Subscribe to Supabase Realtime
   useEffect(() => {
     if (!activeChatId) return;
 
-    // First load from localStorage for instantaneous response
+    const userId = currentUser?.id || currentUser?.phone;
+    const userPhone = currentUser?.phone;
+
+    // 1. Initial Load from LocalStorage for immediate instant UI response
     const localKey = `dropthan_msg_${activeChatId}`;
     const localCached = localStorage.getItem(localKey);
     if (localCached) {
@@ -156,10 +166,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
       } catch (e) {}
     }
 
-    // Simultaneously fetch from Supabase messages table and sync with privacy checks
-    const userId = currentUser?.id || currentUser?.phone;
-    const userPhone = currentUser?.phone;
-    fetchSupabaseMessages(activeChatId, userId, userPhone).then((fetchedMsgs) => {
+    // 2. Fetch from Supabase Messages Table
+    const syncMessages = async () => {
+      const fetchedMsgs = await fetchSupabaseMessages(activeChatId, userId, userPhone);
       if (fetchedMsgs && fetchedMsgs.length > 0) {
         setMessages(fetchedMsgs);
       } else {
@@ -168,7 +177,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           if (prev.length > 0) return prev;
           const currentConv = conversations.find((c) => c.id === activeChatId);
           const welcomeMsg: PersistentMessage = {
-            id: `msg-${Date.now()}`,
+            id: generateValidUUID(),
             chat_id: activeChatId,
             sender_id: currentConv?.partnerId || 'vendor',
             receiver_id: currentUser?.id || currentUser?.phone || 'user',
@@ -182,12 +191,30 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           return [welcomeMsg];
         });
       }
+    };
+
+    syncMessages();
+
+    // 3. Subscribe to Supabase Realtime Messages table updates
+    const unsubscribe = subscribeToSupabaseMessages((payload) => {
+      console.log('⚡ [Realtime Listener] Message change detected in ChatTab:', payload);
+      syncMessages();
     });
+
+    // 4. Background heartbeat sync interval (every 3 seconds) to guarantee real-time delivery
+    const heartbeatInterval = setInterval(() => {
+      syncMessages();
+    }, 3000);
 
     // Clear unread count for this conversation
     setConversations((prev) =>
       prev.map((c) => (c.id === activeChatId ? { ...c, unreadCount: 0 } : c))
     );
+
+    return () => {
+      unsubscribe();
+      clearInterval(heartbeatInterval);
+    };
   }, [activeChatId, currentUser]);
 
   // Scroll to bottom smoothly on messages update
@@ -199,72 +226,102 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
   const activeConv = conversations.find((c) => c.id === activeChatId);
 
+  // Handle Photo Attachment to Cloudinary
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploadingMedia(true);
+      const userPhone = currentUser?.phone || 'trader';
+      console.log(`☁️ [Chat Media] Uploading attachment directly to Cloudinary...`);
+      const secureUrl = await uploadMediaToSmartBucket(file, userPhone, 'chat_attachment');
+      if (secureUrl) {
+        setSelectedMediaUrl(secureUrl);
+      }
+    } catch (err) {
+      console.error('Error uploading chat image:', err);
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
-    if (!text || !activeChatId) return;
+    const mediaUrl = selectedMediaUrl;
+
+    if ((!text && !mediaUrl) || !activeChatId) return;
 
     const currentSenderId = currentUser?.id || currentUser?.phone || 'user';
     const currentReceiverId = activeConv?.partnerId || 'vendor';
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: PersistentMessage = {
-      id: `msg-${Date.now()}`,
+      id: generateValidUUID(),
       chat_id: activeChatId,
       sender_id: currentSenderId,
       receiver_id: currentReceiverId,
       sender_name: currentUser?.displayName || 'Me',
-      text,
+      text: text || (mediaUrl ? '📷 Photo Attachment' : ''),
+      media_url: mediaUrl || undefined,
       is_me: true,
       timestamp: timeStr,
       created_at: new Date().toISOString(),
     };
 
+    // 1. Optimistic UI update
     setMessages((prev) => [...prev, userMsg]);
     if (!textToSend) setInputText('');
+    setSelectedMediaUrl(null);
 
-    // Save permanently to Supabase and localStorage
+    // 2. Save permanently to Supabase and broadcast
     await saveSupabaseMessage(userMsg);
 
-    // Update conversation lastMessage
+    // 3. Update conversation lastMessage preview
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeChatId ? { ...c, lastMessage: text, lastTimestamp: timeStr } : c
+        c.id === activeChatId ? { ...c, lastMessage: userMsg.text, lastTimestamp: timeStr } : c
       )
     );
 
-    // Auto-reply simulation for instant interactive feedback
-    setTimeout(async () => {
-      let replyText = 'Requirement noted! Our wholesale manager will verify inventory and revert with GST invoice rates.';
-      const lower = text.toLowerCase();
-      if (lower.includes('price') || lower.includes('quote') || lower.includes('cost')) {
-        replyText = `Wholesale factory pricing is tier-based. Special 10% volume discount applied for orders > 100 units!`;
-      } else if (lower.includes('moq') || lower.includes('quantity')) {
-        replyText = `Standard MOQ is 25 pcs per color/variant. Ready stock is available for express freight dispatch.`;
-      } else if (lower.includes('catalog') || lower.includes('pdf')) {
-        replyText = `📄 PDF Catalog & Price Matrix updated for ${activeConv?.partnerName || 'Supplier'}!`;
-      }
+    // Auto-reply simulation for instant interactive feedback if chatting with demo vendor
+    if (!activeConv?.partnerPhone || activeConv.partnerId.startsWith('supplier-') || activeConv.partnerId === 'vendor') {
+      setTimeout(async () => {
+        let replyText = 'Requirement noted! Our wholesale manager will verify inventory and revert with GST invoice rates.';
+        const lower = text.toLowerCase();
+        if (lower.includes('price') || lower.includes('quote') || lower.includes('cost')) {
+          replyText = `Wholesale factory pricing is tier-based. Special 10% volume discount applied for orders > 100 units!`;
+        } else if (lower.includes('moq') || lower.includes('quantity')) {
+          replyText = `Standard MOQ is 25 pcs per color/variant. Ready stock is available for express freight dispatch.`;
+        } else if (lower.includes('catalog') || lower.includes('pdf')) {
+          replyText = `📄 PDF Catalog & Price Matrix updated for ${activeConv?.partnerName || 'Supplier'}!`;
+        } else if (mediaUrl) {
+          replyText = `Thank you for sharing the photo sample! We have verified this design and can manufacture with custom private labeling.`;
+        }
 
-      const replyMsg: PersistentMessage = {
-        id: `msg-${Date.now() + 1}`,
-        chat_id: activeChatId,
-        sender_id: currentReceiverId,
-        receiver_id: currentSenderId,
-        sender_name: activeConv?.partnerName || 'Supplier',
-        text: replyText,
-        is_me: false,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        created_at: new Date().toISOString(),
-      };
+        const replyMsg: PersistentMessage = {
+          id: generateValidUUID(),
+          chat_id: activeChatId,
+          sender_id: currentReceiverId,
+          receiver_id: currentSenderId,
+          sender_name: activeConv?.partnerName || 'Supplier',
+          text: replyText,
+          is_me: false,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          created_at: new Date().toISOString(),
+        };
 
-      setMessages((prev) => [...prev, replyMsg]);
-      await saveSupabaseMessage(replyMsg);
+        setMessages((prev) => [...prev, replyMsg]);
+        await saveSupabaseMessage(replyMsg);
 
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === activeChatId ? { ...c, lastMessage: replyText, lastTimestamp: replyMsg.timestamp } : c
-        )
-      );
-    }, 700);
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeChatId ? { ...c, lastMessage: replyText, lastTimestamp: replyMsg.timestamp } : c
+          )
+        );
+      }, 700);
+    }
   };
 
   const handleVoiceCall = (phone?: string, name?: string) => {
@@ -309,7 +366,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             <button
               type="button"
               onClick={() => setChatSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-bold"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
             >
               ✕
             </button>
@@ -321,81 +378,73 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           <button
             type="button"
             onClick={() => setActiveFilter('all')}
-            className={`px-3 py-1 rounded-full text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1 rounded-full text-xs font-bold transition whitespace-nowrap cursor-pointer ${
               activeFilter === 'all'
                 ? 'bg-[#0d47a1] text-white shadow-2xs'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            All ({conversations.length})
+            All Chats ({conversations.length})
           </button>
           <button
             type="button"
             onClick={() => setActiveFilter('unread')}
-            className={`px-3 py-1 rounded-full text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1 rounded-full text-xs font-bold transition whitespace-nowrap cursor-pointer ${
               activeFilter === 'unread'
                 ? 'bg-[#0d47a1] text-white shadow-2xs'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            Unread ({conversations.filter((c) => (c.unreadCount || 0) > 0).length})
+            Unread
           </button>
         </div>
       </div>
 
-      {/* CHAT ITEMS LIST */}
+      {/* CONVERSATION ITEMS */}
       <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
         {filteredConversations.length === 0 ? (
-          <div className="p-8 text-center space-y-2">
+          <div className="p-8 text-center text-slate-400 space-y-2">
             <span className="text-3xl block">💬</span>
-            <p className="text-xs font-bold text-slate-700">No chats found</p>
-            <p className="text-[10px] text-slate-500">Tap "Inquire" on any feed listing to start a chat</p>
+            <p className="text-xs font-bold text-slate-600">No conversations found</p>
+            <p className="text-[11px]">Start inquiring with verified suppliers from the Feed or Search tab.</p>
           </div>
         ) : (
           filteredConversations.map((conv) => {
-            const isSelected = isDesktop && activeChatId === conv.id;
+            const isSelected = conv.id === activeChatId;
             return (
               <div
                 key={conv.id}
                 onClick={() => setActiveChatId(conv.id)}
-                className={`p-3 flex items-center justify-between cursor-pointer transition group ${
-                  isSelected
-                    ? 'bg-blue-50 border-l-4 border-[#0d47a1]'
-                    : 'hover:bg-slate-50/90 bg-white'
+                className={`p-3.5 flex items-center justify-between cursor-pointer transition select-none ${
+                  isSelected ? 'bg-blue-50/80 border-l-4 border-[#0d47a1]' : 'hover:bg-slate-50'
                 }`}
               >
-                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                <div className="flex items-center space-x-3 min-w-0">
                   <div className="relative flex-shrink-0">
                     <img
                       src={getAvatarUrl(conv.partnerAvatar)}
                       alt={conv.partnerName}
-                      loading="lazy"
-                      className="w-11 h-11 rounded-full object-cover border border-blue-100 shadow-2xs"
+                      className="w-11 h-11 rounded-full object-cover border border-slate-200"
                     />
-                    {conv.partnerGstin && (
-                      <span
-                        className="absolute -bottom-0.5 -right-0.5 bg-[#0d47a1] text-white text-[8px] font-black px-1 rounded-full border border-white"
-                        title="Verified GST Supplier"
-                      >
-                        ✓
-                      </span>
-                    )}
+                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
                   </div>
 
-                  <div className="min-w-0 flex-1 pr-2">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <h4
-                        className={`text-xs font-bold truncate transition ${
-                          isSelected ? 'text-[#0d47a1]' : 'text-slate-900 group-hover:text-[#0d47a1]'
-                        }`}
-                      >
-                        {conv.partnerName}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-900 truncate flex items-center gap-1">
+                        <span>{conv.partnerName}</span>
+                        {conv.partnerGstin && (
+                          <span className="text-[#0d47a1] text-[10px] font-black" title="GST Verified">
+                            ✓
+                          </span>
+                        )}
                       </h4>
-                      <span className="text-[10px] text-slate-400 font-medium flex-shrink-0 ml-1">
+                      <span className="text-[10px] text-slate-400 font-medium ml-1 flex-shrink-0">
                         {conv.lastTimestamp}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 truncate leading-snug">
+
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
                       {conv.lastMessage}
                     </p>
                   </div>
@@ -548,7 +597,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
         <div className="flex-1 min-h-[260px] overflow-y-auto p-3.5 sm:p-4 space-y-3 bg-slate-50/80">
           <div className="text-center my-1.5">
             <span className="text-[10px] font-bold bg-slate-200/80 text-slate-600 px-3 py-1 rounded-full">
-              🔒 End-to-End Verified B2B Trade Chat
+              🔒 End-to-End Verified B2B Trade Chat • Supabase Realtime Active
             </span>
           </div>
 
@@ -561,7 +610,18 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
                     : 'bg-white text-slate-800 border border-slate-200 rounded-tl-xs'
                 }`}
               >
-                <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                {/* Media Image if present */}
+                {m.media_url && (
+                  <div className="rounded-xl overflow-hidden mb-2 border border-black/10 bg-black/5">
+                    <img
+                      src={getOptimizedImageUrl(m.media_url, 600)}
+                      alt="Attachment"
+                      className="w-full max-h-60 object-cover rounded-lg"
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+                {m.text && <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>}
                 <div className="flex items-center justify-end space-x-1 mt-1">
                   <span className={`text-[9px] ${m.is_me ? 'text-blue-200' : 'text-slate-400'}`}>
                     {m.timestamp}
@@ -574,6 +634,36 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           <div ref={messagesEndRef} />
         </div>
 
+        {/* SELECTED ATTACHMENT PREVIEW */}
+        {selectedMediaUrl && (
+          <div className="px-3 py-2 bg-blue-50 border-t border-blue-200 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <img
+                src={selectedMediaUrl}
+                alt="Selected"
+                className="w-12 h-12 rounded-lg object-cover border border-blue-300"
+              />
+              <span className="text-xs font-bold text-blue-900">Photo attached (Cloudinary)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedMediaUrl(null)}
+              className="text-rose-600 hover:text-rose-800 text-xs font-bold px-2 py-1 bg-white rounded-md border border-rose-200"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
+        {/* HIDDEN FILE INPUT */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoSelect}
+          className="hidden"
+        />
+
         {/* RESTORED TYPING INPUT BOX - ALWAYS VISIBLE AT BOTTOM */}
         <form
           onSubmit={(e) => {
@@ -582,6 +672,20 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           }}
           className="p-3 bg-white border-t border-slate-200 flex items-center space-x-2 flex-shrink-0 shadow-xs"
         >
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploadingMedia}
+            className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition cursor-pointer flex-shrink-0 active:scale-95 disabled:opacity-50"
+            title="Attach Image / Product Sample"
+          >
+            {isUploadingMedia ? (
+              <span className="inline-block animate-spin text-sm">⏳</span>
+            ) : (
+              <span className="text-sm">📷</span>
+            )}
+          </button>
+
           <input
             ref={inputRef}
             type="text"
@@ -592,9 +696,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           />
           <button
             type="submit"
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() && !selectedMediaUrl}
             className={`font-bold text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-2xs active:scale-95 flex-shrink-0 ${
-              inputText.trim()
+              inputText.trim() || selectedMediaUrl
                 ? 'bg-[#0d47a1] hover:bg-blue-800 text-white'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
             }`}
@@ -644,3 +748,4 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     </div>
   );
 };
+

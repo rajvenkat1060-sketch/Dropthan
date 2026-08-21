@@ -304,6 +304,126 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
   }
 });
 
+// Server-Side Messages Listing Endpoint
+app.get("/api/messages", async (req, res) => {
+  try {
+    const chatId = (req.query.chat_id as string || "").trim();
+    if (!chatId) {
+      res.status(400).json({ error: "chat_id is required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available on server" });
+      return;
+    }
+
+    let { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: true });
+
+    if (error && (error.code === "42703" || error.message.includes("chat_id"))) {
+      const fallback = await supabase.from("messages").select("*").order("created_at", { ascending: true }).limit(200);
+      data = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      console.warn("[Server Messages] Error:", error.message);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.json({ success: true, messages: data || [] });
+  } catch (err: any) {
+    console.error("[Server Messages] Exception:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch messages" });
+  }
+});
+
+// Server-Side Message Creation Endpoint (Guarantees Realtime and Multi-User Delivery)
+app.post("/api/messages/create", async (req, res) => {
+  try {
+    const rawMsg = req.body;
+    if (!rawMsg || !rawMsg.chat_id) {
+      res.status(400).json({ error: "chat_id and payload required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available on server" });
+      return;
+    }
+
+    const msgPayload: Record<string, any> = {
+      chat_id: rawMsg.chat_id,
+      sender_id: rawMsg.sender_id || "",
+      receiver_id: rawMsg.receiver_id || null,
+      sender_name: rawMsg.sender_name || null,
+      text: rawMsg.text || rawMsg.content || "",
+      media_url: rawMsg.media_url || rawMsg.mediaUrl || null,
+      is_me: Boolean(rawMsg.is_me),
+      timestamp: rawMsg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      created_at: rawMsg.created_at || new Date().toISOString(),
+    };
+
+    if (rawMsg.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawMsg.id)) {
+      msgPayload.id = rawMsg.id;
+    }
+
+    let savedData: any = null;
+    let savedError: any = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const resInsert = await supabase.from("messages").insert([msgPayload]).select();
+      if (!resInsert.error) {
+        savedData = resInsert.data;
+        savedError = null;
+        console.log(`[Server Messages Sync] Inserted message on attempt ${attempt + 1}!`);
+        break;
+      }
+
+      savedError = resInsert.error;
+      console.warn(`[Server Messages Sync] Attempt ${attempt + 1} notice:`, savedError.message);
+
+      if (savedError.message.includes("uuid") || savedError.code === "22P02" || savedError.code === "23505") {
+        delete msgPayload.id;
+        continue;
+      }
+
+      const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
+                              savedError.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
+                              savedError.message.match(/column "(\w+)" does not exist/i);
+
+      if (missingColMatch && missingColMatch[1] && msgPayload[missingColMatch[1]] !== undefined) {
+        delete msgPayload[missingColMatch[1]];
+        continue;
+      }
+
+      if (savedError.message.includes("content") && !msgPayload.content) {
+        msgPayload.content = msgPayload.text;
+      }
+
+      break;
+    }
+
+    if (savedError) {
+      console.error("[Server Messages Sync] Error saving message:", savedError);
+      res.status(400).json({ error: savedError.message });
+      return;
+    }
+
+    res.json({ success: true, message: msgPayload, data: savedData });
+  } catch (err: any) {
+    console.error("[Server Messages Sync] Exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  }
+});
+
 // App Config & Credentials Endpoint
 app.get("/api/config", (_req, res) => {
   res.json({

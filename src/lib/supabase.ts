@@ -8,6 +8,19 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publisha
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+export const generateValidUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      return crypto.randomUUID();
+    } catch (e) {}
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 export const checkSupabaseConnection = async (): Promise<boolean> => {
   try {
     const { error } = await supabase.from('posts').select('id').limit(1);
@@ -600,16 +613,28 @@ export const subscribeToSupabaseLikes = (onLikesChange: () => void) => {
   };
 };
 
-export const subscribeToSupabaseMessages = (onMessagesChange: () => void) => {
+export const subscribeToSupabaseMessages = (onMessagesChange: (payload?: any) => void) => {
+  const channelName = `public:messages_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const channel = supabase
-    .channel('public:messages')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-      console.log('⚡ [Realtime Supabase] Messages table update detected');
-      onMessagesChange();
+    .channel(channelName)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
+      console.log('⚡ [Realtime Supabase] Messages table update detected:', payload);
+      onMessagesChange(payload);
     })
-    .subscribe();
+    .subscribe((status) => {
+      console.log('📡 [Supabase Messages Realtime Status]:', status);
+    });
+
+  const handleLocalEvent = (e: any) => {
+    onMessagesChange({ eventType: 'INSERT', new: e.detail });
+  };
+  window.addEventListener('dropthan_message_sent', handleLocalEvent);
+  window.addEventListener('dropthan_message_received', handleLocalEvent);
+
   return () => {
     supabase.removeChannel(channel);
+    window.removeEventListener('dropthan_message_sent', handleLocalEvent);
+    window.removeEventListener('dropthan_message_received', handleLocalEvent);
   };
 };
 
@@ -853,6 +878,7 @@ export interface PersistentMessage {
   receiver_id?: string;
   sender_name?: string;
   text: string;
+  media_url?: string;
   is_me: boolean;
   timestamp: string;
   created_at: string;
@@ -874,122 +900,211 @@ export const fetchSupabaseMessages = async (
     }
   }
 
-  // Check admin authorization
   const cleanPhone = (currentUserPhone || '').replace(/\D/g, '');
-  const isAdmin = cleanPhone.endsWith('8838533014') || cleanPhone === '8838533014';
+  const cleanUserId = (currentUserId || '').trim();
 
   try {
-    // Attempt 1: Query by chat_id
+    // 1. Direct Supabase query by chat_id
     let res = await supabase
       .from('messages')
       .select('*')
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true });
 
-    // Attempt 2: If chat_id column not found, fallback query
+    // Fallback if chat_id column has alternate naming or schema variance
     if (res.error && (res.error.code === '42703' || res.error.message.includes('chat_id'))) {
       res = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: true })
-        .limit(100);
+        .limit(200);
     }
 
     if (!res.error && res.data && res.data.length > 0) {
-      const filtered = res.data.filter((item: any) => {
-        // Strict chat_id check
-        if (item.chat_id && item.chat_id !== chatId) return false;
+      const msgs: PersistentMessage[] = res.data.map((item: any) => {
+        const sender = String(item.sender_id || item.senderId || '');
+        const senderDigits = sender.replace(/\D/g, '');
+        
+        // Dynamically compute is_me accurately for current viewing user
+        const isMe =
+          Boolean(item.is_me) ||
+          (cleanUserId && sender === cleanUserId) ||
+          (cleanPhone && senderDigits && (senderDigits === cleanPhone || cleanPhone.endsWith(senderDigits) || senderDigits.endsWith(cleanPhone)));
 
-        // If admin, allow all messages for safety & support
-        if (isAdmin) return true;
-
-        // Privacy filter: Ensure message belongs to this thread / participants
-        if (currentUserId) {
-          const senderMatch = item.sender_id === currentUserId || item.sender_id === cleanPhone;
-          const receiverMatch = item.receiver_id === currentUserId || item.receiver_id === cleanPhone;
-          // In peer-to-peer or vendor chat, if sender/receiver defined, ensure user is a participant
-          if (item.sender_id && item.receiver_id) {
-            return senderMatch || receiverMatch || item.chat_id === chatId;
-          }
-        }
-        return true;
-      });
-
-      if (filtered.length > 0) {
-        const msgs: PersistentMessage[] = filtered.map((item: any) => ({
+        return {
           id: String(item.id || `msg-${Date.now()}`),
-          chat_id: String(item.chat_id || chatId),
-          sender_id: item.sender_id || '',
-          receiver_id: item.receiver_id || '',
-          sender_name: item.sender_name || '',
+          chat_id: String(item.chat_id || item.chatId || chatId),
+          sender_id: sender,
+          receiver_id: item.receiver_id || item.receiverId || '',
+          sender_name: item.sender_name || item.senderName || '',
           text: item.text || item.content || '',
-          is_me: item.is_me !== undefined ? Boolean(item.is_me) : item.sender_id === (currentUserId || cleanPhone),
+          media_url: item.media_url || item.mediaUrl || item.image_url || undefined,
+          is_me: isMe,
           timestamp: item.timestamp || new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           created_at: item.created_at || new Date().toISOString(),
-        }));
-        localStorage.setItem(localKey, JSON.stringify(msgs));
-        return msgs;
-      }
+        };
+      });
+
+      // Filter to relevant messages for this chat
+      const relevantMsgs = msgs.filter((m) => !m.chat_id || m.chat_id === chatId);
+
+      // Merge with localStorage
+      const mergedMap = new Map<string, PersistentMessage>();
+      fallback.forEach((m) => mergedMap.set(m.id, m));
+      relevantMsgs.forEach((m) => mergedMap.set(m.id, m));
+
+      const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+
+      try {
+        localStorage.setItem(localKey, JSON.stringify(mergedList));
+      } catch (e) {}
+
+      return mergedList;
     }
   } catch (err) {
-    // Non-blocking fallback
+    console.warn('Notice querying Supabase messages:', err);
   }
+
+  // 2. Server API fallback
+  try {
+    const resp = await fetch(`/api/messages?chat_id=${encodeURIComponent(chatId)}`);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json.success && Array.isArray(json.messages) && json.messages.length > 0) {
+        const msgs: PersistentMessage[] = json.messages.map((item: any) => {
+          const sender = String(item.sender_id || item.senderId || '');
+          const senderDigits = sender.replace(/\D/g, '');
+          const isMe =
+            Boolean(item.is_me) ||
+            (cleanUserId && sender === cleanUserId) ||
+            (cleanPhone && senderDigits && (senderDigits === cleanPhone || cleanPhone.endsWith(senderDigits) || senderDigits.endsWith(cleanPhone)));
+
+          return {
+            id: String(item.id || `msg-${Date.now()}`),
+            chat_id: String(item.chat_id || chatId),
+            sender_id: sender,
+            receiver_id: item.receiver_id || '',
+            sender_name: item.sender_name || '',
+            text: item.text || item.content || '',
+            media_url: item.media_url || item.mediaUrl || item.image_url || undefined,
+            is_me: isMe,
+            timestamp: item.timestamp || new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            created_at: item.created_at || new Date().toISOString(),
+          };
+        });
+
+        const mergedMap = new Map<string, PersistentMessage>();
+        fallback.forEach((m) => mergedMap.set(m.id, m));
+        msgs.forEach((m) => mergedMap.set(m.id, m));
+
+        const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+
+        localStorage.setItem(localKey, JSON.stringify(mergedList));
+        return mergedList;
+      }
+    }
+  } catch (e) {}
 
   return fallback;
 };
 
-export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<void> => {
+export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<{ success: boolean; data?: any }> => {
+  // 1. Immediately cache in localStorage for zero latency
   const localKey = `dropthan_msg_${msg.chat_id}`;
   let existing: PersistentMessage[] = [];
-  const stored = localStorage.getItem(localKey);
-  if (stored) {
-    try {
-      existing = JSON.parse(stored);
-    } catch (e) {
-      /* ignore */
-    }
+  try {
+    const stored = localStorage.getItem(localKey);
+    if (stored) existing = JSON.parse(stored);
+  } catch (e) {}
+
+  const existsIdx = existing.findIndex((m) => m.id === msg.id);
+  if (existsIdx >= 0) {
+    existing[existsIdx] = msg;
+  } else {
+    existing.push(msg);
   }
-  existing.push(msg);
   localStorage.setItem(localKey, JSON.stringify(existing));
 
-  try {
-    let payload: any = {
-      id: msg.id,
-      chat_id: msg.chat_id,
-      sender_id: msg.sender_id,
-      receiver_id: msg.receiver_id || null,
-      sender_name: msg.sender_name || null,
-      text: msg.text,
-      content: msg.text,
-      is_me: msg.is_me,
-      timestamp: msg.timestamp,
-      created_at: msg.created_at,
-    };
+  // 2. Prepare payload for Supabase public.messages table
+  const messageUuid = isUuid(msg.id) ? msg.id : generateValidUUID();
 
-    let attempts = 0;
-    while (attempts < 6) {
-      attempts++;
-      const { error } = await supabase.from('messages').upsert(payload);
-      if (!error) break;
+  const basePayload: Record<string, any> = {
+    chat_id: msg.chat_id,
+    sender_id: msg.sender_id,
+    receiver_id: msg.receiver_id || null,
+    sender_name: msg.sender_name || null,
+    text: msg.text || '',
+    media_url: msg.media_url || null,
+    is_me: msg.is_me,
+    timestamp: msg.timestamp,
+    created_at: msg.created_at || new Date().toISOString(),
+  };
 
-      // Extract unknown column from error message and remove from payload
-      const colMatch = error.message.match(/Could not find the '(\w+)' column/) ||
-                       error.message.match(/column "?(\w+)"? of relation "messages" does not exist/);
-      if (colMatch && colMatch[1] && payload[colMatch[1]] !== undefined) {
-        delete payload[colMatch[1]];
-        continue;
-      }
+  let saved = false;
+  let savedData: any = null;
 
-      // Fallback try simple insert
-      if (payload.chat_id) {
-        delete payload.chat_id;
-        continue;
-      }
+  // Multi-attempt insert with UUID and column fallback
+  const payloadToSave: Record<string, any> = { id: messageUuid, ...basePayload };
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { data, error } = await supabase.from('messages').insert([payloadToSave]).select();
+    if (!error) {
+      saved = true;
+      savedData = data;
+      console.log('✅ [Supabase Messages] Message inserted successfully into public.messages table:', data);
       break;
     }
-  } catch (err) {
-    // Persisted in localStorage
+
+    console.warn(`[Supabase Message Insert Attempt ${attempt + 1}] notice:`, error.message);
+
+    // If UUID syntax error or PK conflict on id, try without id (let table generate or handle)
+    if (error.message.includes('uuid') || error.code === '22P02' || error.code === '23505') {
+      delete payloadToSave.id;
+      continue;
+    }
+
+    // Extract unknown column from error message and remove from payload
+    const colMatch =
+      error.message.match(/Could not find the '(\w+)' column/i) ||
+      error.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
+      error.message.match(/column "(\w+)" does not exist/i);
+
+    if (colMatch && colMatch[1] && payloadToSave[colMatch[1]] !== undefined) {
+      console.log(`Pruning unmapped column '${colMatch[1]}' from messages payload...`);
+      delete payloadToSave[colMatch[1]];
+      continue;
+    }
+
+    // If content column expected instead of text
+    if (error.message.includes('content') && !payloadToSave.content) {
+      payloadToSave.content = payloadToSave.text;
+    }
+
+    break;
   }
+
+  // 3. Backup server proxy post
+  try {
+    const resp = await fetch('/api/messages/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: messageUuid, ...basePayload }),
+    });
+    if (resp.ok) {
+      saved = true;
+    }
+  } catch (e) {}
+
+  // 4. Dispatch local event for real-time instant cross-component awareness
+  try {
+    window.dispatchEvent(new CustomEvent('dropthan_message_sent', { detail: msg }));
+  } catch (e) {}
+
+  return { success: saved, data: savedData };
 };
 
 // ==========================================
@@ -997,21 +1112,9 @@ export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<void>
 // ==========================================
 
 // Helper to validate and generate UUIDs for Supabase PostgreSQL tables
-const isUuid = (v?: string): boolean =>
+export const isUuid = (v?: string): boolean =>
   typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 
-const generateValidUUID = (): string => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    try {
-      return crypto.randomUUID();
-    } catch (e) {}
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-};
 
 export const ensureSupabaseAuthUser = async (phone: string): Promise<string | null> => {
   const digits = (phone || '').replace(/\D/g, '');
@@ -1796,80 +1899,153 @@ export const fetchFullUserProfile = async (identifier: string): Promise<UserProf
   return null;
 };
 
-export const fetchPostsByVendor = async (vendorIdentifier: string): Promise<PostItem[]> => {
+export const fetchPostsByVendor = async (
+  vendorIdentifier: string | { id?: string; phone?: string; displayName?: string; companyName?: string; fullName?: string; author?: string }
+): Promise<PostItem[]> => {
   if (!vendorIdentifier) return [];
-  const cleanId = vendorIdentifier.trim();
-  const lower = cleanId.toLowerCase();
+
+  let cleanId = '';
+  let cleanPhone = '';
+  let cleanDigits = '';
+  let targetAuthor = '';
+  let targetCompany = '';
+  let targetDisplayName = '';
+  let targetFullName = '';
+  let userId = '';
+
+  if (typeof vendorIdentifier === 'string') {
+    cleanId = vendorIdentifier.trim();
+    if (/^\+?\d[\d\s-]{6,}$/.test(cleanId)) {
+      cleanPhone = cleanId;
+      cleanDigits = cleanId.replace(/\D/g, '');
+    } else {
+      targetAuthor = cleanId;
+    }
+  } else {
+    cleanPhone = (vendorIdentifier.phone || '').trim();
+    cleanDigits = cleanPhone.replace(/\D/g, '');
+    userId = (vendorIdentifier.id || '').trim();
+    targetAuthor = (vendorIdentifier.author || '').trim();
+    targetCompany = (vendorIdentifier.companyName || '').trim();
+    targetDisplayName = (vendorIdentifier.displayName || '').trim();
+    targetFullName = (vendorIdentifier.fullName || '').trim();
+    cleanId = cleanPhone || targetCompany || targetDisplayName || targetAuthor || userId;
+  }
 
   let remotePosts: PostItem[] = [];
 
-  // 1. Direct Supabase Query
-  try {
-    let { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .or(`phone.eq.${cleanId},author.ilike.%${cleanId}%,author.eq.${cleanId}`)
-      .order('created_at', { ascending: false });
+  const mapPostItem = (item: any): PostItem => ({
+    id: String(item.id || `post_${Date.now()}`),
+    author: item.author || targetCompany || targetDisplayName || 'Dropthan Member',
+    role: item.role || 'wholesaler',
+    price: item.price || 'Rate on Request',
+    moq: item.moq || 'Custom MOQ',
+    caption: item.caption || item.description || '',
+    img: item.img || item.image || item.photo || (Array.isArray(item.images) && item.images[0]) || '',
+    images: Array.isArray(item.images) && item.images.length > 0 ? item.images : [item.img || item.image || item.photo || ''],
+    phone: item.phone || cleanPhone || '',
+    location: item.location || '',
+    category: item.category || 'Textiles & Apparel',
+    likesCount: item.likes_count ?? item.likesCount ?? 15,
+    authorAvatar: item.author_avatar || item.authorAvatar || '',
+    gstin: item.gstin || undefined,
+    iecCode: item.iec_code || item.iecCode || undefined,
+    website: item.website || undefined,
+    instagram: item.instagram || undefined,
+    createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+    created_at: item.created_at || item.createdAt || new Date().toISOString(),
+  });
 
-    if (!error && data && data.length > 0) {
-      remotePosts = data.map((item: any) => ({
-        id: String(item.id || `post_${Date.now()}`),
-        author: item.author || 'Dropthan Member',
-        role: item.role || 'wholesaler',
-        price: item.price || 'Rate on Request',
-        moq: item.moq || 'Custom MOQ',
-        caption: item.caption || item.description || '',
-        img: item.img || item.image || item.photo || (Array.isArray(item.images) && item.images[0]) || '',
-        images: Array.isArray(item.images) ? item.images : [item.img || item.image || ''],
-        phone: item.phone || '',
-        location: item.location || '',
-        category: item.category || 'Textiles & Apparel',
-        likesCount: item.likes_count ?? 15,
-        authorAvatar: item.author_avatar || '',
-        createdAt: item.created_at || new Date().toISOString(),
-      }));
+  // 1. Direct Supabase Query against posts table
+  try {
+    const queryPromises: PromiseLike<any>[] = [];
+
+    // Query by exact phone and partial digits
+    if (cleanPhone) {
+      queryPromises.push(supabase.from('posts').select('*').eq('phone', cleanPhone));
     }
-  } catch (e) {}
+    if (cleanDigits && cleanDigits.length >= 6) {
+      queryPromises.push(supabase.from('posts').select('*').ilike('phone', `%${cleanDigits.slice(-10)}%`));
+    }
+
+    // Query by author name / company / display name
+    const authorCandidates = Array.from(new Set([targetAuthor, targetCompany, targetDisplayName, targetFullName].filter(Boolean)));
+    authorCandidates.forEach((cand) => {
+      queryPromises.push(supabase.from('posts').select('*').eq('author', cand));
+      queryPromises.push(supabase.from('posts').select('*').ilike('author', `%${cand}%`));
+    });
+
+    // Query by user ID if provided
+    if (userId) {
+      queryPromises.push(supabase.from('posts').select('*').eq('id', userId));
+    }
+
+    const results = await Promise.all(queryPromises as Promise<any>[]);
+    results.forEach((res) => {
+      if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
+        res.data.forEach((item: any) => {
+          remotePosts.push(mapPostItem(item));
+        });
+      }
+    });
+  } catch (e) {
+    console.warn('Notice during direct Supabase posts query:', e);
+  }
 
   // 2. Server API fallback
-  if (remotePosts.length === 0) {
-    try {
-      const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(cleanId)}`);
+  try {
+    const searchParam = cleanPhone || cleanDigits || targetCompany || targetDisplayName || targetAuthor || cleanId;
+    if (searchParam) {
+      const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(searchParam)}`);
       if (resp.ok) {
         const json = await resp.json();
         if (json.success && Array.isArray(json.posts) && json.posts.length > 0) {
-          remotePosts = json.posts.map((item: any) => ({
-            id: String(item.id || `post_${Date.now()}`),
-            author: item.author || 'Dropthan Member',
-            role: item.role || 'wholesaler',
-            price: item.price || 'Rate on Request',
-            moq: item.moq || 'Custom MOQ',
-            caption: item.caption || item.description || '',
-            img: item.img || item.image || item.photo || (Array.isArray(item.images) && item.images[0]) || '',
-            images: Array.isArray(item.images) ? item.images : [item.img || item.image || ''],
-            phone: item.phone || '',
-            location: item.location || '',
-            category: item.category || 'Textiles & Apparel',
-            likesCount: item.likes_count ?? 15,
-            authorAvatar: item.author_avatar || '',
-            createdAt: item.created_at || new Date().toISOString(),
-          }));
+          json.posts.forEach((item: any) => {
+            remotePosts.push(mapPostItem(item));
+          });
         }
       }
-    } catch (e) {}
-  }
+    }
+  } catch (e) {}
 
-  // 3. Merge with global fetched posts from memory
-  const allPosts = await fetchSupabasePosts();
-  const matchedFromAll = allPosts.filter((p) => {
-    const a = (p.author || '').toLowerCase();
-    const ph = (p.phone || '').toLowerCase();
-    return a === lower || a.includes(lower) || lower.includes(a) || (ph && ph === lower);
-  });
+  // 3. Match against all Supabase posts in memory
+  try {
+    const allPosts = await fetchSupabasePosts();
+    const namesLower = [targetAuthor, targetCompany, targetDisplayName, targetFullName, cleanId]
+      .filter(Boolean)
+      .map((n) => n.toLowerCase());
 
+    const matchedFromAll = allPosts.filter((p) => {
+      const postAuthor = (p.author || '').toLowerCase().trim();
+      const postPhone = (p.phone || '').trim();
+      const postDigits = postPhone.replace(/\D/g, '');
+
+      // Check phone digits match
+      if (cleanDigits && postDigits) {
+        if (cleanDigits === postDigits || cleanDigits.endsWith(postDigits) || postDigits.endsWith(cleanDigits)) {
+          return true;
+        }
+      }
+
+      // Check author / company name match
+      if (postAuthor && namesLower.length > 0) {
+        const isMatch = namesLower.some(
+          (nl) => postAuthor === nl || postAuthor.includes(nl) || nl.includes(postAuthor)
+        );
+        if (isMatch) return true;
+      }
+
+      return false;
+    });
+
+    matchedFromAll.forEach((p) => remotePosts.push(p));
+  } catch (e) {}
+
+  // Deduplicate and sort by latest created_at
   const merged = new Map<string, PostItem>();
-  matchedFromAll.forEach((p) => merged.set(String(p.id), p));
-  remotePosts.forEach((p) => merged.set(String(p.id), p));
+  remotePosts.forEach((p) => {
+    if (p.id) merged.set(String(p.id), p);
+  });
 
   return Array.from(merged.values()).sort((a, b) => {
     const tA = new Date(a.createdAt || a.created_at || 0).getTime();
