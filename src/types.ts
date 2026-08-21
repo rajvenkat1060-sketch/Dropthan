@@ -37,6 +37,9 @@ export interface UserProfile {
 
 export interface PostItem {
   id: string;
+  user_id?: string;
+  userId?: string;
+  vendor_id?: string;
   author: string;
   title?: string;
   role: UserRole;

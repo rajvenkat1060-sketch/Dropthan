@@ -157,6 +157,9 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
 
     return {
       id: String(item.id || `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`),
+      user_id: item.user_id || item.userId || undefined,
+      userId: item.userId || item.user_id || undefined,
+      vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
       author:
         item.author ||
         item.company_name ||
@@ -1915,7 +1918,7 @@ export const fetchPostsByVendor = async (
 
   if (typeof vendorIdentifier === 'string') {
     cleanId = vendorIdentifier.trim();
-    if (/^\+?\d[\d\s-]{6,}$/.test(cleanId)) {
+    if (/^\+?\d[\d\s-]{6,}$/.test(cleanId) && !cleanId.includes('9876543210')) {
       cleanPhone = cleanId;
       cleanDigits = cleanId.replace(/\D/g, '');
     } else {
@@ -1923,6 +1926,7 @@ export const fetchPostsByVendor = async (
     }
   } else {
     cleanPhone = (vendorIdentifier.phone || '').trim();
+    if (cleanPhone.includes('9876543210')) cleanPhone = '';
     cleanDigits = cleanPhone.replace(/\D/g, '');
     userId = (vendorIdentifier.id || '').trim();
     targetAuthor = (vendorIdentifier.author || '').trim();
@@ -1932,10 +1936,27 @@ export const fetchPostsByVendor = async (
     cleanId = cleanPhone || targetCompany || targetDisplayName || targetAuthor || userId;
   }
 
+  const GENERIC_NAMES = new Set([
+    'dropthan member',
+    'dropthan b2b member',
+    'verified supplier',
+    'supplier',
+    'member',
+    'admin',
+    'user',
+    'wholesaler',
+    'dropshipper',
+    'reseller',
+    '',
+  ]);
+
   let remotePosts: PostItem[] = [];
 
   const mapPostItem = (item: any): PostItem => ({
     id: String(item.id || `post_${Date.now()}`),
+    user_id: item.user_id || item.userId || undefined,
+    userId: item.userId || item.user_id || undefined,
+    vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
     author: item.author || targetCompany || targetDisplayName || 'Dropthan Member',
     role: item.role || 'wholesaler',
     price: item.price || 'Rate on Request',
@@ -1960,24 +1981,29 @@ export const fetchPostsByVendor = async (
   try {
     const queryPromises: PromiseLike<any>[] = [];
 
-    // Query by exact phone and partial digits
+    // Query by exact phone
     if (cleanPhone) {
       queryPromises.push(supabase.from('posts').select('*').eq('phone', cleanPhone));
     }
-    if (cleanDigits && cleanDigits.length >= 6) {
-      queryPromises.push(supabase.from('posts').select('*').ilike('phone', `%${cleanDigits.slice(-10)}%`));
+    if (cleanDigits && cleanDigits.length >= 7) {
+      queryPromises.push(supabase.from('posts').select('*').eq('phone', `+${cleanDigits}`));
     }
 
-    // Query by author name / company / display name
-    const authorCandidates = Array.from(new Set([targetAuthor, targetCompany, targetDisplayName, targetFullName].filter(Boolean)));
+    // Query by exact author name / company / display name (NEVER generic or loose ilike substring)
+    const authorCandidates = Array.from(
+      new Set(
+        [targetAuthor, targetCompany, targetDisplayName, targetFullName]
+          .filter(Boolean)
+          .filter((cand) => !GENERIC_NAMES.has(cand.toLowerCase().trim()))
+      )
+    );
     authorCandidates.forEach((cand) => {
       queryPromises.push(supabase.from('posts').select('*').eq('author', cand));
-      queryPromises.push(supabase.from('posts').select('*').ilike('author', `%${cand}%`));
     });
 
     // Query by user ID if provided
     if (userId) {
-      queryPromises.push(supabase.from('posts').select('*').eq('id', userId));
+      queryPromises.push(supabase.from('posts').select('*').eq('user_id', userId));
     }
 
     const results = await Promise.all(queryPromises as Promise<any>[]);
@@ -1994,7 +2020,7 @@ export const fetchPostsByVendor = async (
 
   // 2. Server API fallback
   try {
-    const searchParam = cleanPhone || cleanDigits || targetCompany || targetDisplayName || targetAuthor || cleanId;
+    const searchParam = cleanPhone || cleanDigits || targetCompany || targetDisplayName || targetAuthor || userId;
     if (searchParam) {
       const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(searchParam)}`);
       if (resp.ok) {
@@ -2008,31 +2034,41 @@ export const fetchPostsByVendor = async (
     }
   } catch (e) {}
 
-  // 3. Match against all Supabase posts in memory
+  // 3. Match against all Supabase posts in memory using strict criteria
   try {
     const allPosts = await fetchSupabasePosts();
-    const namesLower = [targetAuthor, targetCompany, targetDisplayName, targetFullName, cleanId]
-      .filter(Boolean)
-      .map((n) => n.toLowerCase());
+    const exactNames = new Set(
+      [targetAuthor, targetCompany, targetDisplayName, targetFullName]
+        .filter(Boolean)
+        .map((n) => n.toLowerCase().trim())
+        .filter((n) => !GENERIC_NAMES.has(n))
+    );
 
     const matchedFromAll = allPosts.filter((p) => {
+      if (p.id && (p.id.startsWith('vendor-') || p.id.startsWith('temp-'))) {
+        return false;
+      }
+
       const postAuthor = (p.author || '').toLowerCase().trim();
       const postPhone = (p.phone || '').trim();
       const postDigits = postPhone.replace(/\D/g, '');
+      const postUserId = (p as any).user_id || (p as any).userId;
 
-      // Check phone digits match
-      if (cleanDigits && postDigits) {
-        if (cleanDigits === postDigits || cleanDigits.endsWith(postDigits) || postDigits.endsWith(cleanDigits)) {
+      // Check user ID match
+      if (userId && postUserId && (postUserId === userId || String(postUserId) === String(userId))) {
+        return true;
+      }
+
+      // Check phone digits match (exact last 10 digits)
+      if (cleanDigits && postDigits && cleanDigits.length >= 7 && postDigits.length >= 7) {
+        if (cleanDigits === postDigits || cleanDigits.slice(-10) === postDigits.slice(-10)) {
           return true;
         }
       }
 
-      // Check author / company name match
-      if (postAuthor && namesLower.length > 0) {
-        const isMatch = namesLower.some(
-          (nl) => postAuthor === nl || postAuthor.includes(nl) || nl.includes(postAuthor)
-        );
-        if (isMatch) return true;
+      // Check exact author / company name match (NO loose substring matching)
+      if (postAuthor && exactNames.size > 0 && exactNames.has(postAuthor)) {
+        return true;
       }
 
       return false;
@@ -2041,10 +2077,12 @@ export const fetchPostsByVendor = async (
     matchedFromAll.forEach((p) => remotePosts.push(p));
   } catch (e) {}
 
-  // Deduplicate and sort by latest created_at
+  // Deduplicate and filter out any pseudo-posts
   const merged = new Map<string, PostItem>();
   remotePosts.forEach((p) => {
-    if (p.id) merged.set(String(p.id), p);
+    if (p.id && !p.id.startsWith('vendor-') && !p.id.startsWith('temp-')) {
+      merged.set(String(p.id), p);
+    }
   });
 
   return Array.from(merged.values()).sort((a, b) => {

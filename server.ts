@@ -271,12 +271,23 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
       profileData = data;
     }
 
-    // Fetch user's public posts
+    // Fetch user's public posts strictly for this specific profile
     let userPosts: any[] = [];
-    const searchPhone = profileData?.phone || (/^\+?\d{8,15}$/.test(identifier) ? identifier : null);
-    const searchAuthor = profileData?.display_name || profileData?.company_name || identifier;
+    const searchUserId = profileData?.id;
+    const rawPhone = profileData?.phone || (/^\+?\d{8,15}$/.test(identifier) ? identifier : null);
+    const searchPhone = rawPhone && !rawPhone.includes("9876543210") ? rawPhone : null;
+    const rawAuthor = profileData?.company_name || profileData?.display_name || (!/^\+?\d+$/.test(identifier) ? identifier : null);
+    const isGenericAuthor = !rawAuthor || /^(dropthan member|dropthan b2b member|verified supplier|supplier|member|admin|user|wholesaler)$/i.test(rawAuthor.trim());
+    const searchAuthor = !isGenericAuthor ? rawAuthor.trim() : null;
 
-    if (searchPhone) {
+    if (searchUserId) {
+      const { data: postsById } = await supabase.from("posts").select("*").eq("user_id", searchUserId);
+      if (postsById && postsById.length > 0) {
+        userPosts = postsById;
+      }
+    }
+
+    if (userPosts.length === 0 && searchPhone) {
       const { data: postsByPhone } = await supabase.from("posts").select("*").eq("phone", searchPhone);
       if (postsByPhone && postsByPhone.length > 0) {
         userPosts = postsByPhone;
@@ -287,7 +298,7 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
       const { data: postsByAuthor } = await supabase
         .from("posts")
         .select("*")
-        .or(`author.ilike.%${searchAuthor}%,author.eq.${searchAuthor}`);
+        .eq("author", searchAuthor);
       if (postsByAuthor && postsByAuthor.length > 0) {
         userPosts = postsByAuthor;
       }

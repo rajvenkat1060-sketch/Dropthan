@@ -20,6 +20,20 @@ interface PublicProfileModalProps {
   onToggleSave: (postId: string) => void;
 }
 
+const GENERIC_AUTHOR_NAMES = new Set([
+  'dropthan member',
+  'dropthan b2b member',
+  'verified supplier',
+  'supplier',
+  'member',
+  'admin',
+  'user',
+  'wholesaler',
+  'dropshipper',
+  'reseller',
+  '',
+]);
+
 export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   isOpen,
   onClose,
@@ -49,39 +63,95 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   // Normalize vendor identifier
   const cleanVendorName = (vendorName || vendorPost?.author || '').trim();
 
-  // Filter all posts by this vendor combining provided posts and live database query
+  // Strictly filter posts created by this specific profile/vendor (No global or other user leakage)
   const vendorPosts = useMemo(() => {
-    const lower = cleanVendorName.toLowerCase();
-    const phone = (vendorProfile?.phone || vendorPost?.phone || '').trim();
-    const phoneDigits = phone.replace(/\D/g, '');
-    const compLower = (vendorProfile?.companyName || '').toLowerCase().trim();
-    const dispLower = (vendorProfile?.displayName || '').toLowerCase().trim();
-    const fullLower = (vendorProfile?.fullName || '').toLowerCase().trim();
+    // 1. Build set of exact target author names (case-insensitive, non-generic)
+    const validTargetNames = new Set<string>();
+    const addValidName = (name?: string) => {
+      if (!name) return;
+      const lower = name.toLowerCase().trim();
+      if (lower && !GENERIC_AUTHOR_NAMES.has(lower)) {
+        validTargetNames.add(lower);
+      }
+    };
+
+    if (!cleanVendorName.match(/^\+?\d+$/)) addValidName(cleanVendorName);
+    addValidName(vendorProfile?.companyName);
+    addValidName(vendorProfile?.displayName);
+    addValidName(vendorProfile?.fullName);
+    if (vendorPost?.author && !vendorPost.id.startsWith('vendor-') && !vendorPost.id.startsWith('temp-')) {
+      addValidName(vendorPost.author);
+    }
+
+    // 2. Build set of exact target phone digits (excluding dummy placeholders)
+    const targetPhones: string[] = [];
+    if (vendorProfile?.phone?.trim() && !vendorProfile.phone.includes('9876543210')) targetPhones.push(vendorProfile.phone.trim());
+    if (vendorPost?.phone?.trim() && !vendorPost.phone.includes('9876543210') && !vendorPost.id.startsWith('vendor-')) {
+      targetPhones.push(vendorPost.phone.trim());
+    }
+    if (/^\+?\d[\d\s-]{7,}$/.test(cleanVendorName) && !cleanVendorName.includes('9876543210')) {
+      targetPhones.push(cleanVendorName.trim());
+    }
+
+    const targetPhoneDigits = targetPhones
+      .map((p) => p.replace(/\D/g, ''))
+      .filter((d) => d.length >= 7);
+
+    // 3. Target user ID
+    const targetUserId =
+      vendorProfile?.id ||
+      (vendorPost as any)?.user_id ||
+      (vendorPost as any)?.userId ||
+      (vendorPost as any)?.vendor_id;
 
     const merged = new Map<string, PostItem>();
 
+    const isStrictMatch = (p: PostItem): boolean => {
+      // Exclude pseudo-posts that were generated just to open supplier profiles
+      if (p.id && (p.id.startsWith('vendor-') || p.id.startsWith('temp-'))) {
+        return false;
+      }
+
+      // Check user ID match
+      const postUserId = (p as any).user_id || (p as any).userId || (p as any).vendor_id;
+      if (targetUserId && postUserId && (postUserId === targetUserId || String(postUserId) === String(targetUserId))) {
+        return true;
+      }
+
+      // Check phone match (exact last 10 digits match)
+      if (targetPhoneDigits.length > 0 && p.phone && !p.phone.includes('9876543210')) {
+        const postDigits = p.phone.replace(/\D/g, '');
+        if (postDigits.length >= 7) {
+          const matchPhone = targetPhoneDigits.some(
+            (td) => td === postDigits || td.slice(-10) === postDigits.slice(-10)
+          );
+          if (matchPhone) return true;
+        }
+      }
+
+      // Check exact author name match (EXACT match only, never loose substring, never generic)
+      if (p.author && validTargetNames.size > 0) {
+        const pAuthorLower = p.author.toLowerCase().trim();
+        if (!GENERIC_AUTHOR_NAMES.has(pAuthorLower) && validTargetNames.has(pAuthorLower)) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    // Filter allPosts strictly
     allPosts.forEach((p) => {
-      const author = (p.author || '').trim().toLowerCase();
-      const pPhone = (p.phone || '').trim();
-      const pDigits = pPhone.replace(/\D/g, '');
-
-      const isAuthorMatch =
-        (cleanVendorName && (author === lower || author.includes(lower) || lower.includes(author))) ||
-        (compLower && (author === compLower || author.includes(compLower) || compLower.includes(author))) ||
-        (dispLower && (author === dispLower || author.includes(dispLower) || dispLower.includes(author))) ||
-        (fullLower && (author === fullLower || author.includes(fullLower) || fullLower.includes(author)));
-
-      const isPhoneMatch =
-        Boolean(phone && pPhone && phone === pPhone) ||
-        Boolean(phoneDigits && pDigits && (phoneDigits === pDigits || phoneDigits.endsWith(pDigits) || pDigits.endsWith(phoneDigits)));
-
-      if (isAuthorMatch || isPhoneMatch) {
+      if (isStrictMatch(p)) {
         merged.set(String(p.id), p);
       }
     });
 
+    // Also include strictly matched posts returned from live Supabase query
     fetchedVendorPosts.forEach((p) => {
-      merged.set(String(p.id), p);
+      if (isStrictMatch(p)) {
+        merged.set(String(p.id), p);
+      }
     });
 
     return Array.from(merged.values()).sort((a, b) => {
@@ -89,39 +159,54 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       const tB = new Date(b.createdAt || b.created_at || 0).getTime();
       return tB - tA;
     });
-  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile, vendorPost?.phone]);
+  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile, vendorPost]);
 
   // Derive consolidated metadata from available post / profile
-  const referencePost = vendorPost || (vendorPosts.length > 0 ? vendorPosts[0] : null);
-  const role: UserRole = (vendorProfile?.role || referencePost?.role || vendorRole || 'wholesaler') as UserRole;
+  const referencePost = (vendorPost && !vendorPost.id.startsWith('vendor-')) ? vendorPost : (vendorPosts.length > 0 ? vendorPosts[0] : null);
+  const role: UserRole = (vendorProfile?.role || referencePost?.role || vendorPost?.role || vendorRole || 'wholesaler') as UserRole;
   const avatarUrl = getAvatarUrl(
-    vendorProfile?.avatarUrl || referencePost?.authorAvatar,
+    vendorProfile?.avatarUrl || referencePost?.authorAvatar || vendorPost?.authorAvatar || vendorPost?.img,
     role
   );
-  const location = vendorProfile?.storeAddress || vendorProfile?.location || referencePost?.location || 'Surat, Gujarat';
-  const country = vendorProfile?.country || referencePost?.country || 'India';
-  const phone = vendorProfile?.phone || referencePost?.phone || '+919876543210';
-  const gstin = vendorProfile?.gstin || referencePost?.gstin;
-  const iecCode = vendorProfile?.iecCode || referencePost?.iecCode;
-  const instagram = vendorProfile?.instagram || vendorProfile?.instagramHandle || referencePost?.instagram;
-  const website = vendorProfile?.website || vendorProfile?.websiteUrl || referencePost?.website;
-  const companyName = vendorProfile?.companyName || vendorProfile?.displayName || cleanVendorName;
-  const productName = vendorProfile?.productName || vendorProfile?.materialDetails || referencePost?.productName || referencePost?.materialDetails;
-  const promotionDetails = vendorProfile?.promotionDetails || referencePost?.promotionDetails;
-  const exportProducts = vendorProfile?.exportProducts || referencePost?.exportProducts;
-  const packagingMaterials = vendorProfile?.packagingMaterials || referencePost?.packagingMaterials;
-  const serviceDetails = vendorProfile?.serviceDetails || referencePost?.serviceDetails;
+  const location =
+    vendorProfile?.storeAddress ||
+    vendorProfile?.location ||
+    referencePost?.storeAddress ||
+    referencePost?.location ||
+    (vendorPost?.location && !vendorPost.id.startsWith('vendor-') ? vendorPost.location : undefined) ||
+    'India';
+  const country = vendorProfile?.country || referencePost?.country || vendorPost?.country || 'India';
+  const phone =
+    vendorProfile?.phone ||
+    (referencePost?.phone && !referencePost.phone.includes('9876543210') ? referencePost.phone : undefined) ||
+    (vendorPost?.phone && !vendorPost.phone.includes('9876543210') ? vendorPost.phone : undefined) ||
+    '';
+  const gstin = vendorProfile?.gstin || referencePost?.gstin || vendorPost?.gstin;
+  const iecCode = vendorProfile?.iecCode || referencePost?.iecCode || vendorPost?.iecCode;
+  const instagram = vendorProfile?.instagram || vendorProfile?.instagramHandle || referencePost?.instagram || vendorPost?.instagram;
+  const website = vendorProfile?.website || vendorProfile?.websiteUrl || referencePost?.website || vendorPost?.website;
+  const companyName = vendorProfile?.companyName || vendorProfile?.displayName || vendorPost?.author || cleanVendorName || 'Verified Supplier';
+  const productName = vendorProfile?.productName || vendorProfile?.materialDetails || referencePost?.productName || referencePost?.materialDetails || vendorPost?.productName;
+  const promotionDetails = vendorProfile?.promotionDetails || referencePost?.promotionDetails || vendorPost?.promotionDetails;
+  const exportProducts = vendorProfile?.exportProducts || referencePost?.exportProducts || vendorPost?.exportProducts;
+  const packagingMaterials = vendorProfile?.packagingMaterials || referencePost?.packagingMaterials || vendorPost?.packagingMaterials;
+  const serviceDetails = vendorProfile?.serviceDetails || referencePost?.serviceDetails || vendorPost?.serviceDetails;
 
   const userBio =
     vendorProfile?.bio ||
     vendorProfile?.description ||
     referencePost?.bio ||
     referencePost?.description ||
+    (vendorPost?.caption && !vendorPost.id.startsWith('vendor-') ? vendorPost.caption : '') ||
     '';
 
   // Fetch full verified profile & real rating data from database
   useEffect(() => {
     if (!isOpen || !cleanVendorName) return;
+
+    // Reset previous fetch state on opening new vendor profile
+    setFetchedVendorPosts([]);
+    setVendorProfile(null);
 
     // Fetch real calculated ratings from Supabase
     fetchUserRatingsFromSupabase(cleanVendorName, currentUser?.phone || currentUser?.id).then(
@@ -134,8 +219,8 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
 
     const loadPostsForVendor = (targetProf?: UserProfile | null) => {
       const targetIdentifier = {
-        id: targetProf?.id || undefined,
-        phone: targetProf?.phone || referencePost?.phone || (cleanVendorName.match(/^\+?\d+$/) ? cleanVendorName : undefined),
+        id: targetProf?.id || (vendorPost as any)?.user_id || (vendorPost as any)?.userId || (vendorPost as any)?.vendor_id || undefined,
+        phone: targetProf?.phone || (referencePost?.phone && !referencePost.phone.includes('9876543210') ? referencePost.phone : undefined) || (cleanVendorName.match(/^\+?\d+$/) ? cleanVendorName : undefined),
         displayName: targetProf?.displayName || undefined,
         companyName: targetProf?.companyName || undefined,
         fullName: targetProf?.fullName || undefined,
@@ -143,14 +228,12 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       };
 
       fetchPostsByVendor(targetIdentifier).then((posts) => {
-        if (posts && posts.length > 0) {
-          setFetchedVendorPosts(posts);
-        }
+        setFetchedVendorPosts(posts || []);
       });
     };
 
     // Fetch complete user profile from Supabase
-    const targetIdentifier = referencePost?.phone || cleanVendorName;
+    const targetIdentifier = (referencePost?.phone && !referencePost.phone.includes('9876543210') ? referencePost.phone : undefined) || cleanVendorName;
     fetchFullUserProfile(targetIdentifier).then((prof) => {
       if (prof) {
         setVendorProfile(prof);
@@ -171,7 +254,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
     return () => {
       window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
     };
-  }, [isOpen, cleanVendorName, referencePost?.phone, currentUser]);
+  }, [isOpen, cleanVendorName, currentUser]);
 
   if (!isOpen) return null;
 
@@ -298,10 +381,10 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
               <div className="flex-1 grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white border border-slate-200 rounded-2xl p-2 sm:p-2.5 shadow-2xs">
                   <span className="block text-base sm:text-lg font-black text-slate-900">
-                    {vendorPosts.length > 0 ? vendorPosts.length : 1}
+                    {vendorPosts.length}
                   </span>
                   <span className="text-[10px] sm:text-[11px] font-bold text-slate-500">
-                    Offers / Posts
+                    {vendorPosts.length === 1 ? 'Post' : 'Posts'}
                   </span>
                 </div>
 
@@ -477,7 +560,22 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                 type="button"
                 onClick={() => {
                   onClose();
-                  if (referencePost) onOpenVendorChat(referencePost);
+                  const targetPost: PostItem = referencePost || {
+                    id: `vendor-${vendorProfile?.phone || vendorProfile?.id || cleanVendorName || Date.now()}`,
+                    author: companyName,
+                    role: role,
+                    price: 'Direct Wholesale Rate',
+                    moq: 'Wholesale MOQ',
+                    caption: userBio || `${companyName} - Verified Member`,
+                    img: avatarUrl,
+                    images: [avatarUrl],
+                    phone: phone,
+                    location: location,
+                    country: country,
+                    category: 'Textiles & Apparel',
+                    authorAvatar: avatarUrl,
+                  };
+                  onOpenVendorChat(targetPost);
                 }}
                 className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition cursor-pointer shadow-sm flex items-center justify-center gap-1.5 active:scale-95"
               >
@@ -566,8 +664,14 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
           {activeTab === 'grid' && (
             <div className="p-3">
               {vendorPosts.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 space-y-1">
-                  <p className="font-bold text-xs">No media uploaded yet</p>
+                <div className="py-12 px-4 text-center text-slate-500 space-y-2">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-2xl text-slate-400">
+                    📷
+                  </div>
+                  <p className="font-bold text-sm text-slate-800">No media uploaded yet</p>
+                  <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                    When {companyName} uploads offers or photos, they will appear here.
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
@@ -612,8 +716,14 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
           {activeTab === 'feed' && (
             <div className="p-3 sm:p-4 space-y-4">
               {vendorPosts.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 space-y-1">
-                  <p className="font-bold text-xs">No posts available</p>
+                <div className="py-12 px-4 text-center text-slate-500 space-y-2">
+                  <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-2xl text-slate-400">
+                    📜
+                  </div>
+                  <p className="font-bold text-sm text-slate-800">No posts available</p>
+                  <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                    No detailed wholesale listings uploaded yet by this member.
+                  </p>
                 </div>
               ) : (
                 vendorPosts.map((post) => (
