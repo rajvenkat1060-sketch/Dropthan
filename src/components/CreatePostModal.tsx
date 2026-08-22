@@ -161,6 +161,9 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     const newPost: PostItem = {
       id: `post-${Date.now()}`,
+      user_id: currentUser?.id,
+      userId: currentUser?.id,
+      vendor_id: currentUser?.id,
       author: currentUser?.displayName || currentUser?.companyName || 'Dropthan B2B Member',
       authorAvatar: currentUser?.avatarUrl,
       role: currentUser?.role || 'wholesaler',
@@ -186,6 +189,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       category,
       website: currentUser?.website || currentUser?.websiteUrl,
       instagram: currentUser?.instagram || currentUser?.instagramHandle,
+      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     };
 
     onAddPost(newPost);

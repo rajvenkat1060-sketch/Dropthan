@@ -59,6 +59,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     name: '',
     reason: '',
   });
+  const [copiedGstinPhone, setCopiedGstinPhone] = useState<string | null>(null);
 
   // Verify phone number match (STRICTLY REQUIRED: 8838533014)
   const userPhoneClean = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';
@@ -596,20 +597,63 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         </div>
                       </div>
 
-                      {/* GST BOX */}
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-500 uppercase block">GSTIN Number</span>
-                          <span className="font-mono font-bold text-slate-800 text-xs">
-                            {user.gstin ? user.gstin : 'Not Applicable / Exempt'}
-                          </span>
-                        </div>
-                        {user.iecCode && (
+                      {/* GST REVIEW BOX (ADMIN EXCLUSIVE) */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">GSTIN Number (Confidential)</span>
+                            <span className="font-mono font-black text-slate-900 text-xs">
+                              {user.gstin ? user.gstin : 'Not Applicable / Exempt'}
+                            </span>
+                          </div>
+                          {user.gstin && (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (user.gstin) {
+                                    navigator.clipboard.writeText(user.gstin);
+                                    setCopiedGstinPhone(user.phone || user.id);
+                                    setTimeout(() => setCopiedGstinPhone(null), 2000);
+                                  }
+                                }}
+                                className="px-2 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg font-bold text-[10px] text-slate-700 transition cursor-pointer"
+                              >
+                                {copiedGstinPhone === (user.phone || user.id) ? '✓ Copied' : '📋 Copy GSTIN'}
+                              </button>
+                              <a
+                                href="https://services.gst.gov.in/services/searchtp"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg font-bold text-[10px] text-[#0d47a1] transition"
+                              >
+                                Check on GST Portal ↗
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {user.iecCode && (
+                          <div className="border-t border-slate-200 pt-1.5">
                             <span className="text-[10px] font-bold text-slate-500 uppercase block">IEC Code (Exporter)</span>
                             <span className="font-mono font-bold text-slate-800 text-xs">{user.iecCode}</span>
                           </div>
                         )}
+
+                        <div className="bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-600 font-medium">Public Badge Status:</span>
+                          {isApproved ? (
+                            <span className="font-bold text-emerald-700 flex items-center gap-1">
+                              <span>✓</span>
+                              <span>"GST Approved" Badge Active</span>
+                            </span>
+                          ) : (
+                            <span className="font-bold text-amber-700 flex items-center gap-1">
+                              <span>⏳</span>
+                              <span>Badge Hidden (Pending Approval)</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {user.rejectionReason && isRejected && (
@@ -638,7 +682,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                               onClick={() => handleApprove(user.phone)}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-1.5 rounded-xl transition shadow cursor-pointer flex items-center gap-1"
                             >
-                              <span>✓ Approve GST & Activate</span>
+                              <span>✓ Approve GST & Badge</span>
                             </button>
                           </>
                         )}
@@ -657,7 +701,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                             onClick={() => handleOpenReject(user.phone, user.companyName || user.displayName)}
                             className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer"
                           >
-                            Revoke Access
+                            Revoke / Reject Access
                           </button>
                         )}
                       </div>

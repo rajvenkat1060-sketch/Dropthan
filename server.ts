@@ -603,6 +603,117 @@ app.post("/api/profiles/upsert", async (req, res) => {
   }
 });
 
+// Server-Side Admin Approval Status Toggle Endpoint
+app.post("/api/admin/approval-status", async (req, res) => {
+  try {
+    const { userId, phone, isApproved, status, rejectionReason } = req.body;
+    if (!userId && !phone) {
+      res.status(400).json({ error: "userId or phone is required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not initialized" });
+      return;
+    }
+
+    const approvedBool = Boolean(isApproved);
+    const newStatus = status || (approvedBool ? "Active" : "Pending");
+
+    const updatePayload: Record<string, any> = {
+      is_gst_approved: approvedBool,
+      status: newStatus,
+      rejection_reason: rejectionReason || null,
+    };
+
+    console.log(`[Server Admin Approval] Setting is_gst_approved=${approvedBool}, status=${newStatus} for user:`, userId || phone);
+
+    let query = supabase.from("profiles").update(updatePayload);
+    if (userId) {
+      query = query.eq("id", userId);
+    } else if (phone) {
+      query = query.eq("phone", phone);
+    }
+
+    let { data, error } = await query.select();
+
+    // Fallback without is_gst_approved if column is not yet present in schema
+    if (error && (error.message.includes("is_gst_approved") || error.code === "42703")) {
+      console.warn("[Server Admin Approval] is_gst_approved column variance, falling back to status column update:", error.message);
+      delete updatePayload.is_gst_approved;
+      let fallbackQuery = supabase.from("profiles").update(updatePayload);
+      if (userId) fallbackQuery = fallbackQuery.eq("id", userId);
+      else if (phone) fallbackQuery = fallbackQuery.eq("phone", phone);
+      const fbRes = await fallbackQuery.select();
+      data = fbRes.data;
+      error = fbRes.error;
+    }
+
+    if (error) {
+      console.error("[Server Admin Approval] Error updating approval status in Supabase:", error);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.json({ success: true, is_gst_approved: approvedBool, status: newStatus, data });
+  } catch (err: any) {
+    console.error("[Server Admin Approval] Server exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  }
+});
+
+// Server-Side Secure User Account Deletion Endpoint (Deletes profile and cascaded/associated posts)
+app.post("/api/admin/delete-user", async (req, res) => {
+  try {
+    const { userId, phone } = req.body;
+    if (!userId && !phone) {
+      res.status(400).json({ error: "userId or phone is required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not initialized" });
+      return;
+    }
+
+    console.log(`[Server Admin Delete] Deleting user account and cascaded data:`, { userId, phone });
+
+    // 1. Delete associated posts explicitly (in case CASCADE is pending on database)
+    try {
+      if (userId) {
+        await supabase.from("posts").delete().eq("user_id", userId);
+      }
+      if (phone) {
+        await supabase.from("posts").delete().eq("phone", phone);
+      }
+    } catch (postDelErr) {
+      console.warn("[Server Admin Delete] Notice deleting posts:", postDelErr);
+    }
+
+    // 2. Delete profile from profiles table
+    let delQuery = supabase.from("profiles").delete();
+    if (userId) {
+      delQuery = delQuery.eq("id", userId);
+    } else if (phone) {
+      delQuery = delQuery.eq("phone", phone);
+    }
+
+    const { error: profileDelErr } = await delQuery;
+    if (profileDelErr) {
+      console.error("[Server Admin Delete] Error deleting profile from Supabase:", profileDelErr);
+      res.status(400).json({ error: profileDelErr.message });
+      return;
+    }
+
+    res.json({ success: true, message: "User profile and associated data deleted successfully" });
+  } catch (err: any) {
+    console.error("[Server Admin Delete] Server exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during account deletion" });
+  }
+});
+
 // Server-Side File Upload Endpoint with Multi-Bucket Supabase Storage Integration (Up to 50MB)
 app.post("/api/upload", async (req, res) => {
   try {

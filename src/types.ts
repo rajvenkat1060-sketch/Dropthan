@@ -32,6 +32,8 @@ export interface UserProfile {
   createdAt: string;
   avatarUrl?: string;
   status?: UserStatus;
+  is_gst_approved?: boolean;
+  isGstApproved?: boolean;
   rejectionReason?: string;
 }
 

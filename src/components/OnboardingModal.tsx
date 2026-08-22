@@ -23,21 +23,24 @@ const TICKER_HIGHLIGHTS = [
 ];
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, onCancel, currentUser }) => {
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
-  const [companyName, setCompanyName] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [iecCode, setIecCode] = useState('');
-  const [businessRegNumber, setBusinessRegNumber] = useState('');
-  const [country, setCountry] = useState('India');
-  const [location, setLocation] = useState('');
-  const [storeAddress, setStoreAddress] = useState('');
-  const [coords, setCoords] = useState<{ lat?: number; lng?: number }>({});
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [bio, setBio] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
-  const [instagram, setInstagram] = useState('');
-  const [website, setWebsite] = useState('');
+  const [selectedRole, setSelectedRole] = useState<UserRole>(currentUser?.role || 'wholesaler');
+  const [companyName, setCompanyName] = useState(currentUser?.companyName || '');
+  const [gstin, setGstin] = useState(currentUser?.gstin || '');
+  const [iecCode, setIecCode] = useState(currentUser?.iecCode || '');
+  const [businessRegNumber, setBusinessRegNumber] = useState(currentUser?.businessRegNumber || '');
+  const [country, setCountry] = useState(currentUser?.country || 'India');
+  const [location, setLocation] = useState(currentUser?.location || '');
+  const [storeAddress, setStoreAddress] = useState(currentUser?.storeAddress || '');
+  const [coords, setCoords] = useState<{ lat?: number; lng?: number }>({
+    lat: currentUser?.lat,
+    lng: currentUser?.lng,
+  });
+  const [fullName, setFullName] = useState(currentUser?.fullName || '');
+  const [phone, setPhone] = useState(currentUser?.phone || '');
+  const [bio, setBio] = useState(currentUser?.bio || currentUser?.description || '');
+  const [avatarUrl, setAvatarUrl] = useState(currentUser?.avatarUrl || '');
+  const [instagram, setInstagram] = useState(currentUser?.instagram || currentUser?.instagramHandle || '');
+  const [website, setWebsite] = useState(currentUser?.website || currentUser?.websiteUrl || '');
   const [isLocating, setIsLocating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -50,25 +53,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
   const isExporterRole = selectedRole === 'exporter';
   const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
   const isGstinValid = gstinRegex.test(gstin.trim().toUpperCase());
-  const isIecValid = iecCode.trim().length >= 8;
-  const isPhoneValid = checkInternationalPhoneValid(phone) || phone.trim().replace(/[^0-9]/g, '').length >= 8;
+  const isPhoneValid = checkInternationalPhoneValid(phone) || phone.trim().replace(/[^0-9]/g, '').length >= 7;
 
-  const isValid = (() => {
-    if (!selectedRole) return false;
-    if (!isPhoneValid) return false;
-    if (!country.trim()) return false;
-    if (location.trim().length === 0) return false;
-    if (isGstinHidden) {
-      return companyName.trim().length > 0 || fullName.trim().length > 0;
-    }
-    if (isExporterRole) {
-      return companyName.trim().length > 0 && isGstinValid && isIecValid;
-    }
-    if (isCompanyRole) {
-      return companyName.trim().length > 0 && isGstinValid;
-    }
-    return fullName.trim().length > 0;
-  })();
+  // The "Continue to Home" button is enabled as soon as the user enters their International Phone Number.
+  // All other fields (Full Name, Country, Location, Instagram, Bio, Photo, GSTIN, IEC) are optional.
+  const isValid = Boolean(isPhoneValid);
 
   const handleRoleSelect = (role: UserRole) => {
     setSelectedRole(role);
@@ -95,7 +84,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid || !selectedRole || isSubmitting) return;
+    if (!isValid || isSubmitting) return;
 
     setIsSubmitting(true);
 
@@ -106,22 +95,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
     try {
       existingProfile = await fetchFullUserProfileByPhone(formattedPhone);
       if (existingProfile) {
-        console.log('🔒 Account found! Merging and updating user profile for:', formattedPhone);
+        console.log('🔒 Account found! Merging profile for:', formattedPhone);
       }
     } catch (err) {
       console.warn('Notice checking existing profile:', err);
     }
-
-    // Force Pending status on Signup for B2B users (Wholesaler, Marketing Agency, Exporter, Organic, Printing) and GST registrations
-    const isB2BOrGstRole =
-      selectedRole === 'wholesaler' ||
-      selectedRole === 'organic_wholesaler' ||
-      selectedRole === 'exporter' ||
-      selectedRole === 'marketing' ||
-      selectedRole === 'printing' ||
-      Boolean(formattedGstin && formattedGstin.trim().length > 0);
-
-    const initialStatus: UserStatus = existingProfile?.status || (isB2BOrGstRole ? 'Pending' : 'Active');
 
     const cleanInstagram = instagram.trim()
       ? instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/\/$/, '')
@@ -130,9 +108,16 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
     const phoneDigits = formattedPhone.replace(/\D/g, '');
     const validId = existingProfile?.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`);
 
+    const resolvedDisplayName =
+      (isCompanyRole ? companyName.trim() : fullName.trim()) ||
+      companyName.trim() ||
+      fullName.trim() ||
+      existingProfile?.displayName ||
+      'Dropthan Member';
+
     const profileToSave: UserProfile = {
       id: validId,
-      role: existingProfile?.role || selectedRole,
+      role: selectedRole || existingProfile?.role || 'wholesaler',
       phone: formattedPhone,
       country: country.trim() || existingProfile?.country || 'India',
       location: location.trim() || existingProfile?.location || '',
@@ -140,8 +125,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       lat: coords.lat ?? existingProfile?.lat,
       lng: coords.lng ?? existingProfile?.lng,
       createdAt: existingProfile?.createdAt || new Date().toISOString(),
-      displayName: isCompanyRole ? (companyName.trim() || existingProfile?.displayName || 'Member') : (fullName.trim() || existingProfile?.displayName || 'Member'),
-      fullName: fullName.trim() || existingProfile?.fullName || (isCompanyRole ? companyName.trim() : undefined),
+      displayName: resolvedDisplayName,
+      fullName: fullName.trim() || existingProfile?.fullName || (isCompanyRole && companyName.trim() ? companyName.trim() : undefined),
       companyName: isCompanyRole ? (companyName.trim() || existingProfile?.companyName) : undefined,
       bio: bio.trim() || existingProfile?.bio || undefined,
       description: bio.trim() || existingProfile?.description || undefined,
@@ -150,21 +135,22 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       instagramHandle: cleanInstagram || existingProfile?.instagramHandle || undefined,
       website: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : existingProfile?.website,
       websiteUrl: !isWebsiteHidden && website.trim() ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`) : existingProfile?.websiteUrl,
-      status: initialStatus,
+      status: 'Active',
     };
 
-    if (isCompanyRole && !isGstinHidden) {
-      profileToSave.gstin = formattedGstin || existingProfile?.gstin;
+    if (formattedGstin) {
+      profileToSave.gstin = formattedGstin;
     }
-    if (isExporterRole) {
-      profileToSave.iecCode = iecCode.trim().toUpperCase() || existingProfile?.iecCode;
-      profileToSave.businessRegNumber = businessRegNumber.trim() || existingProfile?.businessRegNumber || undefined;
+    if (iecCode.trim()) {
+      profileToSave.iecCode = iecCode.trim().toUpperCase();
+    }
+    if (businessRegNumber.trim()) {
+      profileToSave.businessRegNumber = businessRegNumber.trim();
     }
 
     let finalProfile = profileToSave;
 
     try {
-      // Explicitly call and await Supabase insert/upsert to save user details into 'profiles' table permanently
       const saved = await saveUserProfileToSupabase(profileToSave);
       if (saved) {
         finalProfile = saved;
@@ -226,7 +212,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
             dptn
           </div>
           <h2 className="text-2xl font-extrabold text-white">Welcome to Dropthan</h2>
-          <p className="text-xs text-blue-100">Step 2 of 2: Select your role & complete B2B details</p>
+          <p className="text-xs text-blue-100">Enter your phone number to continue • All other details are optional</p>
         </div>
 
         {/* ROLE SELECTION */}
@@ -246,7 +232,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               <span className="text-2xl">📦</span>
               <div>
                 <h4 className="text-xs font-bold text-slate-900">Standard Wholesaler</h4>
-                <p className="text-[10px] text-slate-500">Upload bulk inventory, set MOQ & pricing. (GSTIN Required)</p>
+                <p className="text-[10px] text-slate-500">Upload bulk inventory, set MOQ & pricing.</p>
               </div>
             </div>
             <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
@@ -269,7 +255,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1">
                   Organic Wholesaler <span className="text-[9px] bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-extrabold">GST Exempted</span>
                 </h4>
-                <p className="text-[10px] text-slate-500">Agro, coco fiber, cotton, neem & natural goods. (GST Optional for Farmers)</p>
+                <p className="text-[10px] text-slate-500">Agro, coco fiber, cotton, neem & natural goods.</p>
               </div>
             </div>
             <div className="w-4 h-4 rounded-full border-2 border-emerald-400 flex items-center justify-center">
@@ -290,7 +276,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               <span className="text-2xl">🌐</span>
               <div>
                 <h4 className="text-xs font-bold text-slate-900">Exporter</h4>
-                <p className="text-[10px] text-slate-500">Global cross-border trade, bulk shipping. (GSTIN & IEC Code Required)</p>
+                <p className="text-[10px] text-slate-500">Global cross-border trade, bulk shipping.</p>
               </div>
             </div>
             <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
@@ -311,7 +297,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               <span className="text-2xl">📢</span>
               <div>
                 <h4 className="text-xs font-bold text-slate-900">Digital Marketing Agency</h4>
-                <p className="text-[10px] text-slate-500">Offer ad campaigns, lead generation & web design. (GSTIN Required)</p>
+                <p className="text-[10px] text-slate-500">Offer ad campaigns, lead generation & web design.</p>
               </div>
             </div>
             <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
@@ -332,7 +318,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               <span className="text-2xl">🖨️</span>
               <div>
                 <h4 className="text-xs font-bold text-slate-900">Print & Packaging Company</h4>
-                <p className="text-[10px] text-slate-500">Box printing, sticker labels, corrugated boxes. (GSTIN Required)</p>
+                <p className="text-[10px] text-slate-500">Box printing, sticker labels, corrugated boxes.</p>
               </div>
             </div>
             <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
@@ -383,13 +369,31 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
           </div>
         </div>
 
-        {/* DYNAMIC CONDITIONAL FORM FIELDS */}
+        {/* DYNAMIC FORM FIELDS */}
         {selectedRole && (
           <form onSubmit={handleSubmit} className="space-y-3 pt-2 transition-all">
+            {/* MANDATORY INTERNATIONAL PHONE NUMBER FIELD FOR ALL ROLES */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-800">
+                  International Phone Number <span className="text-blue-600 font-extrabold">*</span>
+                </label>
+                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                  Required to Continue
+                </span>
+              </div>
+              <InternationalPhoneInput
+                value={phone}
+                onChange={(p) => setPhone(p)}
+                defaultCountry="in"
+                placeholder="Enter mobile phone number (e.g. +91 9876543210)"
+              />
+            </div>
+
             {isCompanyRole ? (
               <>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-800 mb-1">Company / Business Name *</label>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">Company / Business Name (Optional)</label>
                   <input
                     type="text"
                     value={companyName}
@@ -401,9 +405,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
                 {!isGstinHidden && (
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-800 mb-1">
-                      GSTIN Registration (Mandatory 15 Chars) *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-slate-800">
+                        GSTIN Registration (Optional)
+                      </label>
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        🔒 Strictly Confidential
+                      </span>
+                    </div>
                     <input
                       type="text"
                       maxLength={15}
@@ -413,9 +422,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                       className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs font-mono uppercase text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
                     />
                     {gstin.length > 0 && isGstinValid ? (
-                      <p className="text-[10px] text-blue-700 mt-1 font-bold">✓ Valid GSTIN Number format</p>
+                      <p className="text-[10px] text-emerald-700 mt-1 font-bold">✓ Valid GSTIN format (Kept private for Admin review)</p>
+                    ) : gstin.length > 0 ? (
+                      <p className="text-[10px] text-amber-700 mt-1 font-semibold">Optional: 15 alphanumeric characters GST number</p>
                     ) : (
-                      <p className="text-[10px] text-blue-900 mt-1 font-semibold">⚠️ Mandatory: 15 alphanumeric characters GST number</p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        🔒 Confidential: Stored securely for Admin approval. Never shown publicly.
+                      </p>
                     )}
                   </div>
                 )}
@@ -423,7 +436,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 {isExporterRole && (
                   <>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-800 mb-1">IEC - Import Export Code (Mandatory for Exporters) *</label>
+                      <label className="block text-[11px] font-bold text-slate-800 mb-1">IEC - Import Export Code (Optional)</label>
                       <input
                         type="text"
                         maxLength={12}
@@ -432,11 +445,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                         placeholder="e.g. 0123456789"
                         className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs font-mono uppercase text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
                       />
-                      {iecCode.length >= 8 ? (
-                        <p className="text-[10px] text-blue-700 mt-1 font-bold">✓ Valid IEC Code format</p>
-                      ) : (
-                        <p className="text-[10px] text-blue-900 mt-1 font-semibold">⚠️ Mandatory Export License Proof (min 8 chars)</p>
-                      )}
                     </div>
 
                     <div>
@@ -454,7 +462,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               </>
             ) : (
               <div>
-                <label className="block text-[11px] font-bold text-slate-800 mb-1">Full Name *</label>
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">Full Name (Optional)</label>
                 <input
                   type="text"
                   value={fullName}
@@ -465,9 +473,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               </div>
             )}
 
-            {/* MANDATORY COUNTRY FIELD FOR ALL ROLES */}
+            {/* OPTIONAL COUNTRY FIELD FOR ALL ROLES */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-800 mb-1">Country *</label>
+              <label className="block text-[11px] font-bold text-slate-800 mb-1">Country (Optional)</label>
               <GoogleLocationInput
                 value={country}
                 onChange={(val) => setCountry(val)}
@@ -475,11 +483,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               />
             </div>
 
-            {/* MANDATORY LOCATION FIELD WITH GOOGLE PLACES AUTOCOMPLETE */}
+            {/* OPTIONAL LOCATION FIELD WITH GOOGLE PLACES AUTOCOMPLETE */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-[11px] font-bold text-slate-800">
-                  Location (City / State / Address) *
+                  Location (City / State / Address) (Optional)
                 </label>
                 <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
                   🗺️ Google Maps Autocomplete
@@ -505,7 +513,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-[11px] font-bold text-slate-800">
-                    Store / Warehouse Exact Address
+                    Store / Warehouse Exact Address (Optional)
                   </label>
                   <span className="text-[9px] text-emerald-700 bg-emerald-50 font-bold px-1.5 py-0.5 rounded border border-emerald-200">
                     📍 GPS & Exact Address
@@ -530,19 +538,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 )}
               </div>
             )}
-
-            {/* MANDATORY INTERNATIONAL PHONE NUMBER FIELD FOR ALL ROLES */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-800 mb-1">
-                International Phone Number (Mandatory) *
-              </label>
-              <InternationalPhoneInput
-                value={phone}
-                onChange={(p) => setPhone(p)}
-                defaultCountry="in"
-                placeholder="Enter mobile phone number"
-              />
-            </div>
 
             {/* OPTIONAL INSTAGRAM PROFILE FIELD */}
             <div>
@@ -571,7 +566,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               </p>
             </div>
 
-            {/* OPTIONAL BUSINESS WEBSITE LINK FIELD (RIGHT BELOW SOCIAL HANDLE) - HIDDEN FOR INFLUENCER & DROPSHIPPER/RESELLER */}
+            {/* OPTIONAL BUSINESS WEBSITE LINK FIELD */}
             {!isWebsiteHidden && (
               <div>
                 <label className="block text-[11px] font-bold text-slate-800 mb-1">
@@ -594,7 +589,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-[11px] font-bold text-slate-800">
-                  Business Bio / Description
+                  Business Bio / Description (Optional)
                 </label>
                 <span className="text-[10px] font-semibold text-slate-500">Public Profile Bio</span>
               </div>
@@ -613,7 +608,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 <label className="block text-[11px] font-bold text-slate-800">Profile Photo / DP (Optional)</label>
                 {avatarUrl && (
                   <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                    ✓ Cloudinary Ready
+                    ✓ Photo Selected
                   </span>
                 )}
               </div>
@@ -631,7 +626,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                     : 'bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border-blue-200 cursor-pointer'
                 }`}>
                   {isUploadingAvatar
-                    ? 'Uploading to Cloudinary...'
+                    ? 'Uploading Photo...'
                     : avatarUrl
                     ? 'Change Photo'
                     : 'Upload Profile Photo'}

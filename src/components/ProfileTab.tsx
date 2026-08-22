@@ -433,10 +433,29 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
               )}
             </div>
 
+            {/* GST VERIFICATION BADGE & PRIVACY SAFE STATUS */}
             {user.gstin ? (
-              <p className="text-[10px] text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200 inline-block">
-                GSTIN: {user.gstin}
-              </p>
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {user.status === 'Active' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                    <span>🛡️</span>
+                    <span>GST Approved • Verified B2B</span>
+                  </span>
+                ) : user.status === 'Rejected' ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-800 bg-red-50 border border-red-200 px-2.5 py-0.5 rounded-lg">
+                    <span>❌</span>
+                    <span>GST Verification Rejected</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg">
+                    <span>⏳</span>
+                    <span>GST Pending Admin Verification</span>
+                  </span>
+                )}
+                <span className="text-[9px] text-slate-400 font-medium">
+                  (🔒 GSTIN secured in Admin Panel)
+                </span>
+              </div>
             ) : user.role === 'organic_wholesaler' ? (
               <p className="text-[10px] text-emerald-800 font-medium bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block">
                 🌱 GST Exempted (Small Agro/Producer)
@@ -444,15 +463,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             ) : null}
 
             {user.iecCode && (
-              <p className="text-[10px] text-emerald-800 font-mono bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block ml-1">
-                IEC Code: {user.iecCode}
-              </p>
-            )}
-
-            {user.businessRegNumber && (
-              <p className="text-[10px] text-slate-600 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200 block">
-                Reg No: {user.businessRegNumber}
-              </p>
+              <span className="inline-flex items-center gap-1 text-[10px] text-blue-800 font-bold bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 inline-block">
+                <span>🌐</span>
+                <span>{user.status === 'Active' ? 'Verified IEC Exporter' : 'IEC Exporter Registered'}</span>
+              </span>
             )}
           </div>
         </div>

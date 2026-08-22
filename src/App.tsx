@@ -340,10 +340,31 @@ export default function App() {
 
   const userPosts = useMemo(() => {
     if (!currentUser) return [];
+    const cleanCurrentPhone = currentUser.phone ? currentUser.phone.replace(/\D/g, '') : '';
     return postsWithInteraction.filter((p) => {
-      const authorMatch = p.author === currentUser.displayName || (currentUser.companyName && p.author === currentUser.companyName);
-      const phoneMatch = p.phone && currentUser.phone && p.phone === currentUser.phone;
-      return authorMatch || phoneMatch;
+      if (p.id && (p.id.startsWith('vendor-') || p.id.startsWith('temp-'))) return false;
+
+      // 1. Direct User ID match
+      const postUserId = (p as any).user_id || (p as any).userId;
+      if (currentUser.id && postUserId && (postUserId === currentUser.id || String(postUserId) === String(currentUser.id))) {
+        return true;
+      }
+
+      // 2. Phone digits match (last 10 digits)
+      const postDigits = p.phone ? p.phone.replace(/\D/g, '') : '';
+      if (cleanCurrentPhone && postDigits && cleanCurrentPhone.length >= 7 && postDigits.length >= 7) {
+        if (cleanCurrentPhone === postDigits || cleanCurrentPhone.slice(-10) === postDigits.slice(-10)) {
+          return true;
+        }
+      }
+
+      // 3. Exact Author / Company Name match
+      const authorMatch =
+        (currentUser.displayName && p.author === currentUser.displayName) ||
+        (currentUser.companyName && p.author === currentUser.companyName) ||
+        (currentUser.fullName && p.author === currentUser.fullName);
+
+      return Boolean(authorMatch);
     });
   }, [postsWithInteraction, currentUser]);
 

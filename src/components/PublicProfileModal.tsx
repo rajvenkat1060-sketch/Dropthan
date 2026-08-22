@@ -200,6 +200,10 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
     (vendorPost?.caption && !vendorPost.id.startsWith('vendor-') ? vendorPost.caption : '') ||
     '';
 
+  const isApproved = vendorProfile ? vendorProfile.status === 'Active' : Boolean(referencePost?.gstin || referencePost?.iecCode || gstin || iecCode);
+  const isExporter = role === 'exporter' || Boolean(iecCode);
+  const isOrganic = role === 'organic_wholesaler';
+
   // Fetch full verified profile & real rating data from database
   useEffect(() => {
     if (!isOpen || !cleanVendorName) return;
@@ -312,22 +316,22 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-black text-slate-900 truncate flex items-center gap-1.5">
                 <span>{companyName}</span>
-                {role === 'organic_wholesaler' ? (
+                {isOrganic ? (
                   <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 text-[9px] font-black px-1.5 py-0.2 rounded-md">
                     🌱 Organic
                   </span>
-                ) : role === 'exporter' ? (
+                ) : isExporter ? (
                   <span className="text-blue-700 bg-blue-50 border border-blue-200 text-[9px] font-black px-1.5 py-0.2 rounded-md">
-                    🌐 IEC Exporter
+                    🌐 {isApproved ? 'Verified Exporter' : 'Exporter'}
                   </span>
-                ) : (
+                ) : isApproved ? (
                   <span className="text-[#0d47a1] bg-blue-50 border border-blue-200 text-[9px] font-black px-1.5 py-0.2 rounded-md">
                     ✓ Verified B2B
                   </span>
-                )}
+                ) : null}
               </h2>
               <p className="text-[10px] text-slate-500 font-medium">
-                @{cleanVendorName.toLowerCase().replace(/[^a-z0-9]/g, '_')} • Verified Supplier
+                @{cleanVendorName.toLowerCase().replace(/[^a-z0-9]/g, '_')} • {isApproved ? 'Verified B2B Member' : 'B2B Member'}
               </p>
             </div>
           </div>
@@ -367,12 +371,12 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                     className="w-full h-full rounded-full object-cover bg-white border-2 border-white"
                   />
                 </div>
-                {gstin && (
+                {isApproved && (gstin || isOrganic || isExporter) && (
                   <span
                     className="absolute -bottom-1 -right-1 bg-[#0d47a1] text-white text-[9px] font-black px-1.5 py-0.5 rounded-full border-2 border-white shadow-xs"
-                    title="Verified GST Business"
+                    title="GST Approved & Verified B2B Member"
                   >
-                    ✓ GST
+                    ✓
                   </span>
                 )}
               </div>
@@ -449,17 +453,23 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                   <span className="text-[9px] text-slate-500">{copiedPhone ? '✓ Copied' : 'Copy'}</span>
                 </button>
 
-                {/* GSTIN / IEC */}
-                {gstin && (
-                  <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-800 border border-slate-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                {/* GST APPROVED / B2B VERIFIED BADGE (Raw GST number is strictly kept private for Admin review) */}
+                {isApproved && (gstin || role === 'wholesaler' || role === 'printing' || role === 'marketing') && (
+                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold text-[11px] shadow-2xs">
                     <span>🛡️</span>
-                    <span>GST: {gstin}</span>
+                    <span>GST Approved</span>
                   </span>
                 )}
-                {iecCode && (
-                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold text-[11px]">
+                {isApproved && isExporter && (
+                  <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-1 rounded-xl font-bold text-[11px] shadow-2xs">
                     <span>🌐</span>
-                    <span>IEC: {iecCode}</span>
+                    <span>Verified Exporter</span>
+                  </span>
+                )}
+                {isOrganic && (
+                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold text-[11px] shadow-2xs">
+                    <span>🌱</span>
+                    <span>Organic Certified</span>
                   </span>
                 )}
               </div>

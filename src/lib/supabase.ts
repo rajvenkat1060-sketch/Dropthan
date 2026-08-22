@@ -224,6 +224,7 @@ export const saveSupabasePost = async (post: PostItem) => {
     const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
 
     const basePayload: any = {
+      user_id: post.user_id || post.userId || null,
       author: post.author,
       role: post.role,
       price: post.price,
@@ -248,7 +249,7 @@ export const saveSupabasePost = async (post: PostItem) => {
       author_avatar: post.authorAvatar || null,
       website: post.website || null,
       instagram: post.instagram || null,
-      created_at: new Date().toISOString(),
+      created_at: post.createdAt || post.created_at || new Date().toISOString(),
     };
 
     let saved = false;
@@ -1494,6 +1495,8 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
         createdAt: item.created_at || item.createdAt || new Date().toISOString(),
         status: (item.status as UserStatus) || 'Active',
+        is_gst_approved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : (item.status === 'Active' || item.status === 'active'),
+        isGstApproved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : (item.status === 'Active' || item.status === 'active'),
         rejectionReason: item.rejection_reason || undefined,
       };
     });
@@ -1719,21 +1722,31 @@ export const fetchAllSupabaseMessages = async (): Promise<PersistentMessage[]> =
   return [];
 };
 
-export const updateUserStatusInSupabase = async (
-  phone: string,
-  status: UserStatus,
-  rejectionReason?: string
-): Promise<void> => {
+export const updateApprovalStatus = async (
+  userIdOrPhone: string,
+  isApproved: boolean,
+  options?: { phone?: string; rejectionReason?: string }
+): Promise<boolean> => {
+  const isApprovedBool = Boolean(isApproved);
+  const newStatus: UserStatus = isApprovedBool ? 'Active' : (options?.rejectionReason ? 'Rejected' : 'Pending');
+  const targetId = (userIdOrPhone || '').trim();
+  const phone = (options?.phone || (targetId.startsWith('+') || /^\d{8,15}$/.test(targetId.replace(/\D/g, '')) ? targetId : '')).trim();
+
+  console.log(`🛡️ [updateApprovalStatus] Updating user approval in Supabase:`, { targetId, phone, isApprovedBool, newStatus });
+
+  // 1. Update Local Storage Cache immediately for instant responsive UI
   const localKey = 'dropthan_all_profiles';
   try {
     const stored = localStorage.getItem(localKey);
     if (stored) {
       const profiles: UserProfile[] = JSON.parse(stored);
-      const target = profiles.find((p) => p.phone === phone);
+      const target = profiles.find((p) => (targetId && p.id === targetId) || (phone && p.phone === phone));
       if (target) {
-        target.status = status;
-        if (rejectionReason) target.rejectionReason = rejectionReason;
-        else if (status === 'Active') delete target.rejectionReason;
+        target.is_gst_approved = isApprovedBool;
+        target.isGstApproved = isApprovedBool;
+        target.status = newStatus;
+        if (options?.rejectionReason) target.rejectionReason = options.rejectionReason;
+        else if (isApprovedBool) delete target.rejectionReason;
         localStorage.setItem(localKey, JSON.stringify(profiles));
       }
     }
@@ -1741,23 +1754,157 @@ export const updateUserStatusInSupabase = async (
     const currentLocal = localStorage.getItem('dropthan_user');
     if (currentLocal) {
       const u: UserProfile = JSON.parse(currentLocal);
-      if (u.phone === phone) {
-        u.status = status;
-        if (rejectionReason) u.rejectionReason = rejectionReason;
-        else if (status === 'Active') delete u.rejectionReason;
+      if ((targetId && u.id === targetId) || (phone && u.phone === phone)) {
+        u.is_gst_approved = isApprovedBool;
+        u.isGstApproved = isApprovedBool;
+        u.status = newStatus;
+        if (options?.rejectionReason) u.rejectionReason = options.rejectionReason;
+        else if (isApprovedBool) delete u.rejectionReason;
         localStorage.setItem('dropthan_user', JSON.stringify(u));
       }
     }
   } catch (e) {}
 
+  // 2. Direct Supabase Query Update
   try {
-    await supabase.from('profiles').update({
-      status,
-      rejection_reason: rejectionReason || null,
-    }).eq('phone', phone);
+    const updatePayload: Record<string, any> = {
+      is_gst_approved: isApprovedBool,
+      status: newStatus,
+      rejection_reason: options?.rejectionReason || null,
+    };
+
+    let query = supabase.from('profiles').update(updatePayload);
+    if (targetId && !targetId.startsWith('+') && !/^\d{8,15}$/.test(targetId)) {
+      query = query.eq('id', targetId);
+    } else if (phone) {
+      query = query.eq('phone', phone);
+    } else {
+      query = query.eq('id', targetId);
+    }
+
+    const { error } = await query;
+    if (error) {
+      console.warn('Direct Supabase update notice, falling back to core status column:', error.message);
+      delete updatePayload.is_gst_approved;
+      let fbQuery = supabase.from('profiles').update(updatePayload);
+      if (phone) fbQuery = fbQuery.eq('phone', phone);
+      else fbQuery = fbQuery.eq('id', targetId);
+      await fbQuery;
+    }
   } catch (err) {
-    console.warn('Notice updating profile status in Supabase:', err);
+    console.warn('Direct Supabase approval update error:', err);
   }
+
+  // 3. Server-Side Route Fallback
+  try {
+    await fetch('/api/admin/approval-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: targetId,
+        phone,
+        isApproved: isApprovedBool,
+        status: newStatus,
+        rejectionReason: options?.rejectionReason,
+      }),
+    });
+  } catch (e) {}
+
+  return true;
+};
+
+export const deleteUserAccount = async (
+  userIdOrPhone: string,
+  phone?: string
+): Promise<boolean> => {
+  const targetId = (userIdOrPhone || '').trim();
+  const targetPhone = (phone || (targetId.startsWith('+') || /^\d{8,15}$/.test(targetId.replace(/\D/g, '')) ? targetId : '')).trim();
+
+  console.log(`🗑️ [deleteUserAccount] Securely deleting user account from Supabase:`, { targetId, targetPhone });
+
+  // 1. Clean local storage caches
+  try {
+    const localKey = 'dropthan_all_profiles';
+    const stored = localStorage.getItem(localKey);
+    if (stored) {
+      const profiles: UserProfile[] = JSON.parse(stored);
+      const filtered = profiles.filter(
+        (p) => !((targetId && p.id === targetId) || (targetPhone && p.phone === targetPhone))
+      );
+      localStorage.setItem(localKey, JSON.stringify(filtered));
+    }
+
+    const currentLocal = localStorage.getItem('dropthan_user');
+    if (currentLocal) {
+      const u: UserProfile = JSON.parse(currentLocal);
+      if ((targetId && u.id === targetId) || (targetPhone && u.phone === targetPhone)) {
+        localStorage.removeItem('dropthan_user');
+      }
+    }
+
+    const postsLocal = localStorage.getItem('dropthan_posts');
+    if (postsLocal) {
+      const posts: PostItem[] = JSON.parse(postsLocal);
+      const filteredPosts = posts.filter(
+        (p) =>
+          !((targetId && ((p as any).user_id === targetId || (p as any).userId === targetId)) ||
+            (targetPhone && p.phone === targetPhone))
+      );
+      localStorage.setItem('dropthan_posts', JSON.stringify(filteredPosts));
+    }
+  } catch (e) {}
+
+  // 2. Delete posts from Supabase explicitly
+  try {
+    if (targetId && !targetId.startsWith('+')) {
+      await supabase.from('posts').delete().eq('user_id', targetId);
+    }
+    if (targetPhone) {
+      await supabase.from('posts').delete().eq('phone', targetPhone);
+    }
+  } catch (e) {
+    console.warn('Notice deleting associated posts from Supabase:', e);
+  }
+
+  // 3. Delete profile from Supabase profiles table
+  try {
+    let delQuery = supabase.from('profiles').delete();
+    if (targetId && !targetId.startsWith('+') && !/^\d{8,15}$/.test(targetId)) {
+      delQuery = delQuery.eq('id', targetId);
+    } else if (targetPhone) {
+      delQuery = delQuery.eq('phone', targetPhone);
+    } else {
+      delQuery = delQuery.eq('id', targetId);
+    }
+    const { error } = await delQuery;
+    if (error) {
+      console.warn('Notice deleting profile from Supabase table:', error.message);
+    }
+  } catch (err) {
+    console.warn('Error deleting user profile from Supabase:', err);
+  }
+
+  // 4. Server-Side route fallback
+  try {
+    await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: targetId,
+        phone: targetPhone,
+      }),
+    });
+  } catch (e) {}
+
+  return true;
+};
+
+export const updateUserStatusInSupabase = async (
+  phone: string,
+  status: UserStatus,
+  rejectionReason?: string
+): Promise<void> => {
+  await updateApprovalStatus(phone, status === 'Active', { phone, rejectionReason });
 };
 
 export const fetchUserProfileStatus = async (

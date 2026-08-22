@@ -746,10 +746,10 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                           alt={cleanName}
                           className="w-10 h-10 rounded-full border border-blue-200 object-cover bg-slate-50 group-hover:scale-105 transition"
                         />
-                        {supplier.gstin && (
+                        {supplier.status === 'Active' && (
                           <span
                             className="absolute -bottom-0.5 -right-0.5 bg-[#0d47a1] text-white text-[7px] font-black px-1 rounded-full border border-white"
-                            title="Verified GST"
+                            title="Verified B2B Supplier"
                           >
                             ✓
                           </span>
@@ -764,14 +764,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                           <span className="text-[9px] bg-blue-50 text-[#0d47a1] border border-blue-200 font-bold px-1.5 py-0.2 rounded-md uppercase">
                             {supplier.role}
                           </span>
-                          {supplier.gstin && (
+                          {supplier.status === 'Active' && supplier.gstin && (
                             <span className="text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-extrabold px-1.5 py-0.2 rounded">
-                              ✓ GST Verified
+                              ✓ GST Approved
                             </span>
                           )}
                           {supplier.iecCode && (
                             <span className="text-[8px] bg-blue-50 text-blue-700 border border-blue-200 font-extrabold px-1.5 py-0.2 rounded">
-                              🌐 IEC Exporter
+                              🌐 Verified Exporter
                             </span>
                           )}
                         </div>
@@ -961,12 +961,17 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                             <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
                               🌱 Organic
                             </span>
-                          ) : (
-                            <span className="text-[#0d47a1] text-[9px] font-bold">✓ GST</span>
-                          )}
-                          {post.role === 'exporter' && (
+                          ) : post.role === 'exporter' ? (
                             <span className="text-blue-700 bg-blue-50 border border-blue-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
-                              🌐 IEC
+                              🌐 Exporter
+                            </span>
+                          ) : post.gstin ? (
+                            <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
+                              ✓ GST Approved
+                            </span>
+                          ) : (
+                            <span className="text-[#0d47a1] bg-blue-50 border border-blue-200 text-[8px] font-bold px-1.5 py-0.2 rounded">
+                              ✓ Verified B2B
                             </span>
                           )}
                         </h4>
