@@ -5,6 +5,7 @@ import { getOptimizedImageUrl } from '../utils/image';
 import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor } from '../lib/supabase';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
+import { ImageCarousel } from './ImageCarousel';
 import { Instagram } from 'lucide-react';
 
 interface PublicProfileModalProps {
@@ -63,6 +64,20 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   // Normalize vendor identifier
   const cleanVendorName = (vendorName || vendorPost?.author || '').trim();
 
+  // Target User Identifiers
+  const targetUserId =
+    vendorProfile?.id ||
+    (vendorPost as any)?.user_id ||
+    (vendorPost as any)?.userId ||
+    (vendorPost as any)?.vendor_id ||
+    undefined;
+
+  const targetPhoneStr =
+    vendorProfile?.phone ||
+    (vendorPost?.phone && !vendorPost.phone.includes('9876543210') ? vendorPost.phone : undefined) ||
+    (cleanVendorName.match(/^\+?\d[\d\s-]{6,}$/) && !cleanVendorName.includes('9876543210') ? cleanVendorName : undefined) ||
+    '';
+
   // Strictly filter posts created by this specific profile/vendor (No global or other user leakage)
   const vendorPosts = useMemo(() => {
     // 1. Build set of exact target author names (case-insensitive, non-generic)
@@ -85,24 +100,13 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
 
     // 2. Build set of exact target phone digits (excluding dummy placeholders)
     const targetPhones: string[] = [];
-    if (vendorProfile?.phone?.trim() && !vendorProfile.phone.includes('9876543210')) targetPhones.push(vendorProfile.phone.trim());
-    if (vendorPost?.phone?.trim() && !vendorPost.phone.includes('9876543210') && !vendorPost.id.startsWith('vendor-')) {
-      targetPhones.push(vendorPost.phone.trim());
-    }
-    if (/^\+?\d[\d\s-]{7,}$/.test(cleanVendorName) && !cleanVendorName.includes('9876543210')) {
-      targetPhones.push(cleanVendorName.trim());
+    if (targetPhoneStr && !targetPhoneStr.includes('9876543210')) {
+      targetPhones.push(targetPhoneStr.trim());
     }
 
     const targetPhoneDigits = targetPhones
       .map((p) => p.replace(/\D/g, ''))
       .filter((d) => d.length >= 7);
-
-    // 3. Target user ID
-    const targetUserId =
-      vendorProfile?.id ||
-      (vendorPost as any)?.user_id ||
-      (vendorPost as any)?.userId ||
-      (vendorPost as any)?.vendor_id;
 
     const merged = new Map<string, PostItem>();
 
@@ -159,7 +163,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
       const tB = new Date(b.createdAt || b.created_at || 0).getTime();
       return tB - tA;
     });
-  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile, vendorPost]);
+  }, [allPosts, cleanVendorName, fetchedVendorPosts, vendorProfile, vendorPost, targetUserId, targetPhoneStr]);
 
   // Derive consolidated metadata from available post / profile
   const referencePost = (vendorPost && !vendorPost.id.startsWith('vendor-')) ? vendorPost : (vendorPosts.length > 0 ? vendorPosts[0] : null);
@@ -200,65 +204,95 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
     (vendorPost?.caption && !vendorPost.id.startsWith('vendor-') ? vendorPost.caption : '') ||
     '';
 
-  const isApproved = vendorProfile ? vendorProfile.status === 'Active' : Boolean(referencePost?.gstin || referencePost?.iecCode || gstin || iecCode);
+  const isApproved = vendorProfile ? (vendorProfile.status === 'Active' || vendorProfile.is_gst_approved === true) : Boolean(referencePost?.gstin || referencePost?.iecCode || gstin || iecCode);
   const isExporter = role === 'exporter' || Boolean(iecCode);
   const isOrganic = role === 'organic_wholesaler';
 
-  // Fetch full verified profile & real rating data from database
+  // Fetch full verified profile & real rating data from database with strict state reset
   useEffect(() => {
-    if (!isOpen || !cleanVendorName) return;
+    if (!isOpen) {
+      setFetchedVendorPosts([]);
+      setVendorProfile(null);
+      setSelectedPostDetail(null);
+      setRatingSummary({ average: 0, count: 0, reviews: [] });
+      return;
+    }
 
-    // Reset previous fetch state on opening new vendor profile
+    let isCancelled = false;
+
+    // IMMEDIATE SYNCHRONOUS STATE RESET TO PREVENT OLD PROFILE DATA BLEEDING
     setFetchedVendorPosts([]);
     setVendorProfile(null);
+    setSelectedPostDetail(null);
+    setActiveTab('grid');
+    setRatingSummary({ average: 0, count: 0, reviews: [] });
+    setCopiedPhone(false);
+    setCopiedShare(false);
 
-    // Fetch real calculated ratings from Supabase
-    fetchUserRatingsFromSupabase(cleanVendorName, currentUser?.phone || currentUser?.id).then(
-      (summary) => {
-        if (summary) {
-          setRatingSummary(summary);
+    const targetLookup = {
+      id: (vendorPost as any)?.user_id || (vendorPost as any)?.userId || (vendorPost as any)?.vendor_id || undefined,
+      userId: (vendorPost as any)?.user_id || (vendorPost as any)?.userId || undefined,
+      phone: (vendorPost?.phone && !vendorPost.phone.includes('9876543210') ? vendorPost.phone : undefined) || (cleanVendorName.match(/^\+?\d[\d\s-]{6,}$/) ? cleanVendorName : undefined),
+      author: cleanVendorName,
+      displayName: vendorPost?.author || cleanVendorName,
+      companyName: vendorPost?.author || cleanVendorName,
+    };
+
+    const ratingKey = targetLookup.id || targetLookup.phone || cleanVendorName;
+    if (ratingKey) {
+      fetchUserRatingsFromSupabase(ratingKey, currentUser?.phone || currentUser?.id).then(
+        (summary) => {
+          if (!isCancelled && summary) {
+            setRatingSummary(summary);
+          }
         }
-      }
-    );
+      );
+    }
 
     const loadPostsForVendor = (targetProf?: UserProfile | null) => {
-      const targetIdentifier = {
-        id: targetProf?.id || (vendorPost as any)?.user_id || (vendorPost as any)?.userId || (vendorPost as any)?.vendor_id || undefined,
-        phone: targetProf?.phone || (referencePost?.phone && !referencePost.phone.includes('9876543210') ? referencePost.phone : undefined) || (cleanVendorName.match(/^\+?\d+$/) ? cleanVendorName : undefined),
-        displayName: targetProf?.displayName || undefined,
-        companyName: targetProf?.companyName || undefined,
+      const postsTargetIdentifier = {
+        id: targetProf?.id || targetLookup.id,
+        phone: targetProf?.phone || targetLookup.phone,
+        displayName: targetProf?.displayName || targetLookup.displayName,
+        companyName: targetProf?.companyName || targetLookup.companyName,
         fullName: targetProf?.fullName || undefined,
         author: cleanVendorName,
       };
 
-      fetchPostsByVendor(targetIdentifier).then((posts) => {
-        setFetchedVendorPosts(posts || []);
+      fetchPostsByVendor(postsTargetIdentifier).then((posts) => {
+        if (!isCancelled) {
+          setFetchedVendorPosts(posts || []);
+        }
       });
     };
 
-    // Fetch complete user profile from Supabase
-    const targetIdentifier = (referencePost?.phone && !referencePost.phone.includes('9876543210') ? referencePost.phone : undefined) || cleanVendorName;
-    fetchFullUserProfile(targetIdentifier).then((prof) => {
-      if (prof) {
-        setVendorProfile(prof);
-        loadPostsForVendor(prof);
-      } else {
-        loadPostsForVendor(null);
+    // Fetch complete user profile from Supabase using user_id, phone, or name
+    fetchFullUserProfile(targetLookup).then((prof) => {
+      if (!isCancelled) {
+        if (prof) {
+          setVendorProfile(prof);
+          loadPostsForVendor(prof);
+        } else {
+          loadPostsForVendor(null);
+        }
       }
     });
 
-    // Also trigger initial load with available reference
+    // Also trigger initial posts query
     loadPostsForVendor(null);
 
     const handlePostsUpdated = () => {
-      loadPostsForVendor(vendorProfile);
+      if (!isCancelled) {
+        loadPostsForVendor(vendorProfile);
+      }
     };
     window.addEventListener('dropthan_posts_updated', handlePostsUpdated);
 
     return () => {
+      isCancelled = true;
       window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
     };
-  }, [isOpen, cleanVendorName, currentUser]);
+  }, [isOpen, cleanVendorName, vendorPost?.id, (vendorPost as any)?.user_id, (vendorPost as any)?.userId, vendorPost?.phone, currentUser]);
 
   if (!isOpen) return null;
 
@@ -762,13 +796,11 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
 
                     {((post.images && post.images.length > 0) || post.img) && (
                       <div className="rounded-xl overflow-hidden border border-slate-200">
-                        <img
-                          src={
-                            (post.images && post.images.length > 0 ? post.images[0] : post.img) ||
-                            'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80'
-                          }
-                          alt={post.caption}
-                          className="w-full h-56 sm:h-72 object-cover"
+                        <ImageCarousel
+                          images={post.images && post.images.length > 0 ? post.images : [post.img || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800']}
+                          fallbackImg={post.img || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800'}
+                          alt={post.caption || 'Product offer'}
+                          onDoubleTap={() => onToggleLike(post.id)}
                         />
                       </div>
                     )}

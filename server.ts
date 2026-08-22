@@ -262,13 +262,17 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
     }
 
     if (!profileData) {
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .or(`display_name.ilike.%${identifier}%,company_name.ilike.%${identifier}%,full_name.ilike.%${identifier}%`)
-        .limit(1)
-        .maybeSingle();
-      profileData = data;
+      const cleanIdent = identifier.trim().toLowerCase();
+      const isGeneric = /^(dropthan member|dropthan b2b member|verified supplier|supplier|member|admin|user|wholesaler|dropshipper)$/i.test(cleanIdent);
+      if (!isGeneric && cleanIdent.length > 2) {
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .or(`display_name.eq.${identifier},company_name.eq.${identifier},full_name.eq.${identifier}`)
+          .limit(1)
+          .maybeSingle();
+        profileData = data;
+      }
     }
 
     // Fetch user's public posts strictly for this specific profile

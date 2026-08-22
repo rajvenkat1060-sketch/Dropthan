@@ -1949,100 +1949,171 @@ export const fetchUserProfileStatus = async (
   return null;
 };
 
-export const fetchFullUserProfile = async (identifier: string): Promise<UserProfile | null> => {
+export const fetchFullUserProfile = async (
+  identifier: string | { id?: string; userId?: string; phone?: string; displayName?: string; companyName?: string; fullName?: string; author?: string }
+): Promise<UserProfile | null> => {
   if (!identifier) return null;
-  const cleanId = identifier.trim();
 
-  // If identifier looks like a phone number, fetch by phone first
-  if (/^\+?\d{8,15}$/.test(cleanId.replace(/\s+/g, ''))) {
-    const byPhone = await fetchFullUserProfileByPhone(cleanId);
-    if (byPhone) return byPhone;
-  }
+  let targetId = '';
+  let targetPhone = '';
+  let targetAuthor = '';
+  let targetCompany = '';
+  let targetDisplayName = '';
+  let targetFullName = '';
 
-  // 1. Direct Supabase Query by ID or Name/Company
-  try {
-    let { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .or(`id.eq.${cleanId},display_name.ilike.%${cleanId}%,company_name.ilike.%${cleanId}%,full_name.ilike.%${cleanId}%`)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data) {
-      const cleanPhone = (data.phone || data.mobile || '').trim();
-      return {
-        id: data.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
-        role: data.role || 'wholesaler',
-        phone: cleanPhone,
-        country: data.country || 'India',
-        location: data.location || '',
-        storeAddress: data.store_address || data.location || undefined,
-        lat: data.lat ? Number(data.lat) : undefined,
-        lng: data.lng ? Number(data.lng) : undefined,
-        companyName: data.company_name || undefined,
-        fullName: data.full_name || undefined,
-        displayName: data.display_name || data.company_name || data.full_name || 'Member',
-        bio: data.bio || data.description || undefined,
-        description: data.description || data.bio || undefined,
-        gstin: data.gstin || undefined,
-        iecCode: data.iec_code || undefined,
-        website: data.website || data.website_url || undefined,
-        websiteUrl: data.website || data.website_url || undefined,
-        instagram: data.instagram || data.instagram_handle || undefined,
-        instagramHandle: data.instagram || data.instagram_handle || undefined,
-        avatarUrl: data.avatar_url || data.avatarUrl || undefined,
-        createdAt: data.created_at || new Date().toISOString(),
-        status: (data.status as UserStatus) || 'Active',
-        rejectionReason: data.rejection_reason || undefined,
-      };
+  if (typeof identifier === 'string') {
+    const cleanStr = identifier.trim();
+    if (/^\+?\d{8,15}$/.test(cleanStr.replace(/\s+/g, '')) && !cleanStr.includes('9876543210')) {
+      targetPhone = cleanStr;
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanStr) || cleanStr.startsWith('usr_')) {
+      targetId = cleanStr;
+    } else {
+      targetAuthor = cleanStr;
     }
-  } catch (err) {
-    console.warn('Notice querying profile by identifier from Supabase:', err);
+  } else {
+    targetId = (identifier.id || identifier.userId || '').trim();
+    targetPhone = (identifier.phone || '').trim();
+    if (targetPhone.includes('9876543210')) targetPhone = '';
+    targetAuthor = (identifier.author || '').trim();
+    targetCompany = (identifier.companyName || '').trim();
+    targetDisplayName = (identifier.displayName || '').trim();
+    targetFullName = (identifier.fullName || '').trim();
   }
 
-  // 2. Server API fallback /api/profiles/by-identifier
-  try {
-    const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(cleanId)}`);
-    if (resp.ok) {
-      const json = await resp.json();
-      if (json.success && json.profile) {
-        const data = json.profile;
-        const cleanPhone = (data.phone || data.mobile || '').trim();
-        return {
-          id: data.id || `usr_${Date.now()}`,
-          role: data.role || 'wholesaler',
-          phone: cleanPhone,
-          country: data.country || 'India',
-          location: data.location || '',
-          companyName: data.company_name || undefined,
-          fullName: data.full_name || undefined,
-          displayName: data.display_name || data.company_name || data.full_name || 'Member',
-          bio: data.bio || data.description || undefined,
-          description: data.description || data.bio || undefined,
-          gstin: data.gstin || undefined,
-          iecCode: data.iec_code || undefined,
-          website: data.website || data.website_url || undefined,
-          instagram: data.instagram || data.instagram_handle || undefined,
-          avatarUrl: data.avatar_url || data.avatarUrl || undefined,
-          createdAt: data.created_at || new Date().toISOString(),
-          status: (data.status as UserStatus) || 'Active',
-        };
+  const GENERIC_NAMES = new Set([
+    'dropthan member',
+    'dropthan b2b member',
+    'verified supplier',
+    'supplier',
+    'member',
+    'admin',
+    'user',
+    'wholesaler',
+    'dropshipper',
+    'reseller',
+    '',
+  ]);
+
+  const mapDbProfile = (data: any): UserProfile => {
+    const cleanPhone = (data.phone || data.mobile || targetPhone || '').trim();
+    const compName = data.company_name || data.companyName || targetCompany || undefined;
+    const flName = data.full_name || data.fullName || targetFullName || undefined;
+    const dispName = data.display_name || data.displayName || compName || flName || targetDisplayName || 'Member';
+
+    return {
+      id: data.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
+      role: data.role || 'wholesaler',
+      phone: cleanPhone,
+      country: data.country || 'India',
+      location: data.location || '',
+      storeAddress: data.store_address || data.storeAddress || data.location || undefined,
+      lat: data.lat ? Number(data.lat) : undefined,
+      lng: data.lng ? Number(data.lng) : undefined,
+      companyName: compName,
+      fullName: flName,
+      displayName: dispName,
+      bio: data.bio || data.description || undefined,
+      description: data.description || data.bio || undefined,
+      gstin: data.gstin || undefined,
+      iecCode: data.iec_code || data.iecCode || undefined,
+      productName: data.product_name || data.productName || undefined,
+      materialDetails: data.material_details || data.materialDetails || undefined,
+      promotionDetails: data.promotion_details || data.promotionDetails || undefined,
+      exportProducts: data.export_products || data.exportProducts || undefined,
+      packagingMaterials: data.packaging_materials || data.packagingMaterials || undefined,
+      serviceDetails: data.service_details || data.serviceDetails || undefined,
+      website: data.website || data.website_url || undefined,
+      websiteUrl: data.website || data.website_url || undefined,
+      instagram: data.instagram || data.instagram_handle || undefined,
+      instagramHandle: data.instagram || data.instagram_handle || undefined,
+      avatarUrl: data.avatar_url || data.avatarUrl || undefined,
+      createdAt: data.created_at || data.createdAt || new Date().toISOString(),
+      status: (data.status as UserStatus) || 'Active',
+      is_gst_approved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : (data.status === 'Active' || data.status === 'active'),
+      isGstApproved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : (data.status === 'Active' || data.status === 'active'),
+      rejectionReason: data.rejection_reason || undefined,
+    };
+  };
+
+  // 1. Direct Supabase Query: Prioritize ID
+  if (targetId) {
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', targetId).maybeSingle();
+      if (!error && data) {
+        return mapDbProfile(data);
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
 
-  // 3. Fallback from all live/cached profiles
+  // 2. Direct Supabase Query: Phone
+  if (targetPhone) {
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').eq('phone', targetPhone).maybeSingle();
+      if (!error && data) {
+        return mapDbProfile(data);
+      }
+    } catch (e) {}
+  }
+
+  // 3. Direct Supabase Query: Exact Names (Non-generic only)
+  const validNames = [targetCompany, targetDisplayName, targetFullName, targetAuthor]
+    .filter(Boolean)
+    .filter((n) => !GENERIC_NAMES.has(n.toLowerCase().trim()));
+
+  for (const nameCandidate of validNames) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`company_name.eq.${nameCandidate},display_name.eq.${nameCandidate},full_name.eq.${nameCandidate}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        return mapDbProfile(data);
+      }
+    } catch (e) {}
+  }
+
+  // 4. Server API query fallback
+  const queryParam = targetId || targetPhone || (validNames.length > 0 ? validNames[0] : '');
+  if (queryParam) {
+    try {
+      const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(queryParam)}`);
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.success && json.profile) {
+          return mapDbProfile(json.profile);
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 5. Fallback from local/cached profiles (Strict Exact Matching Only)
   try {
     const profiles = await fetchAllUserProfilesFromSupabase();
-    const lower = cleanId.toLowerCase();
+    const cleanDigits = targetPhone ? targetPhone.replace(/\D/g, '') : '';
+    const nameSet = new Set(validNames.map((n) => n.toLowerCase().trim()));
+
     const found = profiles.find((p) => {
-      const name = (p.displayName || '').toLowerCase();
-      const comp = (p.companyName || '').toLowerCase();
-      const full = (p.fullName || '').toLowerCase();
-      const ph = (p.phone || '').toLowerCase();
-      const pid = (p.id || '').toLowerCase();
-      return name === lower || comp === lower || full === lower || ph === lower || pid === lower || name.includes(lower) || lower.includes(name);
+      if (targetId && p.id && p.id === targetId) return true;
+      if (cleanDigits && p.phone) {
+        const pDigits = p.phone.replace(/\D/g, '');
+        if (pDigits.length >= 7 && (pDigits === cleanDigits || pDigits.slice(-10) === cleanDigits.slice(-10))) {
+          return true;
+        }
+      }
+      if (nameSet.size > 0) {
+        const comp = (p.companyName || '').toLowerCase().trim();
+        const disp = (p.displayName || '').toLowerCase().trim();
+        const full = (p.fullName || '').toLowerCase().trim();
+        if ((comp && nameSet.has(comp)) || (disp && nameSet.has(disp)) || (full && nameSet.has(full))) {
+          return true;
+        }
+      }
+      return false;
     });
+
     if (found) return found;
   } catch (e) {}
 

@@ -485,13 +485,20 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       isOpen: true,
       vendorName: post.author,
       vendorRole: post.role,
-      vendorPost: post,
+      vendorPost: {
+        ...post,
+        user_id: (post as any).user_id || (post as any).userId,
+        userId: (post as any).user_id || (post as any).userId,
+      },
     });
   };
 
   const openSupplierProfile = (profile: UserProfile) => {
     const pseudoPost: PostItem = {
       id: `vendor-${profile.phone || profile.id}`,
+      user_id: profile.id,
+      userId: profile.id,
+      vendor_id: profile.id,
       author: profile.companyName || profile.displayName,
       role: profile.role,
       price: 'Direct Wholesale Rate',
@@ -520,6 +527,9 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   const handleSupplierChat = (profile: UserProfile) => {
     const pseudoPost: PostItem = {
       id: `vendor-${profile.phone || profile.id}`,
+      user_id: profile.id,
+      userId: profile.id,
+      vendor_id: profile.id,
       author: profile.companyName || profile.displayName,
       role: profile.role,
       price: 'Direct Wholesale Rate',
@@ -1240,18 +1250,21 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       )}
 
       {/* INSTAGRAM-STYLE PUBLIC PROFILE MODAL */}
-      <PublicProfileModal
-        isOpen={publicProfileState.isOpen}
-        onClose={() => setPublicProfileState({ isOpen: false, vendorName: '' })}
-        vendorName={publicProfileState.vendorName}
-        vendorRole={publicProfileState.vendorRole}
-        vendorPost={publicProfileState.vendorPost}
-        allPosts={posts}
-        currentUser={currentUser}
-        onOpenVendorChat={onOpenVendorChat}
-        onToggleLike={onToggleLike}
-        onToggleSave={onToggleSave}
-      />
+      {publicProfileState.isOpen && (
+        <PublicProfileModal
+          key={`modal-${publicProfileState.vendorPost?.user_id || publicProfileState.vendorPost?.userId || publicProfileState.vendorPost?.phone || publicProfileState.vendorName || 'profile'}`}
+          isOpen={publicProfileState.isOpen}
+          onClose={() => setPublicProfileState({ isOpen: false, vendorName: '', vendorPost: null })}
+          vendorName={publicProfileState.vendorName}
+          vendorRole={publicProfileState.vendorRole}
+          vendorPost={publicProfileState.vendorPost}
+          allPosts={posts}
+          currentUser={currentUser}
+          onOpenVendorChat={onOpenVendorChat}
+          onToggleLike={onToggleLike}
+          onToggleSave={onToggleSave}
+        />
+      )}
 
       {/* RATING & REVIEW MODAL */}
       <ReviewModal
