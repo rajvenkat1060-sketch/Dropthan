@@ -113,6 +113,7 @@ app.post("/api/posts/create", async (req, res) => {
       moq: rawPost.moq || "MOQ on Request",
       caption: rawPost.caption || "",
       img: primaryImg,
+      image_url: primaryImg,
       images: imagesList,
       phone: rawPost.phone || null,
       location: rawPost.location || null,

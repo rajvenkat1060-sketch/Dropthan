@@ -11,6 +11,7 @@ import {
   subscribeToSupabaseMessages,
   uploadMediaToSmartBucket,
   generateValidUUID,
+  fetchAllUserProfilesFromSupabase,
 } from '../lib/supabase';
 
 interface ChatTabProps {
@@ -113,6 +114,54 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     localStorage.setItem('dropthan_chats_list', JSON.stringify(conversations));
   }, [conversations]);
 
+  // Sync registered user profiles from Supabase to conversations list
+  useEffect(() => {
+    const syncLiveProfiles = async () => {
+      try {
+        const profiles = await fetchAllUserProfilesFromSupabase();
+        if (profiles && profiles.length > 0) {
+          setConversations((prev) => {
+            const existingPartnerIds = new Set(prev.map((c) => (c.partnerPhone || c.partnerId).replace(/\D/g, '')));
+            const newEntries: ChatConversation[] = [];
+
+            profiles.forEach((p) => {
+              const cleanDigits = (p.phone || p.id).replace(/\D/g, '');
+              const myDigits = (currentUser?.phone || currentUser?.id || '').replace(/\D/g, '');
+              
+              // Skip self
+              if (cleanDigits && myDigits && cleanDigits === myDigits) return;
+
+              if (cleanDigits && !existingPartnerIds.has(cleanDigits)) {
+                const chatId = `chat-usr-${cleanDigits || p.id}`;
+                newEntries.push({
+                  id: chatId,
+                  partnerId: p.id,
+                  partnerName: p.displayName || p.companyName || p.fullName || 'Dropthan Trader',
+                  partnerAvatar: p.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
+                  partnerPhone: p.phone,
+                  partnerGstin: p.gstin,
+                  lastMessage: p.productName ? `Supplying ${p.productName}` : 'Tap to start direct B2B trade negotiation',
+                  lastTimestamp: 'Active',
+                  unreadCount: 0,
+                  isFavourite: false,
+                  isArchived: false,
+                  isBlocked: false,
+                });
+                existingPartnerIds.add(cleanDigits);
+              }
+            });
+
+            return newEntries.length > 0 ? [...prev, ...newEntries] : prev;
+          });
+        }
+      } catch (err) {
+        console.warn('Notice loading live profiles for chat:', err);
+      }
+    };
+
+    syncLiveProfiles();
+  }, [currentUser]);
+
   // On desktop, auto-select first conversation if none selected
   useEffect(() => {
     if (isDesktop && !activeChatId && conversations.length > 0) {
@@ -153,6 +202,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
     const userId = currentUser?.id || currentUser?.phone;
     const userPhone = currentUser?.phone;
+    const cleanPhoneDigits = (userPhone || '').replace(/\D/g, '');
 
     // 1. Initial Load from LocalStorage for immediate instant UI response
     const localKey = `dropthan_msg_${activeChatId}`;
@@ -195,13 +245,68 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
     syncMessages();
 
-    // 3. Subscribe to Supabase Realtime Messages table updates
+    // 3. Subscribe to Supabase Realtime Messages table updates with Instant UI Push
     const unsubscribe = subscribeToSupabaseMessages((payload) => {
       console.log('⚡ [Realtime Listener] Message change detected in ChatTab:', payload);
+      
+      const newRaw = payload?.new;
+      if (newRaw) {
+        const incomingChatId = String(newRaw.chat_id || newRaw.chatId || '');
+        const sender = String(newRaw.sender_id || newRaw.senderId || '');
+        const senderDigits = sender.replace(/\D/g, '');
+
+        const isMe =
+          Boolean(newRaw.is_me) ||
+          (userId && sender === userId) ||
+          (cleanPhoneDigits && senderDigits && (senderDigits === cleanPhoneDigits || cleanPhoneDigits.endsWith(senderDigits) || senderDigits.endsWith(cleanPhoneDigits)));
+
+        const formattedMsg: PersistentMessage = {
+          id: String(newRaw.id || `msg-${Date.now()}`),
+          chat_id: incomingChatId,
+          sender_id: sender,
+          receiver_id: newRaw.receiver_id || '',
+          sender_name: newRaw.sender_name || 'Member',
+          text: newRaw.text || newRaw.content || '',
+          media_url: newRaw.media_url || newRaw.mediaUrl || newRaw.image_url || undefined,
+          is_me: isMe,
+          timestamp: newRaw.timestamp || new Date(newRaw.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          created_at: newRaw.created_at || new Date().toISOString(),
+        };
+
+        // If incoming message belongs to current active chat, append immediately
+        if (incomingChatId === activeChatId) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === formattedMsg.id)) return prev;
+            return [...prev, formattedMsg];
+          });
+
+          // Smooth scroll to bottom
+          setTimeout(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 50);
+        }
+
+        // Update lastMessage preview across conversation list
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id === incomingChatId) {
+              return {
+                ...c,
+                lastMessage: formattedMsg.text || '📷 Photo Attachment',
+                lastTimestamp: formattedMsg.timestamp,
+                unreadCount: incomingChatId === activeChatId ? 0 : (c.unreadCount || 0) + (isMe ? 0 : 1),
+              };
+            }
+            return c;
+          })
+        );
+      }
+
+      // Background re-fetch to ensure complete synchronization
       syncMessages();
     });
 
-    // 4. Background heartbeat sync interval (every 3 seconds) to guarantee real-time delivery
+    // 4. Background heartbeat sync interval (every 3 seconds)
     const heartbeatInterval = setInterval(() => {
       syncMessages();
     }, 3000);

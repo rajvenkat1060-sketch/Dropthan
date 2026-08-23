@@ -237,6 +237,7 @@ export const saveSupabasePost = async (post: PostItem) => {
       packaging_materials: post.packagingMaterials || null,
       service_details: post.serviceDetails || null,
       img: primaryImg,
+      image_url: primaryImg,
       images: imagesList,
       phone: post.phone,
       gstin: post.gstin || null,
