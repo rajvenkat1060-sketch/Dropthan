@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PostItem, UserRole, UserProfile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
+import { getPostImageUrl, getPostImagesList } from '../utils/image';
 import { ImageCarousel } from './ImageCarousel';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
@@ -104,7 +105,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       unsubscribe();
       window.removeEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
     };
-  }, [posts.length]);
+  }, []);
 
   // Execute direct Supabase search query on search query update
   useEffect(() => {
@@ -1005,17 +1006,20 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   </div>
 
                   {/* PHOTO CAROUSEL */}
-                  {((post.images && post.images.length > 0) || post.img) && (
-                    <ImageCarousel
-                      images={post.images && post.images.length > 0 ? post.images : [post.img]}
-                      fallbackImg={
-                        post.img ||
-                        'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80'
-                      }
-                      alt={post.caption || 'Product offer'}
-                      onDoubleTap={() => onToggleLike(post.id)}
-                    />
-                  )}
+                  {(() => {
+                    const postImages = getPostImagesList(post);
+                    const primaryImg = getPostImageUrl(post);
+                    const displayImages = postImages.length > 0 ? postImages : [primaryImg];
+
+                    return (
+                      <ImageCarousel
+                        images={displayImages}
+                        fallbackImg={primaryImg}
+                        alt={post.caption || 'Product offer'}
+                        onDoubleTap={() => onToggleLike(post.id)}
+                      />
+                    );
+                  })()}
 
                   {/* POST ACTION BAR (LIKE, SAVE, REVIEW, PROFILE, SHARE) */}
                   <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">

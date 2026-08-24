@@ -9,6 +9,8 @@ import {
   fetchSupabaseMessages,
   saveSupabaseMessage,
   subscribeToSupabaseMessages,
+  fetchUserChatThreadsFromSupabase,
+  getCanonicalChatId,
   uploadMediaToSmartBucket,
   generateValidUUID,
   fetchAllUserProfilesFromSupabase,
@@ -88,6 +90,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
   const [callNotification, setCallNotification] = useState<string | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [selectedMediaUrl, setSelectedMediaUrl] = useState<string | null>(null);
+  const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 768;
@@ -114,28 +117,43 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     localStorage.setItem('dropthan_chats_list', JSON.stringify(conversations));
   }, [conversations]);
 
-  // Sync registered user profiles from Supabase to conversations list
+  // Sync registered user profiles & real conversation threads from Supabase
   useEffect(() => {
-    const syncLiveProfiles = async () => {
+    const syncLiveChatData = async () => {
       try {
-        const profiles = await fetchAllUserProfilesFromSupabase();
-        if (profiles && profiles.length > 0) {
-          setConversations((prev) => {
-            const existingPartnerIds = new Set(prev.map((c) => (c.partnerPhone || c.partnerId).replace(/\D/g, '')));
-            const newEntries: ChatConversation[] = [];
+        const [profiles, liveMessages] = await Promise.all([
+          fetchAllUserProfilesFromSupabase(),
+          currentUser ? fetchUserChatThreadsFromSupabase(currentUser.phone || currentUser.id) : Promise.resolve([]),
+        ]);
 
+        const profileMap = new Map<string, any>();
+        if (profiles && profiles.length > 0) {
+          profiles.forEach((p) => {
+            const digits = (p.phone || p.id).replace(/\D/g, '');
+            if (digits) profileMap.set(digits, p);
+          });
+        }
+
+        setConversations((prev) => {
+          const map = new Map<string, ChatConversation>();
+          prev.forEach((c) => map.set(c.id, c));
+
+          const myDigits = (currentUser?.phone || currentUser?.id || '').replace(/\D/g, '');
+
+          // 1. Add all registered profiles
+          if (profiles && profiles.length > 0) {
             profiles.forEach((p) => {
               const cleanDigits = (p.phone || p.id).replace(/\D/g, '');
-              const myDigits = (currentUser?.phone || currentUser?.id || '').replace(/\D/g, '');
-              
-              // Skip self
-              if (cleanDigits && myDigits && cleanDigits === myDigits) return;
+              if (cleanDigits && myDigits && cleanDigits === myDigits) return; // skip self
 
-              if (cleanDigits && !existingPartnerIds.has(cleanDigits)) {
-                const chatId = `chat-usr-${cleanDigits || p.id}`;
-                newEntries.push({
-                  id: chatId,
-                  partnerId: p.id,
+              const canonicalId = myDigits && cleanDigits
+                ? getCanonicalChatId(myDigits, cleanDigits)
+                : `chat-usr-${cleanDigits || p.id}`;
+
+              if (!map.has(canonicalId)) {
+                map.set(canonicalId, {
+                  id: canonicalId,
+                  partnerId: p.id || `usr_${cleanDigits}`,
                   partnerName: p.displayName || p.companyName || p.fullName || 'Dropthan Trader',
                   partnerAvatar: p.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
                   partnerPhone: p.phone,
@@ -147,43 +165,84 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
                   isArchived: false,
                   isBlocked: false,
                 });
-                existingPartnerIds.add(cleanDigits);
               }
             });
+          }
 
-            return newEntries.length > 0 ? [...prev, ...newEntries] : prev;
-          });
-        }
+          // 2. Incorporate live database messages to update recent threads
+          if (liveMessages && liveMessages.length > 0) {
+            liveMessages.forEach((msg) => {
+              const senderDigits = String(msg.sender_id || '').replace(/\D/g, '');
+              const receiverDigits = String(msg.receiver_id || '').replace(/\D/g, '');
+              const partnerDigits = senderDigits === myDigits ? receiverDigits : senderDigits;
+
+              if (partnerDigits && partnerDigits !== myDigits) {
+                const canonicalId = getCanonicalChatId(myDigits, partnerDigits);
+                const prof = profileMap.get(partnerDigits);
+                const existing = map.get(canonicalId);
+
+                const partnerName = prof?.displayName || prof?.companyName || msg.sender_name || (existing ? existing.partnerName : `Trader +${partnerDigits}`);
+                const partnerAvatar = prof?.avatarUrl || (existing ? existing.partnerAvatar : undefined);
+
+                map.set(canonicalId, {
+                  id: canonicalId,
+                  partnerId: prof?.id || `usr_${partnerDigits}`,
+                  partnerName,
+                  partnerAvatar,
+                  partnerPhone: prof?.phone || `+${partnerDigits}`,
+                  partnerGstin: prof?.gstin || existing?.partnerGstin,
+                  lastMessage: msg.text || (msg.media_url ? '📷 Photo Attachment' : 'Message received'),
+                  lastTimestamp: msg.timestamp || 'Recent',
+                  unreadCount: existing?.unreadCount || 0,
+                  isFavourite: existing?.isFavourite || false,
+                  isArchived: existing?.isArchived || false,
+                  isBlocked: existing?.isBlocked || false,
+                });
+              }
+            });
+          }
+
+          return Array.from(map.values());
+        });
       } catch (err) {
-        console.warn('Notice loading live profiles for chat:', err);
+        console.warn('Notice loading live profiles/threads for chat:', err);
       }
     };
 
-    syncLiveProfiles();
-  }, [currentUser]);
+    syncLiveChatData();
+  }, [currentUser?.id, currentUser?.phone]);
 
   // On desktop, auto-select first conversation if none selected
   useEffect(() => {
     if (isDesktop && !activeChatId && conversations.length > 0) {
       setActiveChatId(conversations[0].id);
     }
-  }, [isDesktop, activeChatId, conversations]);
+  }, [isDesktop, activeChatId, conversations.length]);
+
+  const activeVendorId = activeVendor?.id;
+  const activeVendorPhone = activeVendor?.phone;
+  const activeVendorAuthor = activeVendor?.author;
 
   // If activeVendor is passed from parent (e.g. Inquire button on feed), auto-open or create chat with vendor
   useEffect(() => {
     if (activeVendor) {
-      const vendorChatId = `chat-${activeVendor.id || activeVendor.author.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+      const myPhone = currentUser?.phone || currentUser?.id || '';
+      const vendorPhone = activeVendor.phone || activeVendor.id || '';
+      const canonicalId = (myPhone && vendorPhone)
+        ? getCanonicalChatId(myPhone, vendorPhone)
+        : `chat-${activeVendor.id || activeVendor.author.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+
       setConversations((prev) => {
-        const exists = prev.find((c) => c.id === vendorChatId);
+        const exists = prev.find((c) => c.id === canonicalId || (activeVendor.phone && c.partnerPhone === activeVendor.phone));
         if (exists) return prev;
         const newConv: ChatConversation = {
-          id: vendorChatId,
+          id: canonicalId,
           partnerId: activeVendor.id || 'vendor',
           partnerName: activeVendor.author,
           partnerAvatar: activeVendor.authorAvatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
           partnerPhone: activeVendor.phone || '+919876543210',
           partnerGstin: activeVendor.gstin || '33AAAAA0000A1Z5',
-          lastMessage: `Inquiring about ${activeVendor.caption.slice(0, 40)}...`,
+          lastMessage: `Inquiring about ${(activeVendor.caption || '').slice(0, 40)}...`,
           lastTimestamp: 'Just Now',
           unreadCount: 0,
           isFavourite: false,
@@ -192,9 +251,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
         };
         return [newConv, ...prev];
       });
-      setActiveChatId(vendorChatId);
+      setActiveChatId(canonicalId);
     }
-  }, [activeVendor]);
+  }, [activeVendorId, activeVendorPhone, activeVendorAuthor, currentUser?.id, currentUser?.phone]);
+
+  const activeConv = useMemo(() => {
+    return conversations.find((c) => c.id === activeChatId) || null;
+  }, [conversations, activeChatId]);
+
+  const partnerPhone = activeConv?.partnerPhone;
+  const partnerId = activeConv?.partnerId;
 
   // Load persistent messages when activeChatId changes & Subscribe to Supabase Realtime
   useEffect(() => {
@@ -203,10 +269,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     const userId = currentUser?.id || currentUser?.phone;
     const userPhone = currentUser?.phone;
     const cleanPhoneDigits = (userPhone || '').replace(/\D/g, '');
+    const cleanPartnerPhone = (partnerPhone || '').replace(/\D/g, '');
+
+    const canonicalId = (cleanPhoneDigits && cleanPartnerPhone)
+      ? getCanonicalChatId(cleanPhoneDigits, cleanPartnerPhone)
+      : activeChatId;
 
     // 1. Initial Load from LocalStorage for immediate instant UI response
     const localKey = `dropthan_msg_${activeChatId}`;
-    const localCached = localStorage.getItem(localKey);
+    const canonicalKey = `dropthan_msg_${canonicalId}`;
+    const localCached = localStorage.getItem(localKey) || localStorage.getItem(canonicalKey);
     if (localCached) {
       try {
         const parsed = JSON.parse(localCached);
@@ -218,17 +290,23 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
     // 2. Fetch from Supabase Messages Table
     const syncMessages = async () => {
-      const fetchedMsgs = await fetchSupabaseMessages(activeChatId, userId, userPhone);
+      const fetchedMsgs = await fetchSupabaseMessages(
+        activeChatId,
+        userId,
+        userPhone,
+        partnerId,
+        partnerPhone
+      );
       if (fetchedMsgs && fetchedMsgs.length > 0) {
         setMessages(fetchedMsgs);
       } else {
-        // If brand new conversation without messages, create default welcome message
+        // If brand new conversation without messages, show initial welcome message locally
         setMessages((prev) => {
           if (prev.length > 0) return prev;
           const currentConv = conversations.find((c) => c.id === activeChatId);
           const welcomeMsg: PersistentMessage = {
-            id: generateValidUUID(),
-            chat_id: activeChatId,
+            id: `welcome-${canonicalId}`,
+            chat_id: canonicalId,
             sender_id: currentConv?.partnerId || 'vendor',
             receiver_id: currentUser?.id || currentUser?.phone || 'user',
             sender_name: currentConv?.partnerName || 'Supplier',
@@ -237,7 +315,6 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             created_at: new Date().toISOString(),
           };
-          saveSupabaseMessage(welcomeMsg);
           return [welcomeMsg];
         });
       }
@@ -253,7 +330,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
       if (newRaw) {
         const incomingChatId = String(newRaw.chat_id || newRaw.chatId || '');
         const sender = String(newRaw.sender_id || newRaw.senderId || '');
+        const receiver = String(newRaw.receiver_id || newRaw.receiverId || '');
         const senderDigits = sender.replace(/\D/g, '');
+        const receiverDigits = receiver.replace(/\D/g, '');
 
         const isMe =
           Boolean(newRaw.is_me) ||
@@ -264,7 +343,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           id: String(newRaw.id || `msg-${Date.now()}`),
           chat_id: incomingChatId,
           sender_id: sender,
-          receiver_id: newRaw.receiver_id || '',
+          receiver_id: receiver,
           sender_name: newRaw.sender_name || 'Member',
           text: newRaw.text || newRaw.content || '',
           media_url: newRaw.media_url || newRaw.mediaUrl || newRaw.image_url || undefined,
@@ -273,8 +352,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           created_at: newRaw.created_at || new Date().toISOString(),
         };
 
+        const isMatchActiveChat =
+          incomingChatId === activeChatId ||
+          incomingChatId === canonicalId ||
+          (cleanPartnerPhone && cleanPhoneDigits && (
+            (senderDigits === cleanPartnerPhone && receiverDigits === cleanPhoneDigits) ||
+            (senderDigits === cleanPhoneDigits && receiverDigits === cleanPartnerPhone)
+          ));
+
         // If incoming message belongs to current active chat, append immediately
-        if (incomingChatId === activeChatId) {
+        if (isMatchActiveChat) {
           setMessages((prev) => {
             if (prev.some((m) => m.id === formattedMsg.id)) return prev;
             return [...prev, formattedMsg];
@@ -286,41 +373,70 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           }, 50);
         }
 
-        // Update lastMessage preview across conversation list
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === incomingChatId) {
+        // Update lastMessage preview across conversation list or create thread if new
+        setConversations((prev) => {
+          let updated = false;
+          const mapped = prev.map((c) => {
+            const partnerDigits = (c.partnerPhone || c.partnerId).replace(/\D/g, '');
+            if (
+              c.id === incomingChatId ||
+              c.id === canonicalId ||
+              (partnerDigits && (partnerDigits === senderDigits || partnerDigits === receiverDigits))
+            ) {
+              updated = true;
               return {
                 ...c,
                 lastMessage: formattedMsg.text || '📷 Photo Attachment',
                 lastTimestamp: formattedMsg.timestamp,
-                unreadCount: incomingChatId === activeChatId ? 0 : (c.unreadCount || 0) + (isMe ? 0 : 1),
+                unreadCount: isMatchActiveChat ? 0 : (c.unreadCount || 0) + (isMe ? 0 : 1),
               };
             }
             return c;
-          })
-        );
+          });
+
+          if (!updated && senderDigits && senderDigits !== cleanPhoneDigits) {
+            const newCanonical = getCanonicalChatId(cleanPhoneDigits, senderDigits);
+            mapped.unshift({
+              id: newCanonical,
+              partnerId: sender,
+              partnerName: formattedMsg.sender_name || `Trader +${senderDigits}`,
+              partnerPhone: `+${senderDigits}`,
+              lastMessage: formattedMsg.text || '📷 Photo Attachment',
+              lastTimestamp: formattedMsg.timestamp,
+              unreadCount: 1,
+              isFavourite: false,
+              isArchived: false,
+              isBlocked: false,
+            });
+          }
+
+          return mapped;
+        });
       }
 
       // Background re-fetch to ensure complete synchronization
       syncMessages();
     });
 
-    // 4. Background heartbeat sync interval (every 3 seconds)
+    // 4. Background heartbeat sync interval (every 4 seconds)
     const heartbeatInterval = setInterval(() => {
       syncMessages();
-    }, 3000);
+    }, 4000);
 
-    // Clear unread count for this conversation
-    setConversations((prev) =>
-      prev.map((c) => (c.id === activeChatId ? { ...c, unreadCount: 0 } : c))
-    );
+    // Clear unread count for this conversation only if currently unread > 0
+    setConversations((prev) => {
+      const match = prev.find((c) => c.id === activeChatId || c.id === canonicalId);
+      if (!match || !match.unreadCount) return prev;
+      return prev.map((c) =>
+        c.id === activeChatId || c.id === canonicalId ? { ...c, unreadCount: 0 } : c
+      );
+    });
 
     return () => {
       unsubscribe();
       clearInterval(heartbeatInterval);
     };
-  }, [activeChatId, currentUser]);
+  }, [activeChatId, currentUser?.id, currentUser?.phone, partnerPhone, partnerId]);
 
   // Scroll to bottom smoothly on messages update
   useEffect(() => {
@@ -328,8 +444,6 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
-
-  const activeConv = conversations.find((c) => c.id === activeChatId);
 
   // Handle Photo Attachment to Cloudinary
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -358,13 +472,15 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
     if ((!text && !mediaUrl) || !activeChatId) return;
 
-    const currentSenderId = currentUser?.id || currentUser?.phone || 'user';
-    const currentReceiverId = activeConv?.partnerId || 'vendor';
+    const currentSenderId = currentUser?.phone || currentUser?.id || 'user';
+    const currentReceiverId = activeConv?.partnerPhone || activeConv?.partnerId || 'vendor';
+
+    const canonicalId = getCanonicalChatId(currentSenderId, currentReceiverId);
 
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: PersistentMessage = {
       id: generateValidUUID(),
-      chat_id: activeChatId,
+      chat_id: canonicalId,
       sender_id: currentSenderId,
       receiver_id: currentReceiverId,
       sender_name: currentUser?.displayName || 'Me',
@@ -380,18 +496,30 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     if (!textToSend) setInputText('');
     setSelectedMediaUrl(null);
 
+    // Smooth scroll immediately
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 20);
+
     // 2. Save permanently to Supabase and broadcast
     await saveSupabaseMessage(userMsg);
 
     // 3. Update conversation lastMessage preview
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeChatId ? { ...c, lastMessage: userMsg.text, lastTimestamp: timeStr } : c
+        c.id === activeChatId || c.id === canonicalId
+          ? { ...c, lastMessage: userMsg.text, lastTimestamp: timeStr }
+          : c
       )
     );
 
-    // Auto-reply simulation for instant interactive feedback if chatting with demo vendor
-    if (!activeConv?.partnerPhone || activeConv.partnerId.startsWith('supplier-') || activeConv.partnerId === 'vendor') {
+    // Auto-reply simulation for demo vendors if chatting with mock partner
+    const isMockVendor =
+      !activeConv?.partnerPhone ||
+      activeConv.partnerId.startsWith('supplier-') ||
+      activeConv.partnerId === 'vendor';
+
+    if (isMockVendor) {
       setTimeout(async () => {
         let replyText = 'Requirement noted! Our wholesale manager will verify inventory and revert with GST invoice rates.';
         const lower = text.toLowerCase();
@@ -407,7 +535,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
         const replyMsg: PersistentMessage = {
           id: generateValidUUID(),
-          chat_id: activeChatId,
+          chat_id: canonicalId,
           sender_id: currentReceiverId,
           receiver_id: currentSenderId,
           sender_name: activeConv?.partnerName || 'Supplier',
@@ -422,7 +550,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
 
         setConversations((prev) =>
           prev.map((c) =>
-            c.id === activeChatId ? { ...c, lastMessage: replyText, lastTimestamp: replyMsg.timestamp } : c
+            c.id === activeChatId || c.id === canonicalId
+              ? { ...c, lastMessage: replyText, lastTimestamp: replyMsg.timestamp }
+              : c
           )
         );
       }, 700);
@@ -464,7 +594,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             type="text"
             value={chatSearch}
             onChange={(e) => setChatSearch(e.target.value)}
-            placeholder="🔍 Search suppliers or messages..."
+            placeholder="🔍 Search direct chats or messages..."
             className="w-full bg-white border border-slate-200 text-slate-900 text-xs pl-3.5 pr-8 py-2.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0d47a1] shadow-2xs"
           />
           {chatSearch && (
@@ -489,7 +619,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
-            All Chats ({conversations.length})
+            All Messages ({conversations.length})
           </button>
           <button
             type="button"
@@ -591,7 +721,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             💬
           </div>
           <div className="max-w-md space-y-1">
-            <h3 className="text-base font-bold text-slate-900">Dropthan B2B Supplier Chat</h3>
+            <h3 className="text-base font-bold text-slate-900">Dropthan Direct 1-on-1 Chat</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
               Select a conversation to communicate directly with verified suppliers, negotiate wholesale pricing, and request GST invoices.
             </p>
@@ -628,7 +758,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
                 <span className="text-blue-200 text-[11px]">✓</span>
               </h3>
               <p className="text-[10px] text-blue-100 font-medium truncate">
-                {activeConv.partnerGstin ? `GST: ${activeConv.partnerGstin}` : 'Verified B2B Supplier • Active'}
+                {activeConv.partnerGstin ? `GST: ${activeConv.partnerGstin}` : 'Verified B2B Member • Online'}
               </p>
             </div>
           </div>
@@ -702,7 +832,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
         <div className="flex-1 min-h-[260px] overflow-y-auto p-3.5 sm:p-4 space-y-3 bg-slate-50/80">
           <div className="text-center my-1.5">
             <span className="text-[10px] font-bold bg-slate-200/80 text-slate-600 px-3 py-1 rounded-full">
-              🔒 End-to-End Verified B2B Trade Chat • Supabase Realtime Active
+              🔒 End-to-End Verified Direct Chat • Supabase Realtime Active
             </span>
           </div>
 
@@ -717,7 +847,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
               >
                 {/* Media Image if present */}
                 {m.media_url && (
-                  <div className="rounded-xl overflow-hidden mb-2 border border-black/10 bg-black/5">
+                  <div
+                    onClick={() => setPreviewImageModal(m.media_url || null)}
+                    className="rounded-xl overflow-hidden mb-2 border border-black/10 bg-black/5 cursor-pointer hover:opacity-95 transition"
+                  >
                     <img
                       src={getOptimizedImageUrl(m.media_url, 600)}
                       alt="Attachment"
@@ -769,7 +902,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
           className="hidden"
         />
 
-        {/* RESTORED TYPING INPUT BOX - ALWAYS VISIBLE AT BOTTOM */}
+        {/* TYPING INPUT BOX - ALWAYS VISIBLE AT BOTTOM */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -796,7 +929,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type B2B inquiry, quantities, or pricing question..."
+            placeholder="Type a message or wholesale inquiry..."
             className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d47a1] focus:bg-white transition"
           />
           <button
@@ -843,6 +976,28 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
         </div>
       )}
 
+      {/* FULLSCREEN IMAGE MODAL PREVIEW */}
+      {previewImageModal && (
+        <div
+          onClick={() => setPreviewImageModal(null)}
+          className="fixed inset-0 z-[400] bg-black/80 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div className="relative max-w-2xl max-h-[85vh]">
+            <img
+              src={previewImageModal}
+              alt="Preview"
+              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+            />
+            <button
+              onClick={() => setPreviewImageModal(null)}
+              className="absolute top-2 right-2 bg-black/60 hover:bg-black text-white w-8 h-8 rounded-full flex items-center justify-center font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* GOOGLE MAPS LOCATION MODAL FOR ACTIVE CHAT SUPPLIER */}
       <LocationMapModal
         isOpen={isMapOpen}
@@ -853,4 +1008,3 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
     </div>
   );
 };
-

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PostItem, UserProfile, RatingSummary, ReviewItem, UserRole } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { getOptimizedImageUrl } from '../utils/image';
+import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
 import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor } from '../lib/supabase';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
@@ -720,9 +720,8 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
               ) : (
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {vendorPosts.map((post) => {
-                    const previewImg =
-                      (post.images && post.images.length > 0 ? post.images[0] : post.img) ||
-                      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&auto=format&fit=crop&q=80';
+                    const postImages = getPostImagesList(post);
+                    const previewImg = getPostImageUrl(post);
 
                     return (
                       <div
@@ -737,11 +736,18 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                           src={getOptimizedImageUrl(previewImg, 400)}
                           alt={post.caption || 'Product'}
                           loading="lazy"
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          decoding="async"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.src.includes('unsplash.com')) {
+                              target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400&auto=format&fit=crop&q=80';
+                            }
+                          }}
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300 bg-slate-100"
                         />
-                        {post.images && post.images.length > 1 && (
-                          <span className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md">
-                            📷 {post.images.length}
+                        {postImages.length > 1 && (
+                          <span className="absolute top-1.5 right-1.5 bg-slate-900/80 backdrop-blur-xs text-white text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-xs">
+                            📷 {postImages.length}
                           </span>
                         )}
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition p-2 flex flex-col justify-end text-white">
@@ -770,84 +776,88 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                   </p>
                 </div>
               ) : (
-                vendorPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className={`bg-white border rounded-2xl p-3.5 space-y-3 shadow-sm transition ${
-                      selectedPostDetail?.id === post.id ? 'border-[#0d47a1] ring-2 ring-blue-200' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <img
-                          src={avatarUrl}
-                          alt={companyName}
-                          className="w-7 h-7 rounded-full object-cover border border-slate-200"
-                        />
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-900">{companyName}</h4>
-                          <span className="text-[10px] text-slate-500">{location}</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-bold text-[#0d47a1] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                        {post.price}
-                      </span>
-                    </div>
+                vendorPosts.map((post) => {
+                  const postImages = getPostImagesList(post);
+                  const primaryImg = getPostImageUrl(post);
+                  const displayImages = postImages.length > 0 ? postImages : [primaryImg];
 
-                    {((post.images && post.images.length > 0) || post.img) && (
+                  return (
+                    <div
+                      key={post.id}
+                      className={`bg-white border rounded-2xl p-3.5 space-y-3 shadow-sm transition ${
+                        selectedPostDetail?.id === post.id ? 'border-[#0d47a1] ring-2 ring-blue-200' : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <img
+                            src={avatarUrl}
+                            alt={companyName}
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200"
+                          />
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-900">{companyName}</h4>
+                            <span className="text-[10px] text-slate-500">{location}</span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-[#0d47a1] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                          {post.price}
+                        </span>
+                      </div>
+
                       <div className="rounded-xl overflow-hidden border border-slate-200">
                         <ImageCarousel
-                          images={post.images && post.images.length > 0 ? post.images : [post.img || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800']}
-                          fallbackImg={post.img || 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800'}
+                          images={displayImages}
+                          fallbackImg={primaryImg}
                           alt={post.caption || 'Product offer'}
                           onDoubleTap={() => onToggleLike(post.id)}
                         />
                       </div>
-                    )}
 
-                    <p className="text-xs text-slate-700 leading-relaxed">{post.caption}</p>
+                      <p className="text-xs text-slate-700 leading-relaxed">{post.caption}</p>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => onToggleLike(post.id)}
+                            className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-lg font-bold border transition ${
+                              post.isLiked
+                                ? 'bg-rose-50 text-rose-600 border-rose-200'
+                                : 'bg-slate-50 text-slate-600 border-slate-200'
+                            }`}
+                          >
+                            <span>{post.isLiked ? '❤️' : '🤍'}</span>
+                            <span>{post.likesCount || 0}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onToggleSave(post.id)}
+                            className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-lg font-bold border transition ${
+                              post.isSaved
+                                ? 'bg-blue-50 text-[#0d47a1] border-blue-200'
+                                : 'bg-slate-50 text-slate-600 border-slate-200'
+                            }`}
+                          >
+                            <span>{post.isSaved ? '🔖' : '📑'}</span>
+                            <span>{post.isSaved ? 'Saved' : 'Save'}</span>
+                          </button>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() => onToggleLike(post.id)}
-                          className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-lg font-bold border transition ${
-                            post.isLiked
-                              ? 'bg-rose-50 text-rose-600 border-rose-200'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}
+                          onClick={() => {
+                            onClose();
+                            onOpenVendorChat(post);
+                          }}
+                          className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-2xs transition active:scale-95 cursor-pointer"
                         >
-                          <span>{post.isLiked ? '❤️' : '🤍'}</span>
-                          <span>{post.likesCount || 0}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onToggleSave(post.id)}
-                          className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-lg font-bold border transition ${
-                            post.isSaved
-                              ? 'bg-blue-50 text-[#0d47a1] border-blue-200'
-                              : 'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          <span>{post.isSaved ? '🔖' : '📑'}</span>
-                          <span>{post.isSaved ? 'Saved' : 'Save'}</span>
+                          💬 Chat & MOQ
                         </button>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenVendorChat(post);
-                        }}
-                        className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-2xs transition active:scale-95"
-                      >
-                        💬 Chat & MOQ
-                      </button>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}

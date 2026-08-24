@@ -21,6 +21,147 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use("/uploads", express.static(uploadsDir));
 
+// Local persistent auth credentials store for fail-safe password verification
+const credentialsDir = path.join(process.cwd(), "data");
+const credentialsFile = path.join(credentialsDir, "auth_credentials.json");
+
+if (!fs.existsSync(credentialsDir)) {
+  try {
+    fs.mkdirSync(credentialsDir, { recursive: true });
+  } catch (e) {}
+}
+
+interface StoredCredential {
+  phone: string;
+  cleanDigits: string;
+  password: string;
+  userId?: string;
+  updatedAt: string;
+}
+
+// Local persistent messages store for fallback and multi-user sync
+const messagesFile = path.join(credentialsDir, "messages_store.json");
+
+const getStoredMessages = (): any[] => {
+  try {
+    if (fs.existsSync(messagesFile)) {
+      const raw = fs.readFileSync(messagesFile, "utf-8");
+      return JSON.parse(raw) || [];
+    }
+  } catch (e) {
+    console.warn("[Messages Store] Error reading messages file:", e);
+  }
+  return [];
+};
+
+const saveStoredMessage = (msg: any) => {
+  try {
+    const list = getStoredMessages();
+    const existingIdx = list.findIndex((m) => m.id === msg.id);
+    if (existingIdx >= 0) {
+      list[existingIdx] = msg;
+    } else {
+      list.push(msg);
+    }
+    // Limit to latest 3000 messages to prevent unbounded growth
+    const trimmed = list.slice(-3000);
+    fs.writeFileSync(messagesFile, JSON.stringify(trimmed, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("[Messages Store] Error saving message file:", e);
+  }
+};
+
+const getStoredCredentials = (): Record<string, StoredCredential> => {
+  try {
+    if (fs.existsSync(credentialsFile)) {
+      const raw = fs.readFileSync(credentialsFile, "utf-8");
+      return JSON.parse(raw) || {};
+    }
+  } catch (e) {
+    console.warn("[Credentials Store] Error reading credentials file:", e);
+  }
+  return {};
+};
+
+const saveCredential = (phone: string, password: string, userId?: string) => {
+  try {
+    const cleanDigits = (phone || "").replace(/\D/g, "");
+    if (!cleanDigits || !password) return;
+    const creds = getStoredCredentials();
+    creds[cleanDigits] = {
+      phone: phone.trim(),
+      cleanDigits,
+      password: password.trim(),
+      userId: userId || creds[cleanDigits]?.userId,
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(credentialsFile, JSON.stringify(creds, null, 2), "utf-8");
+    console.log(`[Credentials Store] Stored registered credentials for: ${phone.trim()}`);
+  } catch (e) {
+    console.warn("[Credentials Store] Error saving credentials file:", e);
+  }
+};
+
+// Seed & Synchronize Admin Credentials for +8838533014 (Password: 9624)
+const syncAdminCredentials = async () => {
+  const adminPhones = ["+8838533014", "8838533014", "+918838533014", "918838533014", "+91 8838533014"];
+  const adminPass = "9624";
+  
+  // 1. Immediately store in server credentials file
+  adminPhones.forEach((p) => saveCredential(p, adminPass, "usr_8838533014"));
+
+  // 2. Synchronize to Supabase database
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    try {
+      for (const p of adminPhones) {
+        await supabase.from("profiles").update({ password: adminPass }).eq("phone", p);
+      }
+
+      // Check all profiles for phone match
+      const { data: allProfiles } = await supabase.from("profiles").select("*");
+      if (allProfiles && allProfiles.length > 0) {
+        for (const prof of allProfiles) {
+          const digits = (prof.phone || "").replace(/\D/g, "");
+          if (digits.includes("8838533014")) {
+            await supabase.from("profiles").update({ password: adminPass }).eq("id", prof.id);
+            console.log(`[Admin Password Sync] Updated Supabase password to 9624 for ID: ${prof.id} (${prof.phone})`);
+          }
+        }
+      }
+
+      // Ensure at least one profile exists with +8838533014
+      const { data: existingAdmin } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("phone", "+8838533014")
+        .maybeSingle();
+
+      if (!existingAdmin) {
+        await supabase.from("profiles").upsert([
+          {
+            id: "usr_8838533014",
+            phone: "+8838533014",
+            password: adminPass,
+            role: "wholesaler",
+            display_name: "Admin Dropthan",
+            company_name: "Dropthan Admin",
+            status: "Active",
+            country: "India",
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        console.log("[Admin Password Sync] Upserted admin profile record for +8838533014");
+      }
+    } catch (err) {
+      console.warn("[Admin Password Sync] Supabase sync notice:", err);
+    }
+  }
+};
+
+// Run initial admin sync
+syncAdminCredentials().catch(() => {});
+
 // Initialize Supabase Admin/Service Client if URL & Key are available
 const getSupabaseClient = () => {
   const url = process.env.VITE_SUPABASE_URL || "https://zxbifidxkpbsissjwgnm.supabase.co";
@@ -320,43 +461,150 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
   }
 });
 
-// Server-Side Messages Listing Endpoint
+// Server-Side Messages Listing Endpoint (Supports canonical IDs and sender/receiver cross-matching)
 app.get("/api/messages", async (req, res) => {
   try {
     const chatId = (req.query.chat_id as string || "").trim();
-    if (!chatId) {
-      res.status(400).json({ error: "chat_id is required" });
+    const userA = (req.query.user_a as string || req.query.sender_id as string || "").trim();
+    const userB = (req.query.user_b as string || req.query.receiver_id as string || "").trim();
+
+    if (!chatId && (!userA || !userB)) {
+      res.status(400).json({ error: "chat_id or (user_a and user_b) is required" });
       return;
+    }
+
+    const cleanA = (userA || "").replace(/\D/g, "");
+    const cleanB = (userB || "").replace(/\D/g, "");
+    const possibleChatIds = new Set<string>();
+    if (chatId) possibleChatIds.add(chatId);
+    if (cleanA && cleanB) {
+      const sorted = [cleanA, cleanB].sort();
+      possibleChatIds.add(`dm_${sorted[0]}_${sorted[1]}`);
+      possibleChatIds.add(`chat_${sorted[0]}_${sorted[1]}`);
+      possibleChatIds.add(`chat-usr-${cleanA}`);
+      possibleChatIds.add(`chat-usr-${cleanB}`);
     }
 
     const supabase = getSupabaseClient();
-    if (!supabase) {
-      res.status(500).json({ error: "Supabase client not available on server" });
-      return;
+    let supabaseMessages: any[] = [];
+
+    if (supabase) {
+      try {
+        const idList = Array.from(possibleChatIds);
+        if (idList.length > 0) {
+          const { data, error } = await supabase
+            .from("messages")
+            .select("*")
+            .in("chat_id", idList)
+            .order("created_at", { ascending: true });
+
+          if (!error && data) {
+            supabaseMessages = data;
+          }
+        }
+
+        // If sender/receiver query provided, also check cross pairs
+        if (userA && userB) {
+          const { data: pairData } = await supabase
+            .from("messages")
+            .select("*")
+            .or(`and(sender_id.eq.${userA},receiver_id.eq.${userB}),and(sender_id.eq.${userB},receiver_id.eq.${userA})`)
+            .order("created_at", { ascending: true });
+
+          if (pairData && pairData.length > 0) {
+            const existingIds = new Set(supabaseMessages.map((m) => String(m.id)));
+            pairData.forEach((m) => {
+              if (!existingIds.has(String(m.id))) {
+                supabaseMessages.push(m);
+                existingIds.add(String(m.id));
+              }
+            });
+          }
+        }
+      } catch (dbErr) {
+        console.warn("[Server Messages DB Query] Notice:", dbErr);
+      }
     }
 
-    let { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("chat_id", chatId)
-      .order("created_at", { ascending: true });
+    // Merge with server-side stored messages
+    const localStored = getStoredMessages();
+    const matchedLocal = localStored.filter((m) => {
+      if (possibleChatIds.has(m.chat_id)) return true;
+      if (cleanA && cleanB) {
+        const sDigits = (m.sender_id || "").replace(/\D/g, "");
+        const rDigits = (m.receiver_id || "").replace(/\D/g, "");
+        if ((sDigits === cleanA && rDigits === cleanB) || (sDigits === cleanB && rDigits === cleanA)) {
+          return true;
+        }
+      }
+      return false;
+    });
 
-    if (error && (error.code === "42703" || error.message.includes("chat_id"))) {
-      const fallback = await supabase.from("messages").select("*").order("created_at", { ascending: true }).limit(200);
-      data = fallback.data;
-      error = fallback.error;
-    }
+    const mergedMap = new Map<string, any>();
+    supabaseMessages.forEach((m) => mergedMap.set(String(m.id || `${m.sender_id}_${m.created_at}`), m));
+    matchedLocal.forEach((m) => mergedMap.set(String(m.id || `${m.sender_id}_${m.created_at}`), m));
 
-    if (error) {
-      console.warn("[Server Messages] Error:", error.message);
-      res.status(400).json({ error: error.message });
-      return;
-    }
+    const finalMessages = Array.from(mergedMap.values()).sort((a, b) => {
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    });
 
-    res.json({ success: true, messages: data || [] });
+    res.json({ success: true, messages: finalMessages });
   } catch (err: any) {
     console.error("[Server Messages] Exception:", err);
     res.status(500).json({ error: err?.message || "Failed to fetch messages" });
+  }
+});
+
+// Server-Side All Active Threads Endpoint for a User
+app.get("/api/messages/threads", async (req, res) => {
+  try {
+    const userIdentifier = (req.query.user_id as string || req.query.phone as string || "").trim();
+    if (!userIdentifier) {
+      res.status(400).json({ error: "user_id or phone parameter required" });
+      return;
+    }
+
+    const cleanUser = userIdentifier.replace(/\D/g, "");
+    const supabase = getSupabaseClient();
+    let allMessages: any[] = [];
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(500);
+
+        if (!error && data) {
+          allMessages = data;
+        }
+      } catch (e) {}
+    }
+
+    // Merge with local store
+    const local = getStoredMessages();
+    const combinedMap = new Map<string, any>();
+    allMessages.forEach((m) => combinedMap.set(String(m.id), m));
+    local.forEach((m) => combinedMap.set(String(m.id), m));
+
+    const userMessages = Array.from(combinedMap.values()).filter((m) => {
+      const s = String(m.sender_id || "").replace(/\D/g, "");
+      const r = String(m.receiver_id || "").replace(/\D/g, "");
+      const c = String(m.chat_id || "");
+      return (
+        s === cleanUser ||
+        r === cleanUser ||
+        (cleanUser && c.includes(cleanUser)) ||
+        m.sender_id === userIdentifier ||
+        m.receiver_id === userIdentifier
+      );
+    });
+
+    res.json({ success: true, count: userMessages.length, messages: userMessages });
+  } catch (err: any) {
+    console.error("[Server Messages Threads] Error:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch threads" });
   }
 });
 
@@ -369,14 +617,16 @@ app.post("/api/messages/create", async (req, res) => {
       return;
     }
 
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-      res.status(500).json({ error: "Supabase client not available on server" });
-      return;
+    const cleanSender = String(rawMsg.sender_id || "").replace(/\D/g, "");
+    const cleanReceiver = String(rawMsg.receiver_id || "").replace(/\D/g, "");
+    let canonicalChatId = rawMsg.chat_id;
+    if (cleanSender && cleanReceiver && !canonicalChatId.startsWith("dm_")) {
+      const sorted = [cleanSender, cleanReceiver].sort();
+      canonicalChatId = `dm_${sorted[0]}_${sorted[1]}`;
     }
 
     const msgPayload: Record<string, any> = {
-      chat_id: rawMsg.chat_id,
+      chat_id: canonicalChatId,
       sender_id: rawMsg.sender_id || "",
       receiver_id: rawMsg.receiver_id || null,
       sender_name: rawMsg.sender_name || null,
@@ -389,48 +639,49 @@ app.post("/api/messages/create", async (req, res) => {
 
     if (rawMsg.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawMsg.id)) {
       msgPayload.id = rawMsg.id;
+    } else if (rawMsg.id) {
+      msgPayload.id = rawMsg.id;
     }
 
-    let savedData: any = null;
-    let savedError: any = null;
+    // 1. Always save in server-side persistent store
+    saveStoredMessage(msgPayload);
 
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const resInsert = await supabase.from("messages").insert([msgPayload]).select();
-      if (!resInsert.error) {
-        savedData = resInsert.data;
-        savedError = null;
-        console.log(`[Server Messages Sync] Inserted message on attempt ${attempt + 1}!`);
+    // 2. Insert into Supabase messages table
+    const supabase = getSupabaseClient();
+    let savedData: any = null;
+
+    if (supabase) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const resInsert = await supabase.from("messages").insert([msgPayload]).select();
+        if (!resInsert.error) {
+          savedData = resInsert.data;
+          console.log(`[Server Messages Sync] Inserted message on attempt ${attempt + 1}!`);
+          break;
+        }
+
+        const savedError = resInsert.error;
+        console.warn(`[Server Messages Sync] Attempt ${attempt + 1} notice:`, savedError.message);
+
+        if (savedError.message.includes("uuid") || savedError.code === "22P02" || savedError.code === "23505") {
+          delete msgPayload.id;
+          continue;
+        }
+
+        const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
+                                savedError.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
+                                savedError.message.match(/column "(\w+)" does not exist/i);
+
+        if (missingColMatch && missingColMatch[1] && msgPayload[missingColMatch[1]] !== undefined) {
+          delete msgPayload[missingColMatch[1]];
+          continue;
+        }
+
+        if (savedError.message.includes("content") && !msgPayload.content) {
+          msgPayload.content = msgPayload.text;
+        }
+
         break;
       }
-
-      savedError = resInsert.error;
-      console.warn(`[Server Messages Sync] Attempt ${attempt + 1} notice:`, savedError.message);
-
-      if (savedError.message.includes("uuid") || savedError.code === "22P02" || savedError.code === "23505") {
-        delete msgPayload.id;
-        continue;
-      }
-
-      const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
-                              savedError.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
-                              savedError.message.match(/column "(\w+)" does not exist/i);
-
-      if (missingColMatch && missingColMatch[1] && msgPayload[missingColMatch[1]] !== undefined) {
-        delete msgPayload[missingColMatch[1]];
-        continue;
-      }
-
-      if (savedError.message.includes("content") && !msgPayload.content) {
-        msgPayload.content = msgPayload.text;
-      }
-
-      break;
-    }
-
-    if (savedError) {
-      console.error("[Server Messages Sync] Error saving message:", savedError);
-      res.status(400).json({ error: savedError.message });
-      return;
     }
 
     res.json({ success: true, message: msgPayload, data: savedData });
@@ -487,6 +738,12 @@ app.post("/api/profiles/upsert", async (req, res) => {
       profilePayload.id = rawProfile.id;
     }
     if (flName) profilePayload.full_name = flName;
+    if (rawProfile.password) {
+      profilePayload.password = rawProfile.password;
+      if (cleanPhone) {
+        saveCredential(cleanPhone, rawProfile.password, profilePayload.id);
+      }
+    }
     if (rawProfile.store_address || rawProfile.storeAddress) profilePayload.store_address = rawProfile.store_address || rawProfile.storeAddress;
     if (rawProfile.avatar_url || rawProfile.avatarUrl) profilePayload.avatar_url = rawProfile.avatar_url || rawProfile.avatarUrl;
     if (bioVal) profilePayload.bio = bioVal;
@@ -605,6 +862,331 @@ app.post("/api/profiles/upsert", async (req, res) => {
   } catch (err: any) {
     console.error("[Server Profile Sync] Server exception during profile upsert:", err);
     res.status(500).json({ error: err?.message || "Internal server error during profile sync" });
+  }
+});
+
+// Server-Side Strict Unified Authentication Endpoint: Sign In OR Register Seamlessly
+app.post("/api/auth/authenticate", async (req, res) => {
+  try {
+    const rawProfile = req.body || {};
+    const { phone, password } = rawProfile;
+    if (!phone || !password) {
+      res.status(400).json({ error: "Phone number and password are required" });
+      return;
+    }
+
+    const cleanPhone = phone.trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, '');
+    const cleanPassword = password.trim();
+
+    if (cleanPassword.length < 4) {
+      res.status(400).json({ error: "Password must be at least 4 characters" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Database client unavailable on server" });
+      return;
+    }
+
+    console.log(`[Server Auth Unified] Processing authentication for phone: ${cleanPhone}`);
+
+    const credsMap = getStoredCredentials();
+    const fileCred = credsMap[cleanDigits];
+
+    // 1. Check if profile already exists by exact phone or phone digits in Supabase
+    let existingProfile: any = null;
+    const { data: exactMatch } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("phone", cleanPhone)
+      .maybeSingle();
+
+    if (exactMatch) {
+      existingProfile = exactMatch;
+    } else if (cleanDigits) {
+      const { data: listData } = await supabase.from("profiles").select("*").limit(200);
+      if (listData) {
+        existingProfile = listData.find((p: any) => p.phone && p.phone.replace(/\D/g, '') === cleanDigits);
+      }
+    }
+
+    // Determine stored password from database OR persistent file store
+    const registeredPassword = (existingProfile?.password || fileCred?.password || "").trim();
+
+    // 2. If account exists in database OR credentials store -> STRICT PASSWORD VERIFICATION
+    if (existingProfile || fileCred) {
+      if (registeredPassword) {
+        if (registeredPassword !== cleanPassword) {
+          console.warn(`[Server Auth Unified] ❌ Password mismatch for phone: ${cleanPhone}. Entered: "${cleanPassword}" vs Registered: "${registeredPassword}"`);
+          res.status(401).json({
+            success: false,
+            error: "Password not correct",
+            invalidPassword: true,
+          });
+          return;
+        }
+      } else {
+        // Legacy profile with no password recorded: assign entered password
+        saveCredential(cleanPhone, cleanPassword, existingProfile?.id);
+        try {
+          if (existingProfile?.id) {
+            await supabase.from("profiles").update({ password: cleanPassword }).eq("id", existingProfile.id);
+            existingProfile.password = cleanPassword;
+          }
+        } catch (e) {}
+      }
+
+      // Sync and store verified credential
+      saveCredential(cleanPhone, cleanPassword, existingProfile?.id);
+      if (existingProfile && !existingProfile.password) {
+        existingProfile.password = cleanPassword;
+      }
+
+      console.log(`[Server Auth Unified] ✅ Existing user logged in successfully: ${existingProfile?.display_name || cleanPhone}`);
+      res.json({
+        success: true,
+        isNewUser: false,
+        profile: existingProfile || {
+          id: fileCred?.userId || `usr_${cleanDigits}`,
+          phone: cleanPhone,
+          password: cleanPassword,
+          role: 'wholesaler',
+          display_name: `Member ${cleanPhone.slice(-4)}`,
+          status: 'Active',
+          created_at: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    // 3. If profile does not exist -> REGISTER NEW USER
+    console.log(`[Server Auth Unified] 🆕 New user detected. Creating profile for phone: ${cleanPhone}`);
+
+    const compName = rawProfile.company_name || rawProfile.companyName || '';
+    const flName = rawProfile.full_name || rawProfile.fullName || '';
+    const dispName = rawProfile.display_name || rawProfile.displayName || compName || flName || `Member ${cleanPhone.slice(-4)}`;
+    const websiteVal = rawProfile.website || rawProfile.websiteUrl || rawProfile.website_url || null;
+    const bioVal = rawProfile.bio || rawProfile.description || rawProfile.about || null;
+    const newId = rawProfile.id || `usr_${cleanDigits || Date.now()}`;
+
+    // Save to persistent credentials store immediately
+    saveCredential(cleanPhone, cleanPassword, newId);
+
+    const newProfilePayload: Record<string, any> = {
+      id: newId,
+      phone: cleanPhone,
+      password: cleanPassword,
+      role: rawProfile.role || 'wholesaler',
+      display_name: dispName,
+      company_name: compName || dispName,
+      location: rawProfile.location || '',
+      country: rawProfile.country || 'India',
+      status: rawProfile.status || 'Active',
+      created_at: rawProfile.created_at || rawProfile.createdAt || new Date().toISOString(),
+    };
+
+    if (flName) newProfilePayload.full_name = flName;
+    if (rawProfile.store_address || rawProfile.storeAddress) newProfilePayload.store_address = rawProfile.store_address || rawProfile.storeAddress;
+    if (rawProfile.avatar_url || rawProfile.avatarUrl) newProfilePayload.avatar_url = rawProfile.avatar_url || rawProfile.avatarUrl;
+    if (bioVal) newProfilePayload.bio = bioVal;
+    if (rawProfile.gstin) newProfilePayload.gstin = rawProfile.gstin;
+    if (rawProfile.iec_code || rawProfile.iecCode) newProfilePayload.iec_code = rawProfile.iec_code || rawProfile.iecCode;
+    if (websiteVal) newProfilePayload.website = websiteVal;
+    if (rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle) {
+      newProfilePayload.instagram = rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle;
+    }
+    if (rawProfile.lat !== undefined && rawProfile.lat !== null) newProfilePayload.lat = Number(rawProfile.lat);
+    if (rawProfile.lng !== undefined && rawProfile.lng !== null) newProfilePayload.lng = Number(rawProfile.lng);
+
+    const { data: insertedData, error: insertError } = await supabase
+      .from("profiles")
+      .insert([newProfilePayload])
+      .select()
+      .maybeSingle();
+
+    if (insertError) {
+      console.warn("[Server Auth Unified] Supabase insert warning:", insertError);
+    }
+
+    const finalProfile = insertedData || newProfilePayload;
+    console.log(`[Server Auth Unified] ✅ New user registration completed for: ${dispName}`);
+
+    res.json({
+      success: true,
+      isNewUser: true,
+      profile: finalProfile,
+    });
+  } catch (err: any) {
+    console.error("[Server Auth Unified] Exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during authentication" });
+  }
+});
+
+// Server-Side Strict Authentication: Phone & Password Login Endpoint
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { phone, password } = req.body || {};
+    if (!phone || !password) {
+      res.status(400).json({ error: "Phone number and password are required" });
+      return;
+    }
+
+    const cleanPhone = phone.trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, '');
+    const cleanPassword = password.trim();
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Database client unavailable on server" });
+      return;
+    }
+
+    console.log(`[Server Auth Login] Verifying credentials for phone: ${cleanPhone}`);
+
+    const credsMap = getStoredCredentials();
+    const fileCred = credsMap[cleanDigits];
+
+    // 1. Fetch profile by phone from database
+    let profileData: any = null;
+    const { data: exactMatch } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("phone", cleanPhone)
+      .maybeSingle();
+
+    if (exactMatch) {
+      profileData = exactMatch;
+    } else if (cleanDigits) {
+      const { data: listData } = await supabase
+        .from("profiles")
+        .select("*")
+        .limit(150);
+      if (listData) {
+        profileData = listData.find((p: any) => p.phone && p.phone.replace(/\D/g, '') === cleanDigits);
+      }
+    }
+
+    if (!profileData && !fileCred) {
+      res.status(404).json({
+        error: "No account found with this phone number. Please register first.",
+        notFound: true,
+      });
+      return;
+    }
+
+    const storedPassword = (profileData?.password || fileCred?.password || "").trim();
+
+    // 2. Strict password matching check
+    if (storedPassword) {
+      if (storedPassword !== cleanPassword) {
+        console.warn(`[Server Auth Login] ❌ Password mismatch for phone: ${cleanPhone}. Entered: "${cleanPassword}" vs Stored: "${storedPassword}"`);
+        res.status(401).json({
+          error: "Password not correct",
+          invalidPassword: true,
+        });
+        return;
+      }
+    } else {
+      // If legacy profile had no stored password, save entered password
+      saveCredential(cleanPhone, cleanPassword, profileData?.id);
+      try {
+        if (profileData?.id) {
+          await supabase
+            .from("profiles")
+            .update({ password: cleanPassword })
+            .eq("id", profileData.id);
+          profileData.password = cleanPassword;
+        }
+      } catch (e) {}
+    }
+
+    saveCredential(cleanPhone, cleanPassword, profileData?.id);
+    if (profileData && !profileData.password) {
+      profileData.password = cleanPassword;
+    }
+
+    console.log(`[Server Auth Login] ✅ Authentication successful for user: ${profileData?.display_name || cleanPhone}`);
+    res.json({
+      success: true,
+      profile: profileData || {
+        id: fileCred?.userId || `usr_${cleanDigits}`,
+        phone: cleanPhone,
+        password: cleanPassword,
+        role: 'wholesaler',
+        display_name: `Member ${cleanPhone.slice(-4)}`,
+        status: 'Active',
+      },
+    });
+  } catch (err: any) {
+    console.error("[Server Auth Login] Exception during login:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during authentication" });
+  }
+});
+
+// Server-Side Strict Authentication: Phone & Password Registration / Signup Endpoint
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const rawProfile = req.body;
+    const { phone, password } = rawProfile || {};
+    if (!phone || !password) {
+      res.status(400).json({ error: "Phone number and password are required for registration" });
+      return;
+    }
+
+    const cleanPhone = phone.trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, '');
+    const cleanPassword = password.trim();
+
+    if (cleanPassword.length < 4) {
+      res.status(400).json({ error: "Password must be at least 4 characters" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Database client unavailable on server" });
+      return;
+    }
+
+    console.log(`[Server Auth Signup] Checking duplicate account for phone: ${cleanPhone}`);
+
+    // 1. Check if phone number already registered
+    let existingProfile: any = null;
+    const { data: exactMatch } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("phone", cleanPhone)
+      .maybeSingle();
+
+    if (exactMatch) {
+      existingProfile = exactMatch;
+    } else if (cleanDigits) {
+      const { data: listData } = await supabase.from("profiles").select("*").limit(150);
+      if (listData) {
+        existingProfile = listData.find((p: any) => p.phone && p.phone.replace(/\D/g, '') === cleanDigits);
+      }
+    }
+
+    if (existingProfile) {
+      console.warn(`[Server Auth Signup] ⚠️ Account already exists for phone: ${cleanPhone}`);
+      res.status(409).json({
+        error: "An account with this phone number already exists. Please log in instead.",
+        isExisting: true,
+        profile: existingProfile,
+      });
+      return;
+    }
+
+    console.log(`[Server Auth Signup] ✅ New phone verified. Registering profile for: ${cleanPhone}`);
+    res.json({
+      success: true,
+      message: "Ready for registration",
+    });
+  } catch (err: any) {
+    console.error("[Server Auth Signup] Exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during registration verification" });
   }
 });
 

@@ -6,6 +6,7 @@ export interface UserProfile {
   id?: string;
   role: UserRole;
   phone: string;
+  password?: string;
   country: string;
   location: string;
   storeAddress?: string;
@@ -58,7 +59,9 @@ export interface PostItem {
   bio?: string;
   description?: string;
   img: string;
+  image_url?: string;
   images?: string[];
+  media_url?: string;
   phone: string;
   country?: string;
   location?: string;

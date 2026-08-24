@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, PostItem, RatingSummary, ReviewItem } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { getOptimizedImageUrl } from '../utils/image';
+import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
 import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { Instagram } from 'lucide-react';
@@ -81,7 +81,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       setEditInstagram(user.instagram || user.instagramHandle || '');
       setEditWebsite(user.website || user.websiteUrl || '');
     }
-  }, [user]);
+  }, [
+    user?.id,
+    user?.phone,
+    user?.displayName,
+    user?.companyName,
+    user?.fullName,
+    user?.bio,
+    user?.location,
+    user?.storeAddress,
+    user?.gstin,
+    user?.iecCode,
+    user?.instagram,
+    user?.website,
+  ]);
 
   const handleSaveFullProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -230,7 +243,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         if (stats.userReview) setReviewInputText(stats.userReview);
       });
     }
-  }, [user]);
+  }, [user?.id, user?.phone, user?.companyName, user?.displayName]);
 
   const handleRateSupplier = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -713,15 +726,19 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                       </div>
 
                       <div className="flex space-x-3 items-center">
-                        {(post.images?.[0] || post.img) && (
-                          <img
-                            src={getOptimizedImageUrl(post.images?.[0] || post.img, 300)}
-                            className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
-                            alt={post.caption}
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        )}
+                        <img
+                          src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
+                          className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
+                          alt={post.caption || 'Product offer'}
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.src.includes('unsplash.com')) {
+                              target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
+                            }
+                          }}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
                           <div className="flex items-center justify-between mt-1">
@@ -795,15 +812,19 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                       </div>
 
                       <div className="flex space-x-3 items-center">
-                        {(post.images?.[0] || post.img) && (
-                          <img
-                            src={getOptimizedImageUrl(post.images?.[0] || post.img, 300)}
-                            className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
-                            alt={post.caption}
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        )}
+                        <img
+                          src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
+                          className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
+                          alt={post.caption || 'Product offer'}
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.src.includes('unsplash.com')) {
+                              target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
+                            }
+                          }}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
                           <div className="flex items-center justify-between mt-1">

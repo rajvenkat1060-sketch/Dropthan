@@ -307,6 +307,24 @@ export default function App() {
     showToast('🚀 Offer posted & synced successfully!');
   };
 
+  const handleStatusChanged = useCallback(() => {
+    if (currentUser?.phone) {
+      fetchUserProfileStatus(currentUser.phone).then((latest) => {
+        if (latest && latest.status !== currentUser.status) {
+          const updated = { ...currentUser, status: latest.status, rejectionReason: latest.rejectionReason };
+          localStorage.setItem('dropthan_user', JSON.stringify(updated));
+          setCurrentUser(updated);
+        }
+      });
+    }
+  }, [currentUser?.phone, currentUser?.status]);
+
+  const handleUpdateProfile = useCallback((updatedUser: UserProfile) => {
+    setCurrentUser(updatedUser);
+    localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
+    saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Profile supabase sync notice:', err));
+  }, []);
+
   const cleanPhoneNum = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';
   const isAdminUserAuthorized = cleanPhoneNum.endsWith('8838533014') || cleanPhoneNum === '8838533014';
 
@@ -465,11 +483,7 @@ export default function App() {
             onSelectTab={setActiveTab}
             onOpenAdmin={isAdminUserAuthorized ? handleOpenAdmin : undefined}
             onEditDetails={() => setCurrentUser(null)}
-            onUpdateProfile={(updatedUser) => {
-              setCurrentUser(updatedUser);
-              localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
-              saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Profile supabase sync notice:', err));
-            }}
+            onUpdateProfile={handleUpdateProfile}
           />
         )}
       </main>
@@ -489,17 +503,7 @@ export default function App() {
         onClose={() => setIsAdminModalOpen(false)}
         currentUser={currentUser}
         posts={posts}
-        onStatusChanged={() => {
-          if (currentUser?.phone) {
-            fetchUserProfileStatus(currentUser.phone).then((latest) => {
-              if (latest && latest.status !== currentUser.status) {
-                const updated = { ...currentUser, status: latest.status, rejectionReason: latest.rejectionReason };
-                localStorage.setItem('dropthan_user', JSON.stringify(updated));
-                setCurrentUser(updated);
-              }
-            });
-          }
-        }}
+        onStatusChanged={handleStatusChanged}
       />
 
       {/* FLOATING TOAST NOTIFICATION */}

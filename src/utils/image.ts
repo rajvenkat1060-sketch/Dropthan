@@ -2,28 +2,141 @@
  * Image optimization & caching helper with Cloudinary f_auto,q_auto transformation
  */
 export function getOptimizedImageUrl(url: string | undefined, width = 600): string {
-  if (!url) {
+  if (!url || typeof url !== 'string') {
+    return `https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=${width}&auto=format&fit=crop&q=75`;
+  }
+
+  const cleanUrl = url.trim();
+  if (!cleanUrl) {
     return `https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=${width}&auto=format&fit=crop&q=75`;
   }
 
   // Handle data URLs or blob URLs
-  if (url.startsWith('data:') || url.startsWith('blob:')) {
-    return url;
+  if (cleanUrl.startsWith('data:') || cleanUrl.startsWith('blob:')) {
+    return cleanUrl;
   }
 
   // Cloudinary delivery optimization (f_auto,q_auto,w_${width},c_limit)
   // Transforms /image/upload/ to /image/upload/f_auto,q_auto,w_${width},c_limit/
-  if (url.includes('res.cloudinary.com') && url.includes('/image/upload/')) {
-    if (!url.includes('/f_auto,') && !url.includes('/q_auto')) {
-      return url.replace('/image/upload/', `/image/upload/f_auto,q_auto,w_${width},c_limit/`);
+  if (cleanUrl.includes('res.cloudinary.com') && cleanUrl.includes('/image/upload/')) {
+    if (!cleanUrl.includes('/f_auto,') && !cleanUrl.includes('/q_auto')) {
+      return cleanUrl.replace('/image/upload/', `/image/upload/f_auto,q_auto,w_${width},c_limit/`);
     }
   }
 
   // Unsplash image optimization
-  if (url.includes('images.unsplash.com')) {
-    const baseUrl = url.split('?')[0];
+  if (cleanUrl.includes('images.unsplash.com')) {
+    const baseUrl = cleanUrl.split('?')[0];
     return `${baseUrl}?w=${width}&auto=format&fit=crop&q=75`;
   }
 
-  return url;
+  return cleanUrl;
 }
+
+/**
+ * Safely extracts an array of all valid image URLs from any post object,
+ * parsing across post.image_url, post.img, post.images (arrays or serialized strings),
+ * post.media_url, etc.
+ */
+export function getPostImagesList(post: any): string[] {
+  if (!post) return [];
+
+  const found: string[] = [];
+
+  const addIfValid = (candidate: any) => {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (
+        trimmed &&
+        trimmed.length > 5 &&
+        !trimmed.startsWith('[') &&
+        !trimmed.startsWith('{') &&
+        (trimmed.startsWith('http://') ||
+          trimmed.startsWith('https://') ||
+          trimmed.startsWith('data:') ||
+          trimmed.startsWith('blob:') ||
+          trimmed.startsWith('/'))
+      ) {
+        if (!found.includes(trimmed)) {
+          found.push(trimmed);
+        }
+      }
+    }
+  };
+
+  // 1. Check canonical Supabase image_url column
+  if (post.image_url) {
+    addIfValid(post.image_url);
+  }
+
+  // 2. Check standard img property
+  if (post.img) {
+    addIfValid(post.img);
+  }
+
+  // 3. Check media_url / mediaUrl property
+  if (post.media_url || post.mediaUrl) {
+    addIfValid(post.media_url || post.mediaUrl);
+  }
+
+  // 4. Parse images array or serialized strings
+  if (post.images) {
+    if (Array.isArray(post.images)) {
+      post.images.forEach((item: any) => addIfValid(item));
+    } else if (typeof post.images === 'string') {
+      const raw = post.images.trim();
+      if (raw.startsWith('[') && raw.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item: any) => addIfValid(item));
+          }
+        } catch {
+          raw.replace(/[\[\]"]/g, '').split(',').forEach((s) => addIfValid(s));
+        }
+      } else if (raw.startsWith('{') && raw.endsWith('}')) {
+        raw.slice(1, -1).split(',').forEach((s) => addIfValid(s.replace(/^"|"$/g, '')));
+      } else {
+        addIfValid(raw);
+      }
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Safely extracts the single primary image URL from a post object using
+ * an exhaustive fallback chain:
+ * 1. post.image_url (Cloudinary canonical Supabase column)
+ * 2. post.img
+ * 3. post.images[0] (or parsed JSON/Postgres array)
+ * 4. post.media_url
+ * 5. default placeholder
+ */
+export function getPostImageUrl(post: any, fallbackPlaceholder?: string): string {
+  const defaultFallback =
+    fallbackPlaceholder ||
+    'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&auto=format&fit=crop&q=80';
+
+  if (!post) return defaultFallback;
+
+  const list = getPostImagesList(post);
+  if (list.length > 0 && list[0]) {
+    return list[0];
+  }
+
+  const direct =
+    post.image_url ||
+    post.img ||
+    (Array.isArray(post.images) && post.images.length > 0 ? post.images[0] : undefined) ||
+    post.media_url ||
+    post.mediaUrl;
+
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim();
+  }
+
+  return defaultFallback;
+}
+
