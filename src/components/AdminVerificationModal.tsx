@@ -4,6 +4,7 @@ import {
   fetchAllUserProfilesFromSupabase,
   updateUserStatusInSupabase,
   deleteUserAccount,
+  preRegisterUserAccount,
   fetchAllSupabaseMessages,
   fetchAllLikesFromSupabase,
   subscribeToAdminRealtime,
@@ -70,6 +71,31 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     isOpen: false,
     user: null,
     isDeleting: false,
+  });
+
+  // Pre-Register User Modal State
+  const [preRegisterModal, setPreRegisterModal] = useState<{
+    isOpen: boolean;
+    phone: string;
+    password: string;
+    role: string;
+    companyName: string;
+    fullName: string;
+    location: string;
+    gstin: string;
+    isSaving: boolean;
+    error: string;
+  }>({
+    isOpen: false,
+    phone: '+91 ',
+    password: '',
+    role: 'wholesaler',
+    companyName: '',
+    fullName: '',
+    location: 'Surat, Gujarat',
+    gstin: '',
+    isSaving: false,
+    error: '',
   });
 
   // Admin Notification / Toast State
@@ -414,6 +440,86 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
       setTimeout(() => setToastMessage(null), 5000);
     } finally {
       setDeleteUserModal({ isOpen: false, user: null, isDeleting: false });
+    }
+  };
+
+  // ADMIN MANUAL PRE-REGISTRATION SUBMIT HANDLER
+  const handlePreRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!preRegisterModal.phone.trim() || preRegisterModal.phone.replace(/\D/g, '').length < 7) {
+      setPreRegisterModal((prev) => ({ ...prev, error: 'Please enter a valid phone number with country code.' }));
+      return;
+    }
+    if (!preRegisterModal.password.trim() || preRegisterModal.password.trim().length < 4) {
+      setPreRegisterModal((prev) => ({ ...prev, error: 'Password must be at least 4 characters.' }));
+      return;
+    }
+
+    setPreRegisterModal((prev) => ({ ...prev, isSaving: true, error: '' }));
+
+    try {
+      const cleanPhone = preRegisterModal.phone.trim();
+      const cleanPassword = preRegisterModal.password.trim();
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      const assignedId = `usr_${phoneDigits || Date.now()}`;
+      const resolvedCompany = preRegisterModal.companyName.trim() || 'Wholesale Supplier';
+      const resolvedFullName = preRegisterModal.fullName.trim() || resolvedCompany;
+
+      const profilePayload: Partial<UserProfile> & { phone: string; password: string } = {
+        id: assignedId,
+        phone: cleanPhone,
+        password: cleanPassword,
+        role: (preRegisterModal.role as any) || 'wholesaler',
+        companyName: resolvedCompany,
+        displayName: resolvedCompany,
+        fullName: resolvedFullName,
+        location: preRegisterModal.location.trim() || 'India',
+        gstin: preRegisterModal.gstin.trim() ? preRegisterModal.gstin.trim().toUpperCase() : undefined,
+        status: 'Active',
+        country: 'India',
+        createdAt: new Date().toISOString(),
+      };
+
+      const result = await preRegisterUserAccount(profilePayload);
+
+      if (!result.success || !result.profile) {
+        throw new Error(result.error || 'Failed to pre-register user account.');
+      }
+
+      // Update local profiles list seamlessly
+      setProfiles((prev) => {
+        const withoutOld = prev.filter((p) => p.phone?.replace(/\D/g, '') !== phoneDigits);
+        return [result.profile!, ...withoutOld];
+      });
+
+      setToastMessage({
+        type: 'success',
+        text: `✓ User "${resolvedCompany}" (+${cleanPhone}) pre-registered with password "${cleanPassword}". Ready for login!`,
+      });
+      setTimeout(() => setToastMessage(null), 5000);
+
+      // Close modal and reset form
+      setPreRegisterModal({
+        isOpen: false,
+        phone: '+91 ',
+        password: '',
+        role: 'wholesaler',
+        companyName: '',
+        fullName: '',
+        location: 'Surat, Gujarat',
+        gstin: '',
+        isSaving: false,
+        error: '',
+      });
+
+      if (onStatusChanged) onStatusChanged();
+    } catch (err: any) {
+      console.error('Pre-registration failed:', err);
+      setPreRegisterModal((prev) => ({
+        ...prev,
+        isSaving: false,
+        error: err?.message || 'Failed to pre-register account. Please check inputs.',
+      }));
     }
   };
 
@@ -947,12 +1053,33 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   <h3 className="text-xs font-black text-[#0d47a1]">Registered User Database Monitor</h3>
                   <p className="text-[11px] text-blue-900">Total {profiles.length} user accounts saved in Supabase `profiles` table.</p>
                 </div>
-                <button
-                  onClick={loadData}
-                  className="bg-white hover:bg-blue-100 text-[#0d47a1] border border-blue-300 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer"
-                >
-                  🔄 Refresh Data
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      setPreRegisterModal({
+                        isOpen: true,
+                        phone: '+91 ',
+                        password: '',
+                        role: 'wholesaler',
+                        companyName: '',
+                        fullName: '',
+                        location: 'Surat, Gujarat',
+                        gstin: '',
+                        isSaving: false,
+                        error: '',
+                      })
+                    }
+                    className="bg-[#0d47a1] hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                  >
+                    <span>➕ Pre-Register Wholesaler</span>
+                  </button>
+                  <button
+                    onClick={loadData}
+                    className="bg-white hover:bg-blue-100 text-[#0d47a1] border border-blue-300 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer"
+                  >
+                    🔄 Refresh Data
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-xs">
@@ -1244,39 +1371,67 @@ CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CH
 DROP POLICY IF EXISTS "Anyone can update profiles" ON public.profiles;
 CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);
 
--- 2. POSTS TABLE
+-- 2. POSTS TABLE (With all B2B catalog columns)
 CREATE TABLE IF NOT EXISTS public.posts (
   id TEXT PRIMARY KEY
 );
 
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS user_id TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_id TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_avatar TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_phone TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS role TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'wholesaler';
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Textiles & Apparel';
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS price TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS moq TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS caption TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS content TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS img TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS images JSONB;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_url TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_type TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS location TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS store_address TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS lat NUMERIC;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS lng NUMERIC;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS views INT DEFAULT 0;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS like_count INT DEFAULT 0;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS likes_count INT DEFAULT 0;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS verified_seller BOOLEAN DEFAULT false;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS gstin TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS iec_code TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS product_name TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS material_details TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS promotion_details TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS export_products TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS packaging_materials TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS service_details TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS website TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS instagram TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
+-- Open RLS policies for posts (100% public read for all visitors and authenticated users)
 ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public can view all posts" ON public.posts;
-CREATE POLICY "Public can view all posts" ON public.posts FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Public read access for all posts" ON public.posts;
+CREATE POLICY "Public read access for all posts" ON public.posts FOR SELECT TO public, anon, authenticated USING (true);
+
 DROP POLICY IF EXISTS "Anyone can insert posts" ON public.posts;
-CREATE POLICY "Anyone can insert posts" ON public.posts FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Public insert access for posts" ON public.posts;
+CREATE POLICY "Public insert access for posts" ON public.posts FOR INSERT TO public, anon, authenticated WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Anyone can update posts" ON public.posts;
-CREATE POLICY "Anyone can update posts" ON public.posts FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Public update access for posts" ON public.posts;
+CREATE POLICY "Public update access for posts" ON public.posts FOR UPDATE TO public, anon, authenticated USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Anyone can delete posts" ON public.posts;
-CREATE POLICY "Anyone can delete posts" ON public.posts FOR DELETE USING (true);
+DROP POLICY IF EXISTS "Public delete access for posts" ON public.posts;
+CREATE POLICY "Public delete access for posts" ON public.posts FOR DELETE TO public, anon, authenticated USING (true);
 
 -- 3. MESSAGES TABLE
 CREATE TABLE IF NOT EXISTS public.messages (
@@ -1294,9 +1449,9 @@ ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFA
 
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public can view all messages" ON public.messages;
-CREATE POLICY "Public can view all messages" ON public.messages FOR SELECT USING (true);
+CREATE POLICY "Public can view all messages" ON public.messages FOR SELECT TO public, anon, authenticated USING (true);
 DROP POLICY IF EXISTS "Anyone can insert messages" ON public.messages;
-CREATE POLICY "Anyone can insert messages" ON public.messages FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can insert messages" ON public.messages FOR INSERT TO public, anon, authenticated WITH CHECK (true);
 
 -- 4. LIKES TABLE
 CREATE TABLE IF NOT EXISTS public.likes (
@@ -1309,11 +1464,45 @@ ALTER TABLE public.likes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT
 
 ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public can view likes" ON public.likes;
-CREATE POLICY "Public can view likes" ON public.likes FOR SELECT USING (true);
+CREATE POLICY "Public can view likes" ON public.likes FOR SELECT TO public, anon, authenticated USING (true);
 DROP POLICY IF EXISTS "Anyone can insert likes" ON public.likes;
-CREATE POLICY "Anyone can insert likes" ON public.likes FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can insert likes" ON public.likes FOR INSERT TO public, anon, authenticated WITH CHECK (true);
 DROP POLICY IF EXISTS "Anyone can delete likes" ON public.likes;
-CREATE POLICY "Anyone can delete likes" ON public.likes FOR DELETE USING (true);
+CREATE POLICY "Anyone can delete likes" ON public.likes FOR DELETE TO public, anon, authenticated USING (true);
+
+-- 5. REALTIME REPLICATION (Instant live updates across all clients)
+ALTER TABLE public.posts REPLICA IDENTITY FULL;
+ALTER TABLE public.profiles REPLICA IDENTITY FULL;
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+ALTER TABLE public.likes REPLICA IDENTITY FULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'posts'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.posts;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'profiles'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'likes'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.likes;
+  END IF;
+END $$;
 `;
                       navigator.clipboard.writeText(sqlScript);
                       setIsCopiedSql(true);
@@ -1655,6 +1844,190 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRE-REGISTER USER MODAL */}
+      {preRegisterModal.isOpen && (
+        <div className="fixed inset-0 z-[150] bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl border border-blue-100 max-h-[90vh] overflow-y-auto my-auto">
+            {/* MODAL HEADER */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-[#0d47a1] flex items-center justify-center text-lg font-black">
+                  ➕
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Pre-Register Wholesaler / Account</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Create permanent active user credentials directly in the database.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreRegisterModal((prev) => ({ ...prev, isOpen: false, error: '' }))}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ERROR BANNER */}
+            {preRegisterModal.error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs font-semibold">
+                ⚠️ {preRegisterModal.error}
+              </div>
+            )}
+
+            {/* FORM */}
+            <form onSubmit={handlePreRegisterSubmit} className="space-y-3.5 text-left">
+              {/* CATEGORY / ROLE */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                  Business Category <span className="text-blue-600">*</span>
+                </label>
+                <select
+                  value={preRegisterModal.role}
+                  onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, role: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 font-medium focus:outline-none focus:border-[#0d47a1]"
+                >
+                  <option value="wholesaler">📦 Standard Wholesaler</option>
+                  <option value="organic_wholesaler">🌱 Organic Wholesaler (GST Exempt)</option>
+                  <option value="exporter">🌐 Exporter</option>
+                  <option value="printing">🖨️ Printing & Packaging</option>
+                  <option value="marketing">📈 Digital Marketing Agency</option>
+                  <option value="reseller">🏷️ Dropshipper / Buyer</option>
+                  <option value="influencer">📸 Influencer / Creator</option>
+                </select>
+              </div>
+
+              {/* PHONE NUMBER & PASSWORD GRID */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Phone Number <span className="text-blue-600 font-extrabold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={preRegisterModal.phone}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, phone: e.target.value, error: '' }))}
+                    placeholder="e.g. +91 9876543210"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-[#0d47a1]"
+                  />
+                  <span className="text-[10px] text-slate-400">Used for login</span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Assigned Password <span className="text-blue-600 font-extrabold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={preRegisterModal.password}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, password: e.target.value, error: '' }))}
+                    placeholder="e.g. Surat@2026"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 font-mono focus:outline-none focus:border-[#0d47a1]"
+                  />
+                  <span className="text-[10px] text-slate-400">Min 4 characters</span>
+                </div>
+              </div>
+
+              {/* COMPANY & CONTACT NAME */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Company / Business Name
+                  </label>
+                  <input
+                    type="text"
+                    value={preRegisterModal.companyName}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, companyName: e.target.value }))}
+                    placeholder="e.g. Apex Textiles Pvt Ltd"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Contact Person Name
+                  </label>
+                  <input
+                    type="text"
+                    value={preRegisterModal.fullName}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, fullName: e.target.value }))}
+                    placeholder="e.g. Ramesh Shah"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+              </div>
+
+              {/* LOCATION & GSTIN */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    City / Location
+                  </label>
+                  <input
+                    type="text"
+                    value={preRegisterModal.location}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, location: e.target.value }))}
+                    placeholder="e.g. Surat, Gujarat"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    GSTIN Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={15}
+                    value={preRegisterModal.gstin}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, gstin: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. 24AAAAA0000A1Z5"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-mono uppercase text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+              </div>
+
+              {/* NOTICE */}
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-center gap-2 font-medium">
+                <span>🛡️</span>
+                <span>Pre-registered accounts are set to <strong>Active</strong> (pre-approved) and persist across all logins and logouts.</span>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPreRegisterModal((prev) => ({ ...prev, isOpen: false, error: '' }))}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={preRegisterModal.isSaving}
+                  className="bg-[#0d47a1] hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 shadow-md shadow-blue-900/10 active:scale-95 disabled:opacity-50"
+                >
+                  {preRegisterModal.isSaving ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Saving Account to Supabase...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>💾 Save & Pre-Register Wholesaler</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

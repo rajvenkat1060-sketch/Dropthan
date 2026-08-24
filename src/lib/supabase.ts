@@ -31,23 +31,30 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
   }
 };
 
-export const subscribeToSupabasePosts = (onPostsChange: () => void) => {
+export const subscribeToSupabasePosts = (onPostsChange: (payload?: any) => void) => {
+  const channelName = `realtime_posts_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const channel = supabase
-    .channel('public:posts')
+    .channel(channelName)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'posts' },
       (payload) => {
-        console.log('⚡ [Realtime Supabase] Post table update detected:', payload.eventType);
-        onPostsChange();
+        console.log('⚡ [Realtime Supabase] Posts table update detected:', payload.eventType, payload);
+        onPostsChange(payload);
       }
     )
     .subscribe((status) => {
       console.log('📡 [Supabase Realtime Channel Status - Posts]:', status);
     });
 
+  const handleLocalEvent = (e: any) => {
+    onPostsChange({ eventType: 'INSERT', new: e?.detail });
+  };
+  window.addEventListener('dropthan_posts_updated', handleLocalEvent);
+
   return () => {
     supabase.removeChannel(channel);
+    window.removeEventListener('dropthan_posts_updated', handleLocalEvent);
   };
 };
 
@@ -1259,55 +1266,84 @@ export const ensureSupabaseAuthUser = async (phone: string): Promise<string | nu
 
 export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<UserProfile> => {
   const cleanPhone = (profile.phone || '').trim();
-  const compName = profile.companyName?.trim() || null;
-  const flName = profile.fullName?.trim() || null;
-  const dispName = profile.displayName?.trim() || compName || flName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
-  const websiteVal = profile.website || profile.websiteUrl || null;
-  const bioVal = profile.bio || profile.description || null;
+  const phoneDigits = cleanPhone.replace(/\D/g, '');
+
+  // Look for any existing cached or stored profile data to prevent overwriting rich fields with blanks
+  let existingStored: UserProfile | null = null;
+  try {
+    const localKey = 'dropthan_all_profiles';
+    const stored = localStorage.getItem(localKey);
+    if (stored) {
+      const list: UserProfile[] = JSON.parse(stored);
+      existingStored = list.find((p) => {
+        const pDigits = (p.phone || '').replace(/\D/g, '');
+        return (
+          (p.id && profile.id && p.id === profile.id) ||
+          (cleanPhone && p.phone && p.phone === cleanPhone) ||
+          (phoneDigits.length >= 7 && pDigits.length >= 7 && (pDigits === phoneDigits || pDigits.slice(-10) === phoneDigits.slice(-10)))
+        );
+      }) || null;
+    }
+  } catch (e) {}
+
+  const compName = profile.companyName?.trim() || existingStored?.companyName || null;
+  const flName = profile.fullName?.trim() || existingStored?.fullName || null;
+  const dispName = profile.displayName?.trim() || compName || flName || existingStored?.displayName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+  const websiteVal = profile.website || profile.websiteUrl || existingStored?.website || existingStored?.websiteUrl || null;
+  const bioVal = profile.bio || profile.description || existingStored?.bio || existingStored?.description || null;
+  const gstinVal = profile.gstin || existingStored?.gstin || null;
+  const iecVal = profile.iecCode || existingStored?.iecCode || null;
+  const locationVal = profile.location || existingStored?.location || '';
+  const storeAddrVal = profile.storeAddress || profile.location || existingStored?.storeAddress || existingStored?.location || null;
+  const roleVal = profile.role || existingStored?.role || 'wholesaler';
+  const statusVal = profile.status || existingStored?.status || 'Active';
+  const passVal = profile.password || existingStored?.password || undefined;
 
   // 1. Ensure or retrieve valid auth user ID to satisfy foreign key constraint on auth.users(id)
   let authUserId = profile.id && isUuid(profile.id) ? profile.id.trim() : null;
   if (!authUserId && cleanPhone) {
     authUserId = await ensureSupabaseAuthUser(cleanPhone);
   }
-  const validId = authUserId || (profile.id && isUuid(profile.id) ? profile.id.trim() : generateValidUUID());
+  const validId = authUserId || (profile.id && isUuid(profile.id) ? profile.id.trim() : (existingStored?.id && isUuid(existingStored.id) ? existingStored.id : generateValidUUID()));
 
   // Build clean payload with standard Supabase column mappings
   const currentPayload: Record<string, any> = {
     id: validId,
     phone: cleanPhone || null,
-    role: profile.role || 'wholesaler',
-    business_category: profile.role || 'wholesaler',
+    role: roleVal,
+    business_category: roleVal,
     display_name: dispName,
     company_name: compName || dispName,
-    location: profile.location || '',
-    country: profile.country || 'India',
-    status: profile.status || 'Active',
-    created_at: profile.createdAt || new Date().toISOString(),
+    location: locationVal,
+    country: profile.country || existingStored?.country || 'India',
+    status: statusVal,
+    created_at: profile.createdAt || existingStored?.createdAt || new Date().toISOString(),
   };
 
   if (flName) currentPayload.full_name = flName;
-  if (profile.password) currentPayload.password = profile.password;
-  if (profile.storeAddress || profile.location) currentPayload.store_address = profile.storeAddress || profile.location;
-  if (profile.avatarUrl) currentPayload.avatar_url = profile.avatarUrl;
+  if (passVal) currentPayload.password = passVal;
+  if (storeAddrVal) currentPayload.store_address = storeAddrVal;
+  if (profile.avatarUrl || existingStored?.avatarUrl) currentPayload.avatar_url = profile.avatarUrl || existingStored?.avatarUrl;
   if (bioVal) {
     currentPayload.bio = bioVal;
     currentPayload.business_bio = bioVal;
   }
-  if (profile.gstin) currentPayload.gstin = profile.gstin;
-  if (profile.iecCode) currentPayload.iec_code = profile.iecCode;
+  if (gstinVal) currentPayload.gstin = gstinVal;
+  if (iecVal) currentPayload.iec_code = iecVal;
   if (websiteVal) {
     currentPayload.website = websiteVal;
     currentPayload.website_link = websiteVal;
   }
-  if (profile.instagram || profile.instagramHandle) {
-    const ig = profile.instagram || profile.instagramHandle;
+  if (profile.instagram || profile.instagramHandle || existingStored?.instagram || existingStored?.instagramHandle) {
+    const ig = profile.instagram || profile.instagramHandle || existingStored?.instagram || existingStored?.instagramHandle;
     currentPayload.instagram = ig;
     currentPayload.instagram_profile = ig;
   }
   if (profile.lat !== undefined && profile.lat !== null) currentPayload.lat = Number(profile.lat);
+  else if (existingStored?.lat !== undefined && existingStored?.lat !== null) currentPayload.lat = Number(existingStored.lat);
   if (profile.lng !== undefined && profile.lng !== null) currentPayload.lng = Number(profile.lng);
-  if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
+  else if (existingStored?.lng !== undefined && existingStored?.lng !== null) currentPayload.lng = Number(existingStored.lng);
+  if (profile.rejectionReason || existingStored?.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason || existingStored?.rejectionReason;
 
   // Immediately update local cache for zero-latency UI reflection across all tabs
   try {
@@ -1321,12 +1357,20 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
         (p.id && (p.id === profile.id || p.id === validId))
     );
     const updatedProfileObj: UserProfile = {
+      ...existingStored,
       ...profile,
       id: validId,
       displayName: dispName,
       fullName: flName || undefined,
       companyName: compName || undefined,
       phone: cleanPhone,
+      role: roleVal,
+      status: statusVal,
+      gstin: gstinVal || undefined,
+      iecCode: iecVal || undefined,
+      location: locationVal,
+      storeAddress: storeAddrVal || undefined,
+      password: passVal,
     };
     if (existingIndex >= 0) {
       profilesList[existingIndex] = { ...profilesList[existingIndex], ...updatedProfileObj };
@@ -2431,55 +2475,90 @@ export const fetchPostsByVendor = async (
 export const fetchFullUserProfileByPhone = async (phone: string): Promise<UserProfile | null> => {
   if (!phone) return null;
   const cleanPhone = phone.trim();
+  const cleanDigits = cleanPhone.replace(/\D/g, '');
+
   try {
-    const { data, error } = await supabase
+    // 1. Exact phone match
+    const { data: exactData } = await supabase
       .from('profiles')
       .select('*')
       .eq('phone', cleanPhone)
       .maybeSingle();
 
-    if (!error && data && data.phone) {
-      return {
-        id: data.id || `usr_${data.phone.replace(/\D/g, '')}`,
-        role: data.role || 'wholesaler',
-        phone: data.phone,
-        password: data.password || undefined,
-        country: data.country || 'India',
-        location: data.location || '',
-        storeAddress: data.store_address || data.location || undefined,
-        lat: data.lat ? Number(data.lat) : undefined,
-        lng: data.lng ? Number(data.lng) : undefined,
-        companyName: data.company_name || undefined,
-        fullName: data.full_name || undefined,
-        displayName: data.display_name || data.company_name || data.full_name || 'Member',
-        bio: data.bio || data.description || undefined,
-        description: data.description || data.bio || undefined,
-        gstin: data.gstin || undefined,
-        iecCode: data.iec_code || undefined,
-        website: data.website || data.website_url || undefined,
-        websiteUrl: data.website || data.website_url || undefined,
-        instagram: data.instagram || data.instagram_handle || undefined,
-        instagramHandle: data.instagram || data.instagram_handle || undefined,
-        avatarUrl: data.avatar_url || data.avatarUrl || undefined,
-        createdAt: data.created_at || new Date().toISOString(),
-        status: (data.status as UserStatus) || 'Pending',
-        rejectionReason: data.rejection_reason || undefined,
-      };
+    if (exactData && exactData.phone) {
+      return parseProfileFromSupabase(exactData);
+    }
+
+    // 2. Format / Digits variation match
+    if (cleanDigits && cleanDigits.length >= 7) {
+      const { data: allRows } = await supabase
+        .from('profiles')
+        .select('*')
+        .limit(300);
+
+      if (allRows && allRows.length > 0) {
+        const found = allRows.find((p: any) => {
+          const pDigits = (p.phone || '').replace(/\D/g, '');
+          return (
+            pDigits === cleanDigits ||
+            (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10))
+          );
+        });
+        if (found) {
+          return parseProfileFromSupabase(found);
+        }
+      }
     }
   } catch (err) {
     console.warn('Notice querying full profile from Supabase:', err);
   }
 
-  // Fallback to local cached profiles
+  // 3. Fallback to local cached profiles
   try {
     const profiles = await fetchAllUserProfilesFromSupabase();
-    const found = profiles.find((p) => p.phone === cleanPhone);
+    const found = profiles.find((p) => {
+      if (p.phone === cleanPhone) return true;
+      const pDigits = (p.phone || '').replace(/\D/g, '');
+      return (
+        pDigits === cleanDigits ||
+        (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10))
+      );
+    });
     if (found) {
       return found;
     }
   } catch (e) {}
 
   return null;
+};
+
+const parseProfileFromSupabase = (data: any): UserProfile => {
+  return {
+    id: data.id || `usr_${(data.phone || '').replace(/\D/g, '')}`,
+    role: data.role || 'wholesaler',
+    phone: data.phone,
+    password: data.password || undefined,
+    country: data.country || 'India',
+    location: data.location || '',
+    storeAddress: data.store_address || data.location || undefined,
+    lat: data.lat ? Number(data.lat) : undefined,
+    lng: data.lng ? Number(data.lng) : undefined,
+    companyName: data.company_name || undefined,
+    fullName: data.full_name || undefined,
+    displayName: data.display_name || data.company_name || data.full_name || 'Member',
+    bio: data.bio || data.description || undefined,
+    description: data.description || data.bio || undefined,
+    gstin: data.gstin || undefined,
+    iecCode: data.iec_code || undefined,
+    website: data.website || data.website_url || undefined,
+    websiteUrl: data.website || data.website_url || undefined,
+    instagram: data.instagram || data.instagram_handle || undefined,
+    instagramHandle: data.instagram || data.instagram_handle || undefined,
+    avatarUrl: data.avatar_url || data.avatarUrl || undefined,
+    createdAt: data.created_at || new Date().toISOString(),
+    status: (data.status as UserStatus) || 'Active',
+    rejectionReason: data.rejection_reason || undefined,
+  };
 };
 
 // ==========================================
@@ -2571,32 +2650,8 @@ export const verifyLoginCredentials = async (
 
     if (res.ok && json?.success && json?.profile) {
       const p = json.profile;
-      const parsedProfile: UserProfile = {
-        id: p.id || `usr_${p.phone.replace(/\D/g, '')}`,
-        role: p.role || 'wholesaler',
-        phone: p.phone,
-        password: p.password || cleanPass,
-        country: p.country || 'India',
-        location: p.location || '',
-        storeAddress: p.store_address || p.location || undefined,
-        lat: p.lat ? Number(p.lat) : undefined,
-        lng: p.lng ? Number(p.lng) : undefined,
-        companyName: p.company_name || undefined,
-        fullName: p.full_name || undefined,
-        displayName: p.display_name || p.company_name || p.full_name || 'Member',
-        bio: p.bio || p.description || undefined,
-        description: p.description || p.bio || undefined,
-        gstin: p.gstin || undefined,
-        iecCode: p.iec_code || undefined,
-        website: p.website || p.website_url || undefined,
-        websiteUrl: p.website || p.website_url || undefined,
-        instagram: p.instagram || p.instagram_handle || undefined,
-        instagramHandle: p.instagram || p.instagram_handle || undefined,
-        avatarUrl: p.avatar_url || p.avatarUrl || undefined,
-        createdAt: p.created_at || new Date().toISOString(),
-        status: (p.status as UserStatus) || 'Active',
-        rejectionReason: p.rejection_reason || undefined,
-      };
+      const parsedProfile = parseProfileFromSupabase(p);
+      parsedProfile.password = p.password || cleanPass;
       return { success: true, profile: parsedProfile };
     }
 
@@ -2620,11 +2675,9 @@ export const verifyLoginCredentials = async (
 
     const isAdminPhone = cleanPhone.replace(/\D/g, '').includes('8838533014');
     if (isAdminPhone && cleanPass === '9624') {
-      if (existing) {
-        existing.password = '9624';
-        saveUserProfileToSupabase(existing).catch(() => {});
-        return { success: true, profile: existing };
-      }
+      existing.password = '9624';
+      saveUserProfileToSupabase(existing).catch(() => {});
+      return { success: true, profile: existing };
     }
 
     // Strict Password Matching
@@ -2776,6 +2829,92 @@ export const authenticateOrRegisterUser = async (
   } catch (err: any) {
     console.error('Error during unified authentication:', err);
     return { success: false, error: err?.message || 'Authentication error' };
+  }
+};
+
+/**
+ * Admin Pre-Register Wholesaler / User Account
+ * Allows admin to manually create / pre-seed accounts with phone, password, and business details.
+ */
+export const preRegisterUserAccount = async (
+  profileData: Partial<UserProfile> & { phone: string; password: string }
+): Promise<{ success: boolean; profile?: UserProfile; error?: string }> => {
+  const cleanPhone = (profileData.phone || '').trim();
+  const cleanPass = (profileData.password || '').trim();
+
+  if (!cleanPhone) {
+    return { success: false, error: 'Phone number is required.' };
+  }
+  if (!cleanPass || cleanPass.length < 4) {
+    return { success: false, error: 'Password must be at least 4 characters long.' };
+  }
+
+  // 1. Try server-side endpoint
+  try {
+    const res = await fetch('/api/admin/pre-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...profileData, phone: cleanPhone, password: cleanPass }),
+    });
+    const json = await res.json().catch(() => null);
+
+    if (res.ok && json?.success && json?.profile) {
+      const parsed = parseProfileFromSupabase(json.profile);
+      parsed.password = json.profile.password || cleanPass;
+
+      // Update local cache
+      try {
+        const localKey = 'dropthan_all_profiles';
+        const stored = localStorage.getItem(localKey);
+        let list: UserProfile[] = stored ? JSON.parse(stored) : [];
+        const idx = list.findIndex((p) => p.phone === cleanPhone || (p.id && p.id === parsed.id));
+        if (idx >= 0) {
+          list[idx] = parsed;
+        } else {
+          list.unshift(parsed);
+        }
+        localStorage.setItem(localKey, JSON.stringify(list));
+      } catch (e) {}
+
+      window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+      return { success: true, profile: parsed };
+    }
+
+    if (json?.error && res.status !== 500) {
+      return { success: false, error: json.error };
+    }
+  } catch (srvErr) {
+    console.warn('Notice calling /api/admin/pre-register:', srvErr);
+  }
+
+  // 2. Direct Supabase save fallback
+  try {
+    const phoneDigits = cleanPhone.replace(/\D/g, '');
+    const userToSave: UserProfile = {
+      id: profileData.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`),
+      role: profileData.role || 'wholesaler',
+      phone: cleanPhone,
+      password: cleanPass,
+      country: profileData.country || 'India',
+      location: profileData.location || '',
+      storeAddress: profileData.storeAddress || profileData.location,
+      companyName: profileData.companyName || undefined,
+      fullName: profileData.fullName || undefined,
+      displayName: profileData.displayName || profileData.companyName || profileData.fullName || `Wholesaler ${cleanPhone.slice(-4)}`,
+      gstin: profileData.gstin || undefined,
+      iecCode: profileData.iecCode || undefined,
+      website: profileData.website || undefined,
+      avatarUrl: profileData.avatarUrl || undefined,
+      createdAt: new Date().toISOString(),
+      status: (profileData.status as UserStatus) || 'Active',
+    };
+
+    const saved = await saveUserProfileToSupabase(userToSave);
+    window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+    return { success: true, profile: saved || userToSave };
+  } catch (err: any) {
+    console.error('Error pre-registering account:', err);
+    return { success: false, error: err?.message || 'Failed to pre-register account.' };
   }
 };
 

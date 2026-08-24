@@ -1301,6 +1301,142 @@ app.post("/api/admin/delete-user", async (req, res) => {
   }
 });
 
+// Server-Side Admin Pre-Registration Endpoint (Seamless manual creation of wholesaler / supplier accounts)
+app.post("/api/admin/pre-register", async (req, res) => {
+  try {
+    const rawProfile = req.body || {};
+    const { phone, password } = rawProfile;
+
+    if (!phone || !password) {
+      res.status(400).json({ error: "Phone number and password are required for pre-registration." });
+      return;
+    }
+
+    const cleanPhone = phone.trim();
+    const cleanDigits = cleanPhone.replace(/\D/g, "");
+    const cleanPassword = password.trim();
+
+    if (cleanPassword.length < 4) {
+      res.status(400).json({ error: "Password must be at least 4 characters long." });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Database connection unavailable on server." });
+      return;
+    }
+
+    console.log(`[Server Admin Pre-Register] Pre-registering account for phone: ${cleanPhone}`);
+
+    // Check if account already exists
+    let existingProfile: any = null;
+    const { data: exactMatch } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("phone", cleanPhone)
+      .maybeSingle();
+
+    if (exactMatch) {
+      existingProfile = exactMatch;
+    } else if (cleanDigits && cleanDigits.length >= 7) {
+      const { data: listData } = await supabase.from("profiles").select("*").limit(300);
+      if (listData) {
+        existingProfile = listData.find((p: any) => {
+          const pDigits = (p.phone || "").replace(/\D/g, "");
+          return pDigits === cleanDigits || (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10));
+        });
+      }
+    }
+
+    const compName = rawProfile.company_name || rawProfile.companyName || (existingProfile ? existingProfile.company_name : "");
+    const flName = rawProfile.full_name || rawProfile.fullName || (existingProfile ? existingProfile.full_name : "");
+    const dispName = rawProfile.display_name || rawProfile.displayName || compName || flName || (existingProfile ? existingProfile.display_name : `Member ${cleanPhone.slice(-4)}`);
+    const targetRole = rawProfile.role || (existingProfile ? existingProfile.role : "wholesaler");
+    const targetStatus = rawProfile.status || (existingProfile ? existingProfile.status : "Active");
+    const targetId = existingProfile?.id || rawProfile.id || `usr_${cleanDigits || Date.now()}`;
+
+    // Record credentials in server store
+    saveCredential(cleanPhone, cleanPassword, targetId);
+
+    const payloadToSave: Record<string, any> = {
+      id: targetId,
+      phone: cleanPhone,
+      password: cleanPassword,
+      role: targetRole,
+      display_name: dispName,
+      company_name: compName || dispName,
+      location: rawProfile.location || (existingProfile ? existingProfile.location : ""),
+      country: rawProfile.country || (existingProfile ? existingProfile.country : "India"),
+      status: targetStatus,
+      is_gst_approved: targetStatus === "Active",
+      created_at: existingProfile?.created_at || rawProfile.created_at || new Date().toISOString(),
+    };
+
+    if (flName) payloadToSave.full_name = flName;
+    if (rawProfile.store_address || rawProfile.storeAddress) payloadToSave.store_address = rawProfile.store_address || rawProfile.storeAddress;
+    if (rawProfile.gstin) payloadToSave.gstin = rawProfile.gstin;
+    if (rawProfile.iec_code || rawProfile.iecCode) payloadToSave.iec_code = rawProfile.iec_code || rawProfile.iecCode;
+    if (rawProfile.bio || rawProfile.description) payloadToSave.bio = rawProfile.bio || rawProfile.description;
+    if (rawProfile.website || rawProfile.websiteUrl) payloadToSave.website = rawProfile.website || rawProfile.websiteUrl;
+    if (rawProfile.avatar_url || rawProfile.avatarUrl) payloadToSave.avatar_url = rawProfile.avatar_url || rawProfile.avatarUrl;
+
+    let savedData: any = null;
+    let savedError: any = null;
+
+    if (existingProfile) {
+      const { data: updData, error: updErr } = await supabase
+        .from("profiles")
+        .update(payloadToSave)
+        .eq("id", existingProfile.id)
+        .select()
+        .maybeSingle();
+
+      savedData = updData;
+      savedError = updErr;
+    } else {
+      const { data: insData, error: insErr } = await supabase
+        .from("profiles")
+        .upsert(payloadToSave, { onConflict: "phone" })
+        .select()
+        .maybeSingle();
+
+      savedData = insData;
+      savedError = insErr;
+    }
+
+    if (savedError) {
+      console.warn("[Server Admin Pre-Register] Supabase error, retrying without non-standard fields:", savedError);
+      // Prune optional columns and retry
+      delete payloadToSave.is_gst_approved;
+      const { data: retryData, error: retryErr } = await supabase
+        .from("profiles")
+        .upsert(payloadToSave, { onConflict: "phone" })
+        .select()
+        .maybeSingle();
+
+      if (retryErr) {
+        console.error("[Server Admin Pre-Register] Retry error:", retryErr);
+        res.status(400).json({ error: retryErr.message });
+        return;
+      }
+      savedData = retryData;
+    }
+
+    const finalProfile = savedData || payloadToSave;
+    console.log(`[Server Admin Pre-Register] ✅ Account successfully saved for ${dispName} (${cleanPhone})`);
+
+    res.json({
+      success: true,
+      isNewUser: !existingProfile,
+      profile: finalProfile,
+    });
+  } catch (err: any) {
+    console.error("[Server Admin Pre-Register] Exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during pre-registration" });
+  }
+});
+
 // Server-Side File Upload Endpoint with Multi-Bucket Supabase Storage Integration (Up to 50MB)
 app.post("/api/upload", async (req, res) => {
   try {

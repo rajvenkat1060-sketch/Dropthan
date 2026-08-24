@@ -18,6 +18,7 @@ import {
   fetchAllLikesCountsFromSupabase,
   toggleSupabaseLike,
   fetchUserProfileStatus,
+  fetchFullUserProfileByPhone,
   subscribeToSupabasePosts,
   saveUserProfileToSupabase,
 } from './lib/supabase';
@@ -65,15 +66,20 @@ export default function App() {
         resolvedUser = parsedUser;
         setCurrentUser(parsedUser);
 
-        // Verify latest status from Supabase/storage
+        // Verify and refresh latest full profile from Supabase
         if (parsedUser.phone) {
-          fetchUserProfileStatus(parsedUser.phone).then((latest) => {
-            if (latest && latest.status !== parsedUser.status) {
-              const updated = { ...parsedUser, status: latest.status, rejectionReason: latest.rejectionReason };
+          fetchFullUserProfileByPhone(parsedUser.phone).then((latestProfile) => {
+            if (latestProfile) {
+              const updated = {
+                ...parsedUser,
+                ...latestProfile,
+                status: latestProfile.status || parsedUser.status,
+                rejectionReason: latestProfile.rejectionReason || parsedUser.rejectionReason,
+              };
               localStorage.setItem('dropthan_user', JSON.stringify(updated));
               setCurrentUser(updated);
             }
-          });
+          }).catch(() => {});
         }
       } catch (err) {
         console.error('Failed to parse saved user:', err);
