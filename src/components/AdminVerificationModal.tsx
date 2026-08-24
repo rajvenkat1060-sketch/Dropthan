@@ -3,6 +3,7 @@ import { UserProfile, PostItem, LikeRecord } from '../types';
 import {
   fetchAllUserProfilesFromSupabase,
   updateUserStatusInSupabase,
+  deleteUserAccount,
   fetchAllSupabaseMessages,
   fetchAllLikesFromSupabase,
   subscribeToAdminRealtime,
@@ -59,6 +60,24 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     name: '',
     reason: '',
   });
+
+  // Delete User Confirmation Modal
+  const [deleteUserModal, setDeleteUserModal] = useState<{
+    isOpen: boolean;
+    user: UserProfile | null;
+    isDeleting: boolean;
+  }>({
+    isOpen: false,
+    user: null,
+    isDeleting: false,
+  });
+
+  // Admin Notification / Toast State
+  const [toastMessage, setToastMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
   const [copiedGstinPhone, setCopiedGstinPhone] = useState<string | null>(null);
 
   // Verify phone number match (STRICTLY REQUIRED: 8838533014)
@@ -338,6 +357,66 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     if (onStatusChanged) onStatusChanged();
   };
 
+  const handleOpenDelete = (user: UserProfile) => {
+    setDeleteUserModal({
+      isOpen: true,
+      user,
+      isDeleting: false,
+    });
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deleteUserModal.user) return;
+    const targetUser = deleteUserModal.user;
+    const targetId = targetUser.id;
+    const targetPhone = targetUser.phone;
+    const displayName = targetUser.companyName || targetUser.displayName || targetUser.fullName || targetPhone;
+
+    setDeleteUserModal((prev) => ({ ...prev, isDeleting: true }));
+
+    try {
+      // 1. Delete user from Supabase profiles table and associated items
+      await deleteUserAccount(targetId, targetPhone);
+
+      // 2. Instant UI state update: remove user from active profiles list without reloading
+      setProfiles((prev) =>
+        prev.filter((p) => {
+          const matchId = targetId && p.id && p.id === targetId;
+          const matchPhone = targetPhone && p.phone && p.phone === targetPhone;
+          return !matchId && !matchPhone;
+        })
+      );
+
+      // 3. Close profile preview modal if open for this user
+      if (
+        selectedUserForProfile &&
+        ((targetId && selectedUserForProfile.id === targetId) ||
+          (targetPhone && selectedUserForProfile.phone === targetPhone))
+      ) {
+        setSelectedUserForProfile(null);
+      }
+
+      // 4. Show success toast notification
+      setToastMessage({
+        type: 'success',
+        text: `✓ User account "${displayName}" was permanently deleted from Supabase.`,
+      });
+      setTimeout(() => setToastMessage(null), 4000);
+
+      // 5. Notify parent component to update global counts / lists
+      if (onStatusChanged) onStatusChanged();
+    } catch (err: any) {
+      console.error('Failed to delete user profile:', err);
+      setToastMessage({
+        type: 'error',
+        text: `Failed to delete user account: ${err?.message || 'Unknown error'}. Please try again.`,
+      });
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setDeleteUserModal({ isOpen: false, user: null, isDeleting: false });
+    }
+  };
+
   // COUNTERS & FILTERS
   const pendingCount = profiles.filter((p) => !p.status || p.status.toLowerCase() === 'pending').length;
   const activeCount = profiles.filter((p) => p.status?.toLowerCase() === 'active').length;
@@ -477,6 +556,28 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
 
         {/* TAB CONTENT AREA */}
         <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-4">
+          {/* TOAST / ACTION NOTIFICATION */}
+          {toastMessage && (
+            <div
+              className={`p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs font-bold shadow-md transition animate-fade-in ${
+                toastMessage.type === 'success'
+                  ? 'bg-emerald-600 text-white shadow-emerald-900/10'
+                  : 'bg-red-600 text-white shadow-red-900/10'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">{toastMessage.type === 'success' ? '✅' : '⚠️'}</span>
+                <span>{toastMessage.text}</span>
+              </div>
+              <button
+                onClick={() => setToastMessage(null)}
+                className="text-white/80 hover:text-white text-xs font-black px-2 py-0.5 rounded-lg bg-black/10 hover:bg-black/20 transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* TAB 1: GST APPROVALS & VERIFICATION */}
           {activeTab === 'approvals' && (
             <div className="space-y-4">
@@ -670,6 +771,14 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         >
                           👁️ Full Profile Details
                         </button>
+
+                        <button
+                          onClick={() => handleOpenDelete(user)}
+                          className="bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs px-3 py-1.5 rounded-xl border border-red-200 transition cursor-pointer flex items-center gap-1 active:scale-95"
+                          title="Permanently remove user from database"
+                        >
+                          🗑️ Delete User
+                        </button>
                         {isPending && (
                           <>
                             <button
@@ -804,12 +913,21 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                               {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
                             </td>
                             <td className="p-2.5 text-right">
-                              <button
-                                onClick={() => setSelectedUserForProfile(user)}
-                                className="bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer shadow-2xs"
-                              >
-                                👁️ Inspect
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => setSelectedUserForProfile(user)}
+                                  className="bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] px-2 py-1 rounded-lg transition cursor-pointer shadow-2xs"
+                                >
+                                  👁️ Inspect
+                                </button>
+                                <button
+                                  onClick={() => handleOpenDelete(user)}
+                                  className="bg-red-50 hover:bg-red-100 text-red-700 font-bold text-[10px] px-2 py-1 rounded-lg border border-red-200 transition cursor-pointer"
+                                  title="Delete user"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -878,12 +996,21 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                           </span>
                         </td>
                         <td className="p-3 text-right">
-                          <button
-                            onClick={() => setSelectedUserForProfile(p)}
-                            className="bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer shadow-2xs active:scale-95"
-                          >
-                            👁️ View Profile
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setSelectedUserForProfile(p)}
+                              className="bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap"
+                            >
+                              👁️ View Profile
+                            </button>
+                            <button
+                              onClick={() => handleOpenDelete(p)}
+                              className="bg-red-50 hover:bg-red-100 text-red-700 font-bold text-[10px] px-2.5 py-1 rounded-lg border border-red-200 transition cursor-pointer active:scale-95 whitespace-nowrap"
+                              title="Delete user from database"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1407,13 +1534,22 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-              <button
-                onClick={() => setSelectedUserForProfile(null)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer"
-              >
-                Close Profile
-              </button>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedUserForProfile(null)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer"
+                >
+                  Close Profile
+                </button>
+                <button
+                  onClick={() => handleOpenDelete(selectedUserForProfile)}
+                  className="bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer border border-red-200 flex items-center gap-1 active:scale-95"
+                  title="Permanently remove user from Supabase database"
+                >
+                  🗑️ Delete Account
+                </button>
+              </div>
               
               <div className="flex items-center gap-2">
                 {selectedUserForProfile.status?.toLowerCase() !== 'active' && (
@@ -1435,12 +1571,89 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
                       setSelectedUserForProfile(null);
                       handleOpenReject(phoneToReject, nameToReject);
                     }}
-                    className="bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer border border-red-200"
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer border border-amber-200"
                   >
                     Reject GST
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE USER CONFIRMATION MODAL */}
+      {deleteUserModal.isOpen && deleteUserModal.user && (
+        <div className="fixed inset-0 z-[160] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-red-200 animate-scale-up">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center text-2xl flex-shrink-0">
+                🗑️
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-snug">
+                  Permanently Delete User Account?
+                </h3>
+                <p className="text-xs text-red-600 font-semibold">
+                  This action directly removes the user from Supabase and cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {/* USER SUMMARY CARD */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Business / Name:</span>
+                <span className="font-bold text-slate-900 truncate max-w-[200px]">
+                  {deleteUserModal.user.companyName || deleteUserModal.user.displayName || deleteUserModal.user.fullName || 'Member'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Phone Number:</span>
+                <span className="font-mono font-bold text-slate-800">{deleteUserModal.user.phone}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Account Role:</span>
+                <span className="font-bold text-blue-700 uppercase text-[11px]">{deleteUserModal.user.role || 'Member'}</span>
+              </div>
+              {deleteUserModal.user.gstin && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">GSTIN:</span>
+                  <span className="font-mono text-slate-700">{deleteUserModal.user.gstin}</span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Deleting this user will wipe their profile record from the Supabase <code className="bg-slate-100 text-red-700 px-1.5 py-0.5 rounded font-mono text-[11px]">profiles</code> table and delete all catalog products/posts and interactions associated with their account.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={deleteUserModal.isDeleting}
+                onClick={() => setDeleteUserModal({ isOpen: false, user: null, isDeleting: false })}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteUserModal.isDeleting}
+                onClick={handleConfirmDeleteUser}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition shadow-md shadow-red-600/20 cursor-pointer flex items-center gap-2 disabled:opacity-50 active:scale-95"
+              >
+                {deleteUserModal.isDeleting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span>Deleting from Supabase...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🗑️ Confirm & Delete User</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

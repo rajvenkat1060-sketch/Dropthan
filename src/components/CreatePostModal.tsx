@@ -23,6 +23,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [postStoreAddress, setPostStoreAddress] = useState(currentUser?.storeAddress || '');
   const [postLat, setPostLat] = useState<number | undefined>(currentUser?.lat);
   const [postLng, setPostLng] = useState<number | undefined>(currentUser?.lng);
+  const [imageMode, setImageMode] = useState<'url' | 'file' | 'presets'>('url');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -457,66 +458,151 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               />
             </div>
 
-            {/* MULTI-PHOTO UPLOAD / FILE PICKER SECTION */}
-            <div className="space-y-2">
+            {/* DIRECT URL & MEDIA IMAGE SELECTOR */}
+            <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
               <div className="flex items-center justify-between">
-                <label className="block text-slate-700 font-semibold">
-                  Product / Offer Photos (Select 1 to 5 Photos)
+                <label className="block text-slate-800 font-bold text-xs">
+                  📸 Product / Offer Image
                 </label>
-                {selectedPreviews.length > 0 && (
-                  <span className="text-[10px] text-[#0d47a1] font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                    {selectedPreviews.length} Photo{selectedPreviews.length > 1 ? 's' : ''} Selected
-                  </span>
-                )}
+                <div className="flex items-center gap-1 bg-white border border-slate-200 p-0.5 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('url')}
+                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                      imageMode === 'url'
+                        ? 'bg-[#0d47a1] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    🔗 Image URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('file')}
+                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                      imageMode === 'file'
+                        ? 'bg-[#0d47a1] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    📁 Upload File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('presets')}
+                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                      imageMode === 'presets'
+                        ? 'bg-[#0d47a1] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ✨ Samples
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <label className="flex-1 bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 p-2.5 rounded-xl cursor-pointer text-center font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-xs">
-                  <span>📸 Select Multiple Photos</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFilesChange}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              {/* THUMBNAIL PREVIEWS GRID */}
-              {selectedPreviews.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2 pt-1">
-                  {selectedPreviews.map((preview, idx) => (
-                    <div key={idx} className="relative group rounded-xl overflow-hidden border border-blue-200 aspect-square">
+              {imageMode === 'url' && (
+                <div className="space-y-2">
+                  <div>
+                    <input
+                      type="url"
+                      value={imgUrl}
+                      onChange={(e) => setImgUrl(e.target.value)}
+                      placeholder="Paste direct image URL (e.g. https://images.unsplash.com/... or CDN link)"
+                      className="w-full bg-white border border-blue-300 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      💡 Standard URL string will be stored directly in Supabase <code className="text-[#0d47a1] font-mono">image_url</code>.
+                    </p>
+                  </div>
+                  {imgUrl.trim() && (
+                    <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-36 bg-slate-100 flex items-center justify-center">
                       <img
-                        src={preview}
-                        alt={`Selected preview ${idx + 1}`}
-                        loading="lazy"
-                        decoding="async"
+                        src={imgUrl.trim()}
+                        alt="Direct URL Preview"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhoto(idx)}
-                        className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow cursor-pointer"
-                        title="Remove photo"
-                      >
-                        ✕
-                      </button>
-                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                        #{idx + 1}
+                      <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-2 py-0.5 rounded">
+                        ✓ Direct URL Active
                       </span>
                     </div>
-                  ))}
+                  )}
                 </div>
-              ) : (
-                <input
-                  type="url"
-                  value={imgUrl}
-                  onChange={(e) => setImgUrl(e.target.value)}
-                  placeholder="Or paste image URL (https://...)"
-                  className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1]"
-                />
+              )}
+
+              {imageMode === 'file' && (
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <label className="flex-1 bg-white hover:bg-blue-50 text-[#0d47a1] border border-dashed border-blue-300 p-3 rounded-xl cursor-pointer text-center font-bold text-xs transition flex flex-col items-center justify-center gap-1 shadow-xs">
+                      <span>📸 Click to Select Photos from Device</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Supports JPEG, PNG, WEBP (Direct URL generated)</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFilesChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* THUMBNAIL PREVIEWS GRID */}
+                  {selectedPreviews.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {selectedPreviews.map((preview, idx) => (
+                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-blue-200 aspect-square">
+                          <img
+                            src={preview}
+                            alt={`Selected preview ${idx + 1}`}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePhoto(idx)}
+                            className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow cursor-pointer"
+                            title="Remove photo"
+                          >
+                            ✕
+                          </button>
+                          <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {imageMode === 'presets' && (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-600">Select a high-resolution direct stock image for testing:</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {presetImages.map((url, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => {
+                          setImgUrl(url);
+                          setImageMode('url');
+                        }}
+                        className={`relative rounded-xl overflow-hidden border aspect-square cursor-pointer transition ${
+                          imgUrl === url ? 'ring-2 ring-[#0d47a1] border-[#0d47a1]' : 'border-slate-200 hover:opacity-90'
+                        }`}
+                      >
+                        <img src={url} alt={`Preset ${idx + 1}`} className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-bold text-center py-0.5">
+                          Pick #{idx + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 

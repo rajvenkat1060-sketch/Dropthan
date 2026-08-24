@@ -1272,11 +1272,12 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
   }
   const validId = authUserId || (profile.id && isUuid(profile.id) ? profile.id.trim() : generateValidUUID());
 
-  // Build clean payload with standard Supabase column mappings (NO 'description', NO 'website_url', NO 'instagram_handle')
+  // Build clean payload with standard Supabase column mappings
   const currentPayload: Record<string, any> = {
     id: validId,
     phone: cleanPhone || null,
     role: profile.role || 'wholesaler',
+    business_category: profile.role || 'wholesaler',
     display_name: dispName,
     company_name: compName || dispName,
     location: profile.location || '',
@@ -1289,11 +1290,21 @@ export const saveUserProfileToSupabase = async (profile: UserProfile): Promise<U
   if (profile.password) currentPayload.password = profile.password;
   if (profile.storeAddress || profile.location) currentPayload.store_address = profile.storeAddress || profile.location;
   if (profile.avatarUrl) currentPayload.avatar_url = profile.avatarUrl;
-  if (bioVal) currentPayload.bio = bioVal;
+  if (bioVal) {
+    currentPayload.bio = bioVal;
+    currentPayload.business_bio = bioVal;
+  }
   if (profile.gstin) currentPayload.gstin = profile.gstin;
   if (profile.iecCode) currentPayload.iec_code = profile.iecCode;
-  if (websiteVal) currentPayload.website = websiteVal;
-  if (profile.instagram || profile.instagramHandle) currentPayload.instagram = profile.instagram || profile.instagramHandle;
+  if (websiteVal) {
+    currentPayload.website = websiteVal;
+    currentPayload.website_link = websiteVal;
+  }
+  if (profile.instagram || profile.instagramHandle) {
+    const ig = profile.instagram || profile.instagramHandle;
+    currentPayload.instagram = ig;
+    currentPayload.instagram_profile = ig;
+  }
   if (profile.lat !== undefined && profile.lat !== null) currentPayload.lat = Number(profile.lat);
   if (profile.lng !== undefined && profile.lng !== null) currentPayload.lng = Number(profile.lng);
   if (profile.rejectionReason) currentPayload.rejection_reason = profile.rejectionReason;
@@ -1564,7 +1575,7 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
 
       return {
         id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
-        role: item.role || item.user_role || item.category_role || 'wholesaler',
+        role: item.business_category || item.role || item.user_role || item.category_role || 'wholesaler',
         phone: cleanPhone,
         country: item.country || 'India',
         location: item.location || item.city || item.state || '',
@@ -1574,8 +1585,8 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         companyName: compName,
         fullName: flName,
         displayName: dispName,
-        bio: item.bio || item.description || item.about || undefined,
-        description: item.description || item.bio || item.about || undefined,
+        bio: item.business_bio || item.bio || item.description || item.about || undefined,
+        description: item.business_bio || item.description || item.bio || item.about || undefined,
         gstin: item.gstin || item.gst || item.gst_number || undefined,
         iecCode: item.iec_code || item.iecCode || item.iec || undefined,
         productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
@@ -1584,11 +1595,12 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
         packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
         serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
-        website: item.website || item.website_url || item.websiteUrl || undefined,
-        websiteUrl: item.website || item.website_url || item.websiteUrl || undefined,
-        instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
-        instagramHandle: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+        website: item.website_link || item.website || item.website_url || item.websiteUrl || undefined,
+        websiteUrl: item.website_link || item.website || item.website_url || item.websiteUrl || undefined,
+        instagram: item.instagram_profile || item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+        instagramHandle: item.instagram_profile || item.instagram || item.instagram_handle || item.instagramHandle || undefined,
         avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
+        password: item.password || undefined,
         createdAt: item.created_at || item.createdAt || new Date().toISOString(),
         status: (item.status as UserStatus) || 'Active',
         is_gst_approved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : (item.status === 'Active' || item.status === 'active'),
