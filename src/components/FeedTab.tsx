@@ -6,7 +6,7 @@ import { ImageCarousel } from './ImageCarousel';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
-import { fetchAllUserProfilesFromSupabase, subscribeToSupabaseProfiles, searchProfilesFromSupabase } from '../lib/supabase';
+import { fetchAllUserProfilesFromSupabase, subscribeToSupabaseProfiles, searchProfilesFromSupabase, deduplicateUserProfiles } from '../lib/supabase';
 
 interface FeedTabProps {
   posts: PostItem[];
@@ -114,18 +114,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
     searchProfilesFromSupabase(trimmed).then((directMatches) => {
       if (directMatches && directMatches.length > 0) {
-        setAllProfiles((prev) => {
-          const map = new Map<string, UserProfile>();
-          prev.forEach((p) => {
-            const key = p.phone || p.id || p.displayName;
-            if (key) map.set(key, p);
-          });
-          directMatches.forEach((p) => {
-            const key = p.phone || p.id || p.displayName;
-            if (key) map.set(key, p);
-          });
-          return Array.from(map.values());
-        });
+        setAllProfiles((prev) => deduplicateUserProfiles([...prev, ...directMatches]));
       }
     });
   }, [searchQuery]);
@@ -249,15 +238,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
   // Compile full list of suppliers/businesses from live Supabase profiles
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
-    const map = new Map<string, UserProfile>();
-
-    // 1. Add all registered profiles from live Supabase database
-    allProfiles.forEach((prof) => {
-      const key = (prof.phone || prof.id || prof.displayName || prof.companyName).toLowerCase().trim();
-      if (key) map.set(key, prof);
-    });
-
-    return Array.from(map.values());
+    return deduplicateUserProfiles(allProfiles);
   }, [allProfiles]);
 
   // Profile lookup map for dynamic enrichment of post author details & avatars
@@ -558,11 +539,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       {!searchQuery && (
         <div className="space-y-2.5">
           <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
-            {categories.map((cat) => {
+            {categories.map((cat, cIdx) => {
               const isActive = activeCategory === cat.id;
               return (
                 <button
-                  key={cat.id}
+                  key={`feed-cat-pill-${cat.id || cIdx}`}
                   onClick={() => setActiveCategory(cat.id)}
                   className={`text-xs font-bold px-3.5 py-1.5 rounded-xl whitespace-nowrap transition cursor-pointer ${
                     isActive
@@ -635,7 +616,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   const cleanName = supplier.companyName || supplier.displayName || 'Vendor';
                   return (
                     <div
-                      key={`story-${supplier.id || supplier.phone || sIdx}`}
+                      key={`story-${supplier.id || supplier.phone || 'sup'}-${sIdx}`}
                       onClick={() => openSupplierProfile(supplier)}
                       className="flex flex-col items-center space-y-1 cursor-pointer flex-shrink-0 group w-16 text-center"
                     >
@@ -743,7 +724,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
               return (
                 <div
-                  key={`supplier-${supplier.id || supplier.phone || idx}`}
+                  key={`supplier-card-${supplier.id || supplier.phone || 'sup'}-${idx}`}
                   className="bg-white border border-blue-100 hover:border-blue-300 rounded-2xl p-3.5 space-y-2.5 shadow-2xs hover:shadow-md transition"
                 >
                   <div className="flex items-start justify-between gap-2.5">
@@ -917,9 +898,9 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                 <div className="pt-2 border-t border-slate-100 space-y-2">
                   <p className="text-[11px] font-bold text-slate-700">💡 Popular Indian B2B Wholesale Searches:</p>
                   <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-md mx-auto">
-                    {POPULAR_B2B_SEARCHES.map((item) => (
+                    {POPULAR_B2B_SEARCHES.map((item, bIdx) => (
                       <button
-                        key={item.query}
+                        key={`pop-search-empty-${item.query}-${bIdx}`}
                         onClick={() => onSearchChange(item.query)}
                         className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-[10px] font-bold px-2.5 py-1 rounded-full transition cursor-pointer"
                       >
@@ -931,10 +912,10 @@ export const FeedTab: React.FC<FeedTabProps> = ({
               )}
             </div>
           ) : (
-            visiblePosts.map((post) => {
+            visiblePosts.map((post, pIdx) => {
               return (
                 <div
-                  key={post.id}
+                  key={`feed-post-${post.id || pIdx}`}
                   className="bg-white border border-blue-100 rounded-2xl p-3.5 space-y-2.5 shadow-sm hover:shadow-md hover:border-blue-200 transition"
                 >
                   {/* AUTHOR HEADER -> PUBLIC PROFILE TRIGGER */}
@@ -1229,9 +1210,9 @@ export const FeedTab: React.FC<FeedTabProps> = ({
             <div className="pt-3 border-t border-slate-100 space-y-2.5">
               <p className="text-[11px] font-bold text-slate-700">💡 Popular Indian B2B Wholesale Searches:</p>
               <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-md mx-auto">
-                {POPULAR_B2B_SEARCHES.map((item) => (
+                {POPULAR_B2B_SEARCHES.map((item, bIdx) => (
                   <button
-                    key={item.query}
+                    key={`pop-search-bottom-${item.query}-${bIdx}`}
                     onClick={() => onSearchChange(item.query)}
                     className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-[10px] font-bold px-2.5 py-1 rounded-full transition cursor-pointer active:scale-95"
                   >

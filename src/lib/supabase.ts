@@ -1550,6 +1550,76 @@ export const updateUserWebsiteInSupabase = async (
   }
 };
 
+export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] => {
+  const byId = new Map<string, UserProfile>();
+  const phoneToId = new Map<string, string>();
+  const nameToId = new Map<string, string>();
+
+  for (const prof of profiles) {
+    if (!prof) continue;
+    const rawId = (prof.id || '').trim();
+    const phoneDigits = (prof.phone || '').replace(/\D/g, '');
+    const cleanPhone = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
+    const nameKey = (prof.companyName || prof.displayName || prof.fullName || '').toLowerCase().trim();
+
+    // Determine canonical ID
+    let canonicalId = rawId;
+    if (!canonicalId && cleanPhone && cleanPhone.length >= 7 && phoneToId.has(cleanPhone)) {
+      canonicalId = phoneToId.get(cleanPhone)!;
+    }
+    if (!canonicalId && nameKey && nameToId.has(nameKey)) {
+      canonicalId = nameToId.get(nameKey)!;
+    }
+    if (!canonicalId) {
+      canonicalId = rawId || (cleanPhone ? `usr_${cleanPhone}` : `usr_${Math.random().toString(36).slice(2, 9)}`);
+    }
+
+    if (byId.has(canonicalId)) {
+      const existing = byId.get(canonicalId)!;
+      const merged: UserProfile = {
+        ...existing,
+        ...prof,
+        id: canonicalId,
+        avatarUrl: prof.avatarUrl || existing.avatarUrl,
+        companyName: prof.companyName || existing.companyName,
+        displayName: prof.displayName || existing.displayName,
+        fullName: prof.fullName || existing.fullName,
+        phone: prof.phone || existing.phone,
+        location: prof.location || existing.location,
+        storeAddress: prof.storeAddress || existing.storeAddress,
+        role: prof.role || existing.role,
+        bio: prof.bio || existing.bio,
+        description: prof.description || existing.description,
+        gstin: prof.gstin || existing.gstin,
+        iecCode: prof.iecCode || existing.iecCode,
+        website: prof.website || existing.website,
+        websiteUrl: prof.websiteUrl || existing.websiteUrl,
+        instagram: prof.instagram || existing.instagram,
+        instagramHandle: prof.instagramHandle || existing.instagramHandle,
+        status: prof.status || existing.status,
+        is_gst_approved: prof.is_gst_approved !== undefined ? prof.is_gst_approved : existing.is_gst_approved,
+        isGstApproved: prof.isGstApproved !== undefined ? prof.isGstApproved : existing.isGstApproved,
+      };
+      byId.set(canonicalId, merged);
+    } else {
+      const normalized = {
+        ...prof,
+        id: canonicalId,
+      };
+      byId.set(canonicalId, normalized);
+    }
+
+    if (cleanPhone && cleanPhone.length >= 7) {
+      phoneToId.set(cleanPhone, canonicalId);
+    }
+    if (nameKey) {
+      nameToId.set(nameKey, canonicalId);
+    }
+  }
+
+  return Array.from(byId.values());
+};
+
 export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]> => {
   const localKey = 'dropthan_all_profiles';
   let localProfiles: UserProfile[] = [];
@@ -1653,18 +1723,7 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
       };
     });
 
-    // Merge and update local cache
-    const mergedMap = new Map<string, UserProfile>();
-    localProfiles.forEach((p) => {
-      const key = (p.phone || p.id || p.displayName).toLowerCase();
-      if (key) mergedMap.set(key, p);
-    });
-    remoteProfiles.forEach((p) => {
-      const key = (p.phone || p.id || p.displayName).toLowerCase();
-      if (key) mergedMap.set(key, p);
-    });
-
-    const finalProfiles = Array.from(mergedMap.values());
+    const finalProfiles = deduplicateUserProfiles([...remoteProfiles, ...localProfiles]);
     try {
       localStorage.setItem(localKey, JSON.stringify(finalProfiles));
     } catch (e) {}
@@ -1672,7 +1731,7 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     return finalProfiles;
   }
 
-  return localProfiles;
+  return deduplicateUserProfiles(localProfiles);
 };
 
 export const fetchAllProfilesFromSupabase = fetchAllUserProfilesFromSupabase;
@@ -1832,17 +1891,7 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
   });
 
   // Combine and deduplicate
-  const resultMap = new Map<string, UserProfile>();
-  directResults.forEach((p) => {
-    const key = (p.phone || p.id || p.displayName).toLowerCase();
-    if (key) resultMap.set(key, p);
-  });
-  matchedMemory.forEach((p) => {
-    const key = (p.phone || p.id || p.displayName).toLowerCase();
-    if (key) resultMap.set(key, p);
-  });
-
-  const finalMatched = Array.from(resultMap.values());
+  const finalMatched = deduplicateUserProfiles([...directResults, ...matchedMemory]);
   console.log(`🎯 [searchProfilesFromSupabase] Matched ${finalMatched.length} live profiles for "${cleanQ}":`, finalMatched.map((p) => p.displayName || p.companyName));
   return finalMatched;
 };
@@ -2270,6 +2319,74 @@ export const fetchFullUserProfile = async (
   } catch (e) {}
 
   return null;
+};
+
+export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostItem[]> => {
+  if (!userId) return [];
+  try {
+    const cleanUid = userId.trim();
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('user_id', cleanUid)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Error fetching posts for user_id:', cleanUid, error.message);
+      return [];
+    }
+
+    return (data || []).map((item: any) => {
+      let imageList: string[] = [];
+      if (Array.isArray(item.images)) {
+        imageList = item.images;
+      } else if (typeof item.images === 'string') {
+        try {
+          const parsed = JSON.parse(item.images);
+          imageList = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          imageList = [item.img || item.image || item.image_url || ''];
+        }
+      } else if (item.img || item.image || item.image_url) {
+        imageList = [item.img || item.image || item.image_url];
+      }
+
+      const primaryImg =
+        item.img ||
+        item.image ||
+        item.photo ||
+        item.image_url ||
+        (imageList.length > 0 ? imageList[0] : '') ||
+        '';
+
+      return {
+        id: String(item.id || `post_${Date.now()}`),
+        user_id: item.user_id || cleanUid,
+        userId: item.user_id || cleanUid,
+        author: item.author || 'Dropthan Member',
+        role: item.role || 'wholesaler',
+        price: item.price || 'Rate on Request',
+        moq: item.moq || 'Custom MOQ',
+        caption: item.caption || item.description || '',
+        img: primaryImg,
+        images: imageList.length > 0 ? imageList : [primaryImg],
+        phone: item.phone || '',
+        location: item.location || '',
+        category: item.category || 'Textiles & Apparel',
+        likesCount: item.likes_count ?? 15,
+        authorAvatar: item.author_avatar || '',
+        gstin: item.gstin || undefined,
+        iecCode: item.iec_code || item.iecCode || undefined,
+        website: item.website || undefined,
+        instagram: item.instagram || undefined,
+        createdAt: item.created_at || new Date().toISOString(),
+        created_at: item.created_at || new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    console.error('Exception in fetchSupabasePostsByUserId:', err);
+    return [];
+  }
 };
 
 export const fetchPostsByVendor = async (

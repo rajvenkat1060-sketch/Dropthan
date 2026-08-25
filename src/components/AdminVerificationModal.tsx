@@ -749,7 +749,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   <p className="text-xs text-slate-500">All submitted GST registrations are processed.</p>
                 </div>
               ) : (
-                filteredProfiles.map((user) => {
+                filteredProfiles.map((user, uIdx) => {
                   const statusStr = (user.status || 'Pending').toLowerCase();
                   const isPending = statusStr === 'pending';
                   const isApproved = statusStr === 'active';
@@ -757,7 +757,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
 
                   return (
                     <div
-                      key={user.phone || user.id}
+                      key={`admin-user-card-${user.id || user.phone || uIdx}`}
                       className={`bg-white border rounded-2xl p-4 space-y-3 transition shadow-xs hover:shadow-md ${
                         isPending
                           ? 'border-amber-200 bg-amber-50/20'
@@ -992,7 +992,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         </tr>
                       ) : (
                         profiles.map((user, i) => (
-                          <tr key={user.phone || user.id || i} className="hover:bg-slate-50 transition">
+                          <tr key={`admin-profile-row-${user.id || user.phone || 'usr'}-${i}`} className="hover:bg-slate-50 transition">
                             <td className="p-2.5 font-bold text-slate-900">
                               {user.companyName || user.displayName || user.fullName || 'Member'}
                             </td>
@@ -1097,7 +1097,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {profiles.map((p, i) => (
-                      <tr key={p.phone || i} className="hover:bg-slate-50 transition">
+                      <tr key={`admin-users-tab-row-${p.id || p.phone || 'usr'}-${i}`} className="hover:bg-slate-50 transition">
                         <td className="p-3 font-bold text-slate-900">
                           {p.companyName || p.fullName || p.displayName}
                         </td>
@@ -1205,9 +1205,9 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {posts.map((post) => {
+                {posts.map((post, pIdx) => {
                   return (
-                    <div key={post.id} className="bg-white border border-slate-200 rounded-2xl p-3 flex gap-3 shadow-2xs">
+                    <div key={`admin-post-grid-${post.id || pIdx}`} className="bg-white border border-slate-200 rounded-2xl p-3 flex gap-3 shadow-2xs">
                       <img
                         src={post.images?.[0] || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=200'}
                         alt={post.title}
@@ -1282,8 +1282,8 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wide">
                   Catalog Listings by Like Volume
                 </h4>
-                {posts.map((post) => (
-                  <div key={post.id} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2">
+                {posts.map((post, pIdx) => (
+                  <div key={`admin-post-catalog-list-${post.id || pIdx}`} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-2">
                     <div className="space-y-0.5 min-w-0">
                       <h4 className="text-xs font-bold text-slate-900 truncate">{post.title}</h4>
                       <p className="text-[10px] text-slate-500 truncate">Author: {post.author} • Location: {post.location || 'India'}</p>

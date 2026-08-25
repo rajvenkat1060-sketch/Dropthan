@@ -179,7 +179,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {ratingStats.reviews.map((item, idx) => (
                   <div
-                    key={item.id || idx}
+                    key={`review-item-${item.id || idx}`}
                     className="bg-white border border-slate-200 rounded-xl p-2.5 space-y-1 text-xs shadow-2xs"
                   >
                     <div className="flex items-center justify-between">

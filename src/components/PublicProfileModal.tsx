@@ -719,13 +719,13 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                  {vendorPosts.map((post) => {
+                  {vendorPosts.map((post, gIdx) => {
                     const postImages = getPostImagesList(post);
                     const previewImg = getPostImageUrl(post);
 
                     return (
                       <div
-                        key={post.id}
+                        key={`pub-grid-${post.id || gIdx}`}
                         onClick={() => {
                           setSelectedPostDetail(post);
                           setActiveTab('feed');
@@ -776,14 +776,14 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                   </p>
                 </div>
               ) : (
-                vendorPosts.map((post) => {
+                vendorPosts.map((post, fIdx) => {
                   const postImages = getPostImagesList(post);
                   const primaryImg = getPostImageUrl(post);
                   const displayImages = postImages.length > 0 ? postImages : [primaryImg];
 
                   return (
                     <div
-                      key={post.id}
+                      key={`pub-feed-${post.id || fIdx}`}
                       className={`bg-white border rounded-2xl p-3.5 space-y-3 shadow-sm transition ${
                         selectedPostDetail?.id === post.id ? 'border-[#0d47a1] ring-2 ring-blue-200' : 'border-slate-200'
                       }`}
@@ -896,9 +896,9 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
               {/* REVIEWS LIST */}
               <div className="space-y-3">
                 {ratingSummary.reviews && ratingSummary.reviews.length > 0 ? (
-                  ratingSummary.reviews.map((rev) => (
+                  ratingSummary.reviews.map((rev, rIdx) => (
                     <div
-                      key={rev.id}
+                      key={`public-review-${rev.id || rIdx}`}
                       className="bg-white border border-slate-200 rounded-2xl p-3.5 space-y-1.5 shadow-2xs"
                     >
                       <div className="flex items-center justify-between">

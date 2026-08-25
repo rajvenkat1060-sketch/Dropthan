@@ -99,7 +99,7 @@ export const AIAgentTab: React.FC<AIAgentTabProps> = ({ currentUser }) => {
       <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
         {samplePrompts.map((p, idx) => (
           <button
-            key={idx}
+            key={`ai-prompt-btn-${idx}`}
             onClick={() => handleSendPrompt(p)}
             className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap cursor-pointer transition font-medium"
           >
@@ -110,8 +110,8 @@ export const AIAgentTab: React.FC<AIAgentTabProps> = ({ currentUser }) => {
 
       {/* AI Chat History */}
       <div className="h-72 overflow-y-auto p-3 bg-blue-50/30 rounded-xl text-xs space-y-3 border border-blue-100">
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+        {messages.map((m, mIdx) => (
+          <div key={`ai-msg-${m.id || mIdx}`} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[85%] p-3 rounded-xl leading-relaxed ${
                 m.sender === 'user'

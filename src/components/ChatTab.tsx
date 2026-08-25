@@ -644,11 +644,11 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             <p className="text-[11px]">Start inquiring with verified suppliers from the Feed or Search tab.</p>
           </div>
         ) : (
-          filteredConversations.map((conv) => {
+          filteredConversations.map((conv, cIdx) => {
             const isSelected = conv.id === activeChatId;
             return (
               <div
-                key={conv.id}
+                key={`chat-conv-${conv.id || cIdx}`}
                 onClick={() => setActiveChatId(conv.id)}
                 className={`p-3.5 flex items-center justify-between cursor-pointer transition select-none ${
                   isSelected ? 'bg-blue-50/80 border-l-4 border-[#0d47a1]' : 'hover:bg-slate-50'
@@ -836,8 +836,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ activeVendor, currentUser }) =
             </span>
           </div>
 
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.is_me ? 'justify-end' : 'justify-start'} animate-in fade-in duration-150`}>
+          {messages.map((m, mIdx) => (
+            <div key={`chat-msg-${m.id || mIdx}`} className={`flex ${m.is_me ? 'justify-end' : 'justify-start'} animate-in fade-in duration-150`}>
               <div
                 className={`max-w-[85%] sm:max-w-[75%] p-3 rounded-2xl text-xs shadow-2xs ${
                   m.is_me

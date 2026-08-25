@@ -588,7 +588,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                   <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 scrollbar-none">
                     {ratingStats.reviews.map((rev, idx) => (
                       <div
-                        key={rev.id || idx}
+                        key={`profile-rating-rev-${rev.id || idx}`}
                         className="bg-white/90 border border-amber-200/80 rounded-xl p-2 space-y-0.5 text-xs shadow-xs"
                       >
                         <div className="flex items-center justify-between">
@@ -704,9 +704,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {visibleUserPosts.map((post) => (
+                  {visibleUserPosts.map((post, pIdx) => (
                     <div
-                      key={post.id}
+                      key={`user-profile-post-${post.id || pIdx}`}
                       className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 shadow-xs"
                     >
                       <div className="flex items-center justify-between">
@@ -783,9 +783,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {visibleSavedPosts.map((post) => (
+                  {visibleSavedPosts.map((post, sIdx) => (
                     <div
-                      key={post.id}
+                      key={`saved-post-item-${post.id || sIdx}`}
                       className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 shadow-xs"
                     >
                       <div className="flex items-center justify-between">
