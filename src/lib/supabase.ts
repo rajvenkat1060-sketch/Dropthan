@@ -226,131 +226,140 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
 };
 
 export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
-  try {
-    const imagesList = post.images && post.images.length > 0 ? post.images : (post.img ? [post.img] : []);
-    const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
+  const imagesList = post.images && post.images.length > 0 ? post.images : (post.img ? [post.img] : []);
+  const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
 
-    // Ensure valid UUID for id
-    const validPostId = post.id && isUuid(post.id) ? post.id : generateValidUUID();
-
-    // Ensure valid UUID for user_id to satisfy PostgreSQL uuid data type
-    let validUserId: string | null = null;
-    if (post.user_id && isUuid(post.user_id)) {
-      validUserId = post.user_id;
-    } else if (post.userId && isUuid(post.userId)) {
-      validUserId = post.userId;
-    }
-
-    // Exact 15 Supabase public.posts columns:
-    // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
-    const postPayload: Record<string, any> = {
-      id: validPostId,
-      user_id: validUserId,
-      author: post.author || 'Dropthan Member',
-      role: post.role || 'wholesaler',
-      price: post.price || 'Rate on Request',
-      moq: post.moq || 'MOQ on Request',
-      caption: post.caption || '',
-      img: primaryImg,
-      images: imagesList,
-      category: post.category || 'Textiles & Apparel',
-      location: post.location || 'India',
-      phone: post.phone || null,
-      gstin: post.gstin || null,
-      likes_count: post.likesCount ?? 0,
-      created_at: post.createdAt || post.created_at || new Date().toISOString(),
-    };
-
-    console.log('📦 [Supabase Post Insert] Executing insert with payload:', {
-      id: postPayload.id,
-      user_id: postPayload.user_id,
-      author: postPayload.author,
-      category: postPayload.category,
-      price: postPayload.price,
-      moq: postPayload.moq,
-      img: postPayload.img ? `${postPayload.img.substring(0, 40)}...` : null,
-    });
-
-    let savedItem: any = null;
-
-    // 1. Direct Supabase insert call
-    const { data: insertedData, error: insertError } = await supabase
-      .from('posts')
-      .insert([postPayload])
-      .select()
-      .maybeSingle();
-
-    if (!insertError && insertedData) {
-      savedItem = insertedData;
-      console.log('✅ [Supabase Post Insert]: Post successfully saved to Supabase public.posts table!');
-    } else if (insertError) {
-      console.warn('⚠️ [Supabase Post Insert Initial Attempt]:', insertError.message);
-
-      // If user_id constraint failed, retry with user_id = null
-      if (insertError.code === '23503' || insertError.message.includes('foreign key') || insertError.message.includes('user_id')) {
-        console.log('Retrying insert without user_id foreign key constraint...');
-        const payloadWithoutUserId = { ...postPayload, user_id: null };
-        const { data: retryData, error: retryError } = await supabase
-          .from('posts')
-          .insert([payloadWithoutUserId])
-          .select()
-          .maybeSingle();
-
-        if (!retryError && retryData) {
-          savedItem = retryData;
-          console.log('✅ [Supabase Post Insert]: Retry with user_id=null succeeded!');
-        }
-      }
-
-      // If id exists or conflict, try upsert
-      if (!savedItem) {
-        const { data: upsertData, error: upsertError } = await supabase
-          .from('posts')
-          .upsert(postPayload, { onConflict: 'id' })
-          .select()
-          .maybeSingle();
-
-        if (!upsertError && upsertData) {
-          savedItem = upsertData;
-          console.log('✅ [Supabase Post Upsert]: Post saved with upsert!');
-        }
-      }
-    }
-
-    // 2. Direct server-side proxy backup to ensure synchronization across all devices
-    try {
-      const resp = await fetch('/api/posts/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postPayload),
-      });
-      if (resp.ok) {
-        const serverJson = await resp.json();
-        if (serverJson.data || serverJson.post) {
-          console.log('✅ [Server Post Proxy]: Post successfully synced through server proxy!');
-          if (!savedItem) savedItem = serverJson.data || serverJson.post;
-        }
-      }
-    } catch (serverErr) {
-      console.warn('Server post proxy notice:', serverErr);
-    }
-
-    try {
-      window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
-    } catch (e) {}
-
-    return {
-      ...post,
-      id: savedItem?.id || validPostId,
-      user_id: savedItem?.user_id || validUserId || undefined,
-      img: primaryImg,
-      images: imagesList,
-      created_at: postPayload.created_at,
-    };
-  } catch (e) {
-    console.warn('Exception saving post to Supabase (locally preserved):', e);
-    return post;
+  if (!primaryImg && (!imagesList || imagesList.length === 0)) {
+    throw new Error('Image URL is missing. Please attach a photo before posting.');
   }
+
+  // Ensure valid UUID for id
+  const validPostId = post.id && isUuid(post.id) ? post.id : generateValidUUID();
+
+  // Ensure valid UUID for user_id to satisfy PostgreSQL uuid data type
+  let validUserId: string | null = null;
+  if (post.user_id && isUuid(post.user_id)) {
+    validUserId = post.user_id;
+  } else if (post.userId && isUuid(post.userId)) {
+    validUserId = post.userId;
+  }
+
+  // Exact 15 Supabase public.posts columns:
+  // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
+  const postPayload: Record<string, any> = {
+    id: validPostId,
+    user_id: validUserId,
+    author: post.author || 'Dropthan Member',
+    role: post.role || 'wholesaler',
+    price: post.price || 'Rate on Request',
+    moq: post.moq || 'MOQ on Request',
+    caption: post.caption || '',
+    img: primaryImg,
+    images: imagesList.length > 0 ? imagesList : [primaryImg],
+    category: post.category || 'Textiles & Apparel',
+    location: post.location || 'India',
+    phone: post.phone || null,
+    gstin: post.gstin || null,
+    likes_count: post.likesCount ?? 0,
+    created_at: post.createdAt || post.created_at || new Date().toISOString(),
+  };
+
+  console.log('Submitting post payload:', postPayload);
+
+  let savedItem: any = null;
+  let finalInsertError: any = null;
+
+  // 1. Direct Supabase insert call
+  const { data: insertedData, error: insertError } = await supabase
+    .from('posts')
+    .insert([postPayload])
+    .select()
+    .maybeSingle();
+
+  if (!insertError && insertedData) {
+    savedItem = insertedData;
+    console.log('✅ [Supabase Post Insert]: Post successfully saved to Supabase public.posts table!', insertedData);
+  } else if (insertError) {
+    console.error('Supabase Insert Error:', insertError);
+    finalInsertError = insertError;
+
+    // If user_id constraint failed (foreign key), retry with user_id = null
+    if (insertError.code === '23503' || insertError.message.includes('foreign key') || insertError.message.includes('user_id')) {
+      console.log('Retrying insert without user_id foreign key constraint...');
+      const payloadWithoutUserId = { ...postPayload, user_id: null };
+      const { data: retryData, error: retryError } = await supabase
+        .from('posts')
+        .insert([payloadWithoutUserId])
+        .select()
+        .maybeSingle();
+
+      if (!retryError && retryData) {
+        savedItem = retryData;
+        finalInsertError = null;
+        console.log('✅ [Supabase Post Insert]: Retry with user_id=null succeeded!');
+      } else if (retryError) {
+        console.error('Supabase Insert Error (Retry):', retryError);
+        finalInsertError = retryError;
+      }
+    }
+
+    // If still not saved, try upsert
+    if (!savedItem) {
+      const { data: upsertData, error: upsertError } = await supabase
+        .from('posts')
+        .upsert(postPayload, { onConflict: 'id' })
+        .select()
+        .maybeSingle();
+
+      if (!upsertError && upsertData) {
+        savedItem = upsertData;
+        finalInsertError = null;
+        console.log('✅ [Supabase Post Upsert]: Post saved with upsert!');
+      } else if (upsertError) {
+        console.error('Supabase Upsert Error:', upsertError);
+        finalInsertError = upsertError;
+      }
+    }
+  }
+
+  // 2. Direct server-side proxy backup to ensure synchronization across all devices
+  try {
+    const resp = await fetch('/api/posts/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(postPayload),
+    });
+    if (resp.ok) {
+      const serverJson = await resp.json();
+      if (serverJson.data || serverJson.post) {
+        console.log('✅ [Server Post Proxy]: Post successfully synced through server proxy!');
+        if (!savedItem) savedItem = serverJson.data || serverJson.post;
+        finalInsertError = null;
+      }
+    }
+  } catch (serverErr) {
+    console.warn('Server post proxy notice:', serverErr);
+  }
+
+  // If both direct insert and fallback failed, THROW the error so UI modal catches it
+  if (!savedItem && finalInsertError) {
+    const errorMessage = finalInsertError.message || finalInsertError.details || 'Failed to insert post into database.';
+    console.error('❌ [Supabase Post Save Critical Error]:', errorMessage);
+    throw new Error(`Database error: ${errorMessage}`);
+  }
+
+  try {
+    window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
+  } catch (e) {}
+
+  return {
+    ...post,
+    id: savedItem?.id || validPostId,
+    user_id: savedItem?.user_id || validUserId || undefined,
+    img: primaryImg,
+    images: imagesList.length > 0 ? imagesList : [primaryImg],
+    created_at: postPayload.created_at,
+  };
 };
 
 export const clearAllSupabaseData = async (): Promise<{ success: boolean; error?: string }> => {

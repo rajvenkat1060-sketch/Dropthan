@@ -215,13 +215,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     };
 
     try {
+      console.log('Submitting post payload:', newPost);
       await onAddPost(newPost);
       setIsUploading(false);
       onClose();
     } catch (postErr: any) {
-      console.error('Error in onAddPost:', postErr);
+      console.error('Supabase Insert Error:', postErr);
       setIsUploading(false);
-      setErrorMessage(postErr?.message || 'Failed to publish post. Please check your connection.');
+      setErrorMessage(postErr?.message || 'Failed to publish post. Please check console.');
     }
   };
 
