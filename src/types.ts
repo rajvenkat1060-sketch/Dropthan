@@ -45,6 +45,7 @@ export interface PostItem {
   vendor_id?: string;
   author: string;
   title?: string;
+  product_name?: string;
   role: UserRole;
   price: string;
   moq: string;
@@ -59,9 +60,9 @@ export interface PostItem {
   bio?: string;
   description?: string;
   img: string;
-  image_url?: string;
   images?: string[];
   media_url?: string;
+  is_active?: boolean;
   phone: string;
   country?: string;
   location?: string;

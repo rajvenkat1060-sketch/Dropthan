@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PostItem, UserProfile } from '../types';
-import { uploadMultipleToCloudinary } from '../lib/cloudinary';
+import { uploadToCloudinary } from '../lib/cloudinary';
 import { generateValidUUID, isUuid } from '../lib/supabase';
 
 interface CreatePostModalProps {
@@ -18,8 +18,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [description, setDescription] = useState('');
   const [imgUrl, setImgUrl] = useState('');
   const [imageMode, setImageMode] = useState<'file' | 'url' | 'presets'>('file');
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -30,34 +30,23 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=800&auto=format&fit=crop&q=80',
   ];
 
-  const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const newFiles = [...selectedFiles, ...files].slice(0, 6);
-    setSelectedFiles(newFiles);
-
-    const previewsArray = new Array(newFiles.length);
-    let loadedCount = 0;
-
-    newFiles.forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          previewsArray[index] = reader.result;
-        }
-        loadedCount++;
-        if (loadedCount === newFiles.length) {
-          setSelectedPreviews(previewsArray);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    setSelectedFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        setSelectedPreview(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleRemovePhoto = (index: number) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-    setSelectedPreviews((prev) => prev.filter((_, i) => i !== index));
+  const handleRemovePhoto = () => {
+    setSelectedFile(null);
+    setSelectedPreview(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -68,57 +57,59 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       return;
     }
     if (!description.trim()) {
-      setErrorMessage('Please enter a Description (Service / MOQ details).');
+      setErrorMessage('Please enter a Description (Service / Offer Details).');
       return;
     }
-    if (selectedFiles.length === 0 && !imgUrl.trim() && selectedPreviews.length === 0) {
-      setErrorMessage('Please upload or select at least one product photo.');
+    if (!selectedFile && !imgUrl.trim() && !selectedPreview) {
+      setErrorMessage('Please upload or select a product photo.');
       return;
     }
 
     setIsUploading(true);
     setErrorMessage(null);
-    let uploadedImageUrls: string[] = [];
+    let finalImageUrl = '';
 
     try {
-      if (selectedFiles.length > 0) {
-        console.log(`☁️ [Cloudinary Upload] Uploading ${selectedFiles.length} photo(s) to Cloudinary...`);
-        uploadedImageUrls = await uploadMultipleToCloudinary(selectedFiles);
-        console.log('✅ [Cloudinary Response] Secure URLs:', uploadedImageUrls);
+      if (selectedFile) {
+        console.log('☁️ [Cloudinary Upload] Uploading photo to Cloudinary...');
+        finalImageUrl = await uploadToCloudinary(selectedFile, 'post_creation');
+        console.log('✅ [Cloudinary Response] Secure URL:', finalImageUrl);
       }
     } catch (err: any) {
       console.warn('Direct Cloudinary upload notice:', err);
-      uploadedImageUrls = selectedPreviews.filter((p) => typeof p === 'string' && p.startsWith('http'));
     }
 
-    if (!uploadedImageUrls || uploadedImageUrls.length === 0) {
+    if (!finalImageUrl) {
       if (imgUrl.trim()) {
-        uploadedImageUrls = [imgUrl.trim()];
-      } else if (selectedPreviews.length > 0 && selectedPreviews[0].startsWith('http')) {
-        uploadedImageUrls = selectedPreviews;
+        finalImageUrl = imgUrl.trim();
+      } else if (selectedPreview && selectedPreview.startsWith('http')) {
+        finalImageUrl = selectedPreview;
       } else {
-        uploadedImageUrls = [presetImages[Math.floor(Math.random() * presetImages.length)]];
+        finalImageUrl = presetImages[Math.floor(Math.random() * presetImages.length)];
       }
     }
 
-    const primaryImg = uploadedImageUrls[0];
     const validPostId = generateValidUUID();
     const validUserId = currentUser?.id && isUuid(currentUser.id) ? currentUser.id : undefined;
 
-    // Clean post object with ONLY required fields and UI-friendly fallbacks
+    // Streamlined post object matching schema columns
+    const cleanTitle = title.trim();
+    const cleanDesc = description.trim();
+
     const newPost: PostItem = {
       id: validPostId,
       user_id: validUserId,
       userId: validUserId,
-      title: title.trim(),
-      description: description.trim(),
-      caption: description.trim(),
+      title: cleanTitle,
+      product_name: cleanTitle,
+      description: cleanDesc,
+      caption: cleanDesc,
       author: currentUser?.displayName || currentUser?.companyName || 'Dropthan Member',
       role: currentUser?.role || 'wholesaler',
       price: 'Wholesale Rate',
       moq: 'Direct MOQ',
-      img: primaryImg,
-      images: uploadedImageUrls,
+      img: finalImageUrl,
+      is_active: true,
       category: 'Textiles & Apparel',
       location: currentUser?.location || 'India',
       phone: currentUser?.phone || '',
@@ -132,9 +123,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         id: newPost.id,
         user_id: newPost.user_id,
         title: newPost.title,
+        product_name: newPost.product_name,
         description: newPost.description,
         img: newPost.img,
-        images: newPost.images,
+        is_active: newPost.is_active,
         created_at: newPost.created_at,
       });
 
@@ -182,10 +174,10 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
             />
           </div>
 
-          {/* FIELD 2: DESCRIPTION (SERVICE / MOQ DETAILS) -> mapped to description */}
+          {/* FIELD 2: DESCRIPTION (SERVICE / OFFER DETAILS) -> mapped to description */}
           <div>
             <label className="block text-slate-800 font-bold mb-1 flex items-center justify-between">
-              <span>📝 Description (Service / MOQ Details) *</span>
+              <span>📝 Description (Service / Offer Details) *</span>
               <span className="text-[10px] text-[#0d47a1] font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
                 Mapped to description
               </span>
@@ -200,7 +192,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
             />
           </div>
 
-          {/* CLOUDINARY IMAGE UPLOAD & PREVIEW */}
+          {/* FIELD 3: SINGLE CLOUDINARY IMAGE UPLOAD & PREVIEW -> mapped to img */}
           <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
             <div className="flex items-center justify-between">
               <label className="block text-slate-800 font-bold text-xs">
@@ -247,40 +239,32 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center space-x-2">
                   <label className="flex-1 bg-white hover:bg-blue-50 text-[#0d47a1] border border-dashed border-blue-300 p-3 rounded-xl cursor-pointer text-center font-bold text-xs transition flex flex-col items-center justify-center gap-1 shadow-xs">
-                    <span>📸 Click to Select Photos from Device</span>
+                    <span>📸 Click to Select Photo from Device</span>
                     <span className="text-[10px] text-slate-500 font-normal">Directly uploads to Cloudinary</span>
                     <input
                       type="file"
                       accept="image/*"
-                      multiple
-                      onChange={handleFilesChange}
+                      onChange={handleFileChange}
                       className="hidden"
                     />
                   </label>
                 </div>
 
-                {selectedPreviews.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    {selectedPreviews.map((preview, idx) => (
-                      <div key={idx} className="relative group rounded-xl overflow-hidden border border-blue-200 aspect-square">
-                        <img
-                          src={preview}
-                          alt={`Selected preview ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleRemovePhoto(idx)}
-                          className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow cursor-pointer"
-                          title="Remove photo"
-                        >
-                          ✕
-                        </button>
-                        <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                          #{idx + 1}
-                        </span>
-                      </div>
-                    ))}
+                {selectedPreview && (
+                  <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-40 bg-slate-100 flex items-center justify-center">
+                    <img
+                      src={selectedPreview}
+                      alt="Selected preview"
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRemovePhoto}
+                      className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow cursor-pointer"
+                      title="Remove photo"
+                    >
+                      ✕
+                    </button>
                   </div>
                 )}
               </div>

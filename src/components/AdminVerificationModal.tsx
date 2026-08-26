@@ -1371,48 +1371,24 @@ CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CH
 DROP POLICY IF EXISTS "Anyone can update profiles" ON public.profiles;
 CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);
 
--- 2. POSTS TABLE (With all B2B catalog columns)
+-- 2. POSTS TABLE (Streamlined Schema: user_id, title, product_name, description, img, is_active, created_at)
 CREATE TABLE IF NOT EXISTS public.posts (
-  id TEXT PRIMARY KEY
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  title TEXT,
+  product_name TEXT,
+  description TEXT,
+  img TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_id TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_avatar TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS author_phone TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS phone TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'wholesaler';
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'Textiles & Apparel';
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS price TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS moq TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS caption TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS user_id UUID;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS title TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS product_name TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS img TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS image_url TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS images JSONB;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_url TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS media_type TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS location TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS store_address TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS lat NUMERIC;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS lng NUMERIC;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS views INT DEFAULT 0;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS likes_count INT DEFAULT 0;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT false;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS verified_seller BOOLEAN DEFAULT false;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS gstin TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS iec_code TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS product_name TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS material_details TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS promotion_details TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS export_products TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS packaging_materials TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS service_details TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS website TEXT;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS instagram TEXT;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 -- Open RLS policies for posts (100% public read for all visitors and authenticated users)

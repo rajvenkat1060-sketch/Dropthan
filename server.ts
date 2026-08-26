@@ -240,12 +240,10 @@ app.post("/api/posts/create", async (req, res) => {
       return;
     }
 
-    const imagesList = Array.isArray(rawPost.images) && rawPost.images.length > 0
-      ? rawPost.images
-      : rawPost.img
-      ? [rawPost.img]
-      : [];
-    const primaryImg = rawPost.img || (imagesList.length > 0 ? imagesList[0] : "");
+    const primaryImg =
+      rawPost.img ||
+      (Array.isArray(rawPost.images) && rawPost.images.length > 0 ? rawPost.images[0] : "") ||
+      "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80";
 
     // Validate UUID for id
     const isUuidStr = (v?: string) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -253,14 +251,18 @@ app.post("/api/posts/create", async (req, res) => {
     const validUserId = (rawPost.user_id && isUuidStr(rawPost.user_id)) ? rawPost.user_id : (rawPost.userId && isUuidStr(rawPost.userId)) ? rawPost.userId : null;
 
     // Clean public.posts columns:
-    // id, user_id, title, description, img, images, created_at
+    // user_id, title / product_name, description, img, is_active, created_at
+    const postTitle = rawPost.title || rawPost.product_name || rawPost.productName || rawPost.caption || "Product Offer";
+    const postDescription = rawPost.description || rawPost.caption || "";
+
     const postPayload: Record<string, any> = {
       id: validPostId,
       user_id: validUserId,
-      title: rawPost.title || rawPost.caption || "Product Offer",
-      description: rawPost.description || rawPost.caption || "",
+      title: postTitle,
+      product_name: postTitle,
+      description: postDescription,
       img: primaryImg,
-      images: imagesList.length > 0 ? imagesList : [primaryImg],
+      is_active: true,
       created_at: rawPost.created_at || rawPost.createdAt || new Date().toISOString(),
     };
 
@@ -275,8 +277,26 @@ app.post("/api/posts/create", async (req, res) => {
     } else {
       if (resInsert.error) {
         console.warn("[Server Post Sync] Initial insert error:", resInsert.error.message);
+
+        // Try title-only fallback
+        if (resInsert.error.message?.includes("column") || resInsert.error.code === "42703") {
+          const titleOnly = {
+            id: validPostId,
+            user_id: validUserId,
+            title: postTitle,
+            description: postDescription,
+            img: primaryImg,
+            is_active: true,
+            created_at: postPayload.created_at,
+          };
+          const resTitle = await supabase.from("posts").insert([titleOnly]).select().maybeSingle();
+          if (!resTitle.error && resTitle.data) {
+            savedData = resTitle.data;
+          }
+        }
+
         // If user_id constraint fails, retry with user_id = null
-        if (resInsert.error.code === "23503" || resInsert.error.message.includes("user_id")) {
+        if (!savedData && (resInsert.error.code === "23503" || resInsert.error.message.includes("user_id"))) {
           const resRetry = await supabase.from("posts").insert([{ ...postPayload, user_id: null }]).select().maybeSingle();
           if (!resRetry.error && resRetry.data) {
             savedData = resRetry.data;

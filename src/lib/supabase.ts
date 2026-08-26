@@ -150,15 +150,14 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
       } catch (e) {
         imageList = [item.img || item.image || item.photo || ''];
       }
-    } else if (item.img || item.image || item.photo || item.image_url) {
-      imageList = [item.img || item.image || item.photo || item.image_url];
+    } else if (item.img || item.image || item.photo) {
+      imageList = [item.img || item.image || item.photo];
     }
 
     const primaryImg =
       item.img ||
       item.image ||
       item.photo ||
-      item.image_url ||
       (imageList.length > 0 ? imageList[0] : '') ||
       'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
 
@@ -221,10 +220,12 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
 };
 
 export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
-  const imagesList = post.images && post.images.length > 0 ? post.images : (post.img ? [post.img] : []);
-  const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
+  const primaryImg =
+    post.img ||
+    (Array.isArray(post.images) && post.images.length > 0 ? post.images[0] : '') ||
+    'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
 
-  if (!primaryImg && (!imagesList || imagesList.length === 0)) {
+  if (!primaryImg) {
     throw new Error('Image is required. Please attach a photo before posting.');
   }
 
@@ -240,14 +241,18 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
   }
 
   // Exact clean public.posts columns:
-  // id, user_id, title, description, img, images, created_at
+  // user_id, title / product_name, description, img, is_active, created_at
+  const postTitle = post.title || post.product_name || post.productName || post.caption || 'Product Offer';
+  const postDescription = post.description || post.caption || '';
+
   const postPayload: Record<string, any> = {
     id: validPostId,
     user_id: validUserId,
-    title: post.title || post.caption || 'Product Offer',
-    description: post.description || post.caption || '',
+    title: postTitle,
+    product_name: postTitle,
+    description: postDescription,
     img: primaryImg,
-    images: imagesList.length > 0 ? imagesList : [primaryImg],
+    is_active: true,
     created_at: post.createdAt || post.created_at || new Date().toISOString(),
   };
 
@@ -270,8 +275,57 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
     console.error('Supabase Insert Error:', insertError);
     finalInsertError = insertError;
 
-    // If user_id constraint failed (foreign key), retry with user_id = null
-    if (insertError.code === '23503' || insertError.message.includes('foreign key') || insertError.message.includes('user_id')) {
+    // A. If column mismatch occurs (e.g. table has title but not product_name, or vice-versa), try with minimal column variants
+    if (insertError.message?.includes('column') || insertError.code === '42703' || insertError.message?.includes('schema')) {
+      console.log('Retrying insert with strictly title-only payload variant...');
+      const titleOnlyPayload = {
+        id: validPostId,
+        user_id: validUserId,
+        title: postTitle,
+        description: postDescription,
+        img: primaryImg,
+        is_active: true,
+        created_at: postPayload.created_at,
+      };
+      const { data: retryTitleData, error: retryTitleError } = await supabase
+        .from('posts')
+        .insert([titleOnlyPayload])
+        .select()
+        .maybeSingle();
+
+      if (!retryTitleError && retryTitleData) {
+        savedItem = retryTitleData;
+        finalInsertError = null;
+        console.log('✅ [Supabase Post Insert]: Title-only variant succeeded!');
+      } else if (retryTitleError && (retryTitleError.message?.includes('column') || retryTitleError.message?.includes('title'))) {
+        console.log('Retrying insert with product_name-only payload variant...');
+        const prodNameOnlyPayload = {
+          id: validPostId,
+          user_id: validUserId,
+          product_name: postTitle,
+          description: postDescription,
+          img: primaryImg,
+          is_active: true,
+          created_at: postPayload.created_at,
+        };
+        const { data: retryProdData, error: retryProdError } = await supabase
+          .from('posts')
+          .insert([prodNameOnlyPayload])
+          .select()
+          .maybeSingle();
+
+        if (!retryProdError && retryProdData) {
+          savedItem = retryProdData;
+          finalInsertError = null;
+          console.log('✅ [Supabase Post Insert]: product_name variant succeeded!');
+        } else {
+          finalInsertError = retryProdError;
+        }
+      }
+    }
+
+    // B. If user_id constraint failed (foreign key), retry with user_id = null
+    if (!savedItem && (insertError.code === '23503' || insertError.message.includes('foreign key') || insertError.message.includes('user_id'))) {
       console.log('Retrying insert without user_id foreign key constraint...');
       const payloadWithoutUserId = { ...postPayload, user_id: null };
       const { data: retryData, error: retryError } = await supabase
@@ -290,7 +344,7 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
       }
     }
 
-    // If still not saved, try upsert
+    // C. If still not saved, try upsert
     if (!savedItem) {
       const { data: upsertData, error: upsertError } = await supabase
         .from('posts')
@@ -347,7 +401,6 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
     description: postPayload.description,
     caption: postPayload.description,
     img: primaryImg,
-    images: imagesList.length > 0 ? imagesList : [primaryImg],
     created_at: postPayload.created_at,
   };
 };
@@ -2374,17 +2427,16 @@ export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostIt
           const parsed = JSON.parse(item.images);
           imageList = Array.isArray(parsed) ? parsed : [parsed];
         } catch {
-          imageList = [item.img || item.image || item.image_url || ''];
+          imageList = [item.img || item.image || ''];
         }
-      } else if (item.img || item.image || item.image_url) {
-        imageList = [item.img || item.image || item.image_url];
+      } else if (item.img || item.image) {
+        imageList = [item.img || item.image];
       }
 
       const primaryImg =
         item.img ||
         item.image ||
         item.photo ||
-        item.image_url ||
         (imageList.length > 0 ? imageList[0] : '') ||
         '';
 
@@ -2470,7 +2522,6 @@ export const fetchPostsByVendor = async (
 
   const mapPostItem = (item: any): PostItem => {
     const primaryImg =
-      item.image_url ||
       item.img ||
       item.image ||
       item.photo ||
@@ -2481,13 +2532,14 @@ export const fetchPostsByVendor = async (
       user_id: item.user_id || item.userId || undefined,
       userId: item.userId || item.user_id || undefined,
       vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
+      title: item.title || item.caption || item.product_name || 'Product Offer',
+      description: item.description || item.caption || '',
       author: item.author || targetCompany || targetDisplayName || 'Dropthan Member',
       role: item.role || 'wholesaler',
       price: item.price || 'Rate on Request',
       moq: item.moq || 'Custom MOQ',
       caption: item.caption || item.description || '',
       img: primaryImg,
-      image_url: item.image_url || primaryImg,
       images: Array.isArray(item.images) && item.images.length > 0 ? item.images : (primaryImg ? [primaryImg] : []),
       phone: item.phone || cleanPhone || '',
       location: item.location || '',

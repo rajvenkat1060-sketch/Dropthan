@@ -35,7 +35,7 @@ export function getOptimizedImageUrl(url: string | undefined, width = 600): stri
 
 /**
  * Safely extracts an array of all valid image URLs from any post object,
- * parsing across post.image_url, post.img, post.images (arrays or serialized strings),
+ * parsing across post.img, post.images (arrays or serialized strings),
  * post.media_url, etc.
  */
 export function getPostImagesList(post: any): string[] {
@@ -64,22 +64,17 @@ export function getPostImagesList(post: any): string[] {
     }
   };
 
-  // 1. Check canonical Supabase image_url column
-  if (post.image_url) {
-    addIfValid(post.image_url);
-  }
-
-  // 2. Check standard img property
+  // 1. Check standard img property
   if (post.img) {
     addIfValid(post.img);
   }
 
-  // 3. Check media_url / mediaUrl property
+  // 2. Check media_url / mediaUrl property
   if (post.media_url || post.mediaUrl) {
     addIfValid(post.media_url || post.mediaUrl);
   }
 
-  // 4. Parse images array or serialized strings
+  // 3. Parse images array or serialized strings
   if (post.images) {
     if (Array.isArray(post.images)) {
       post.images.forEach((item: any) => addIfValid(item));
@@ -108,11 +103,10 @@ export function getPostImagesList(post: any): string[] {
 /**
  * Safely extracts the single primary image URL from a post object using
  * an exhaustive fallback chain:
- * 1. post.image_url (Cloudinary canonical Supabase column)
- * 2. post.img
- * 3. post.images[0] (or parsed JSON/Postgres array)
- * 4. post.media_url
- * 5. default placeholder
+ * 1. post.img
+ * 2. post.images[0] (or parsed JSON/Postgres array)
+ * 3. post.media_url
+ * 4. default placeholder
  */
 export function getPostImageUrl(post: any, fallbackPlaceholder?: string): string {
   const defaultFallback =
@@ -127,7 +121,6 @@ export function getPostImageUrl(post: any, fallbackPlaceholder?: string): string
   }
 
   const direct =
-    post.image_url ||
     post.img ||
     (Array.isArray(post.images) && post.images.length > 0 ? post.images[0] : undefined) ||
     post.media_url ||
