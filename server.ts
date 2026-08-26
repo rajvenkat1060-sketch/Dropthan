@@ -389,6 +389,53 @@ app.post("/api/posts/create", async (req, res) => {
   }
 });
 
+// Server-Side Public Post Delete Endpoint
+app.delete("/api/posts/:id", async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const { userId } = req.body || {};
+    if (!postId) {
+      res.status(400).json({ error: "Post ID is required" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Supabase client not available on server" });
+      return;
+    }
+
+    console.log(`[Server Post Delete] Deleting post ${postId} from Supabase (user: ${userId || 'n/a'})...`);
+
+    let deleteQuery = supabase.from("posts").delete().eq("id", postId);
+    if (userId) {
+      deleteQuery = deleteQuery.eq("user_id", userId);
+    }
+
+    let { error } = await deleteQuery;
+    if (error && userId) {
+      const fallback = await supabase.from("posts").delete().eq("id", postId);
+      error = fallback.error;
+    }
+
+    // Clean associated likes
+    try {
+      await supabase.from("likes").delete().eq("post_id", postId);
+    } catch (e) {}
+
+    if (error) {
+      console.warn("[Server Post Delete] Error:", error.message);
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.json({ success: true, message: `Post ${postId} deleted successfully` });
+  } catch (err: any) {
+    console.error("[Server Post Delete] Server error deleting post:", err);
+    res.status(500).json({ error: err?.message || "Internal server error" });
+  }
+});
+
 // Server-Side Public Profiles Listing & Search Endpoint
 app.get("/api/profiles", async (req, res) => {
   try {

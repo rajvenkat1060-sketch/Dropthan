@@ -6,6 +6,8 @@ import { ImageCarousel } from './ImageCarousel';
 import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
+import { DeleteConfirmationModal } from './DeleteConfirmationModal';
+import { Trash2 } from 'lucide-react';
 import { fetchAllUserProfilesFromSupabase, subscribeToSupabaseProfiles, searchProfilesFromSupabase, deduplicateUserProfiles } from '../lib/supabase';
 
 interface FeedTabProps {
@@ -15,6 +17,7 @@ interface FeedTabProps {
   onSearchChange?: (query: string) => void;
   onToggleLike: (postId: string) => void;
   onToggleSave: (postId: string) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 const PAGE_SIZE = 8;
@@ -67,6 +70,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   onSearchChange,
   onToggleLike,
   onToggleSave,
+  onDeletePost,
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchTab, setSearchTab] = useState<'all' | 'products' | 'suppliers'>('all');
@@ -74,6 +78,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
   const [selectedMapLocation, setSelectedMapLocation] = useState<{ locationName: string; authorName?: string } | null>(null);
   const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
+  const [postToDelete, setPostToDelete] = useState<PostItem | null>(null);
   const observerRef = useRef<HTMLDivElement | null>(null);
 
   // Fetch all Supabase profiles for dual search and subscribe to realtime profile updates
@@ -969,6 +974,22 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           ) : (
             visiblePosts.map((post, pIdx) => {
               const resolved = resolvePostAuthor(post);
+              const cleanCurrentPhone = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';
+              const cleanPostPhone = (post.phone || resolved.phone || '').replace(/\D/g, '');
+              const postUserId = (post as any).user_id || (post as any).userId;
+              const isOwnPost = Boolean(
+                currentUser && (
+                  (postUserId && currentUser.id && (String(postUserId).trim() === String(currentUser.id).trim())) ||
+                  (resolved.userId && currentUser.id && (String(resolved.userId).trim() === String(currentUser.id).trim())) ||
+                  (cleanCurrentPhone && cleanPostPhone && (
+                    cleanCurrentPhone === cleanPostPhone ||
+                    (cleanCurrentPhone.length >= 10 && cleanPostPhone.length >= 10 && cleanCurrentPhone.slice(-10) === cleanPostPhone.slice(-10))
+                  )) ||
+                  (currentUser.displayName && (resolved.authorName === currentUser.displayName || post.author === currentUser.displayName)) ||
+                  (currentUser.companyName && (resolved.authorName === currentUser.companyName || post.author === currentUser.companyName)) ||
+                  (currentUser.fullName && (resolved.authorName === currentUser.fullName || post.author === currentUser.fullName))
+                )
+              );
               return (
                 <div
                   key={`feed-post-${post.id || pIdx}`}
@@ -1030,7 +1051,18 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 flex-shrink-0">
+                    <div className="flex items-center space-x-1.5 flex-shrink-0">
+                      {isOwnPost && onDeletePost && (
+                        <button
+                          type="button"
+                          onClick={() => setPostToDelete(post)}
+                          className="inline-flex items-center gap-1 text-[9px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-2 py-1 rounded-full font-bold transition cursor-pointer shadow-2xs active:scale-95"
+                          title="Delete this post from Dropthan"
+                        >
+                          <Trash2 className="w-2.5 h-2.5 text-rose-600" />
+                          <span>Delete</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openPublicProfile(post)}
@@ -1320,6 +1352,18 @@ export const FeedTab: React.FC<FeedTabProps> = ({
         onClose={() => setSelectedMapLocation(null)}
         locationName={selectedMapLocation?.locationName || ''}
         authorName={selectedMapLocation?.authorName}
+      />
+
+      {/* POST DELETE CONFIRMATION MODAL */}
+      <DeleteConfirmationModal
+        isOpen={Boolean(postToDelete)}
+        post={postToDelete}
+        onClose={() => setPostToDelete(null)}
+        onConfirm={async (postId) => {
+          if (onDeletePost) {
+            await onDeletePost(postId);
+          }
+        }}
       />
     </div>
   );

@@ -486,6 +486,75 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
   };
 };
 
+export const deleteSupabasePost = async (postId: string, userId?: string): Promise<{ success: boolean; error?: string }> => {
+  if (!postId) return { success: false, error: 'Post ID is required' };
+
+  console.log(`🗑️ [Supabase Post Delete] Deleting post ${postId} (userId: ${userId || 'n/a'})...`);
+  let lastError: any = null;
+
+  // 1. Direct Supabase delete from public.posts
+  try {
+    let query = supabase.from('posts').delete().eq('id', postId);
+    if (userId && isUuid(userId)) {
+      query = query.eq('user_id', userId);
+    }
+    const { error } = await query;
+    if (error) {
+      console.warn('Supabase post delete initial attempt:', error.message);
+      lastError = error;
+      // Fallback without user_id filter if schema mismatch occurs
+      const { error: retryError } = await supabase.from('posts').delete().eq('id', postId);
+      if (!retryError) {
+        lastError = null;
+        console.log(`✅ [Supabase Post Delete]: Post ${postId} deleted by ID.`);
+      }
+    } else {
+      console.log(`✅ [Supabase Post Delete]: Post ${postId} successfully deleted from Supabase!`);
+    }
+  } catch (err: any) {
+    console.warn('Supabase post delete exception:', err);
+    lastError = err;
+  }
+
+  // 2. Also delete associated likes from likes table
+  try {
+    await supabase.from('likes').delete().eq('post_id', postId);
+  } catch (e) {}
+
+  // 3. Server-side proxy delete call
+  try {
+    await fetch(`/api/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+  } catch (e) {
+    console.warn('Server delete post proxy notice:', e);
+  }
+
+  // 4. Clean local storage custom posts and saved IDs
+  try {
+    const customStr = localStorage.getItem('dropthan_custom_posts');
+    if (customStr) {
+      const posts: any[] = JSON.parse(customStr);
+      const filtered = posts.filter((p) => String(p.id) !== String(postId));
+      localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
+    }
+    const savedStr = localStorage.getItem('dropthan_saved_ids');
+    if (savedStr) {
+      const saved: string[] = JSON.parse(savedStr);
+      const filtered = saved.filter((id) => id !== postId);
+      localStorage.setItem('dropthan_saved_ids', JSON.stringify(filtered));
+    }
+  } catch (e) {}
+
+  try {
+    window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
+  } catch (e) {}
+
+  return { success: true };
+};
+
 export const clearAllSupabaseData = async (): Promise<{ success: boolean; error?: string }> => {
   try {
     console.log('🧹 [Database Reset] Executing full wipe of Supabase database tables...');

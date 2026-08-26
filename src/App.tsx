@@ -12,6 +12,7 @@ import { AdminVerificationModal } from './components/AdminVerificationModal';
 import {
   fetchSupabasePosts,
   saveSupabasePost,
+  deleteSupabasePost,
   fetchUserLikesFromSupabase,
   fetchAllLikesCountsFromSupabase,
   toggleSupabaseLike,
@@ -305,6 +306,35 @@ export default function App() {
     showToast('🚀 Offer posted & synced successfully!');
   };
 
+  const handleDeletePost = useCallback(async (postId: string) => {
+    if (!postId) return;
+
+    // Instant local frontend state removal for silky-smooth experience
+    setPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
+    setSavedPostIds((prev) => prev.filter((id) => id !== postId));
+    setLikedPostIds((prev) => prev.filter((id) => id !== postId));
+
+    // Remove from localStorage custom posts
+    try {
+      const savedCustomStr = localStorage.getItem('dropthan_custom_posts');
+      if (savedCustomStr) {
+        const parsed: PostItem[] = JSON.parse(savedCustomStr);
+        const filtered = parsed.filter((p) => String(p.id) !== String(postId));
+        localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
+      }
+    } catch (e) {}
+
+    showToast('🗑️ Post deleted successfully!');
+
+    // Persist deletion in live Supabase public.posts table
+    try {
+      const uid = currentUser?.id || (currentUser?.phone ? `usr_${currentUser.phone.replace(/\D/g, '')}` : undefined);
+      await deleteSupabasePost(postId, uid);
+    } catch (err) {
+      console.warn('Error deleting post from Supabase:', err);
+    }
+  }, [currentUser]);
+
   const handleStatusChanged = useCallback(() => {
     if (currentUser?.phone) {
       fetchUserProfileStatus(currentUser.phone).then((latest) => {
@@ -428,6 +458,7 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onToggleLike={handleToggleLike}
             onToggleSave={handleToggleSave}
+            onDeletePost={handleDeletePost}
           />
         )}
 
@@ -445,6 +476,7 @@ export default function App() {
             onOpenAdmin={isAdminUserAuthorized ? handleOpenAdmin : undefined}
             onEditDetails={() => setCurrentUser(null)}
             onUpdateProfile={handleUpdateProfile}
+            onDeletePost={handleDeletePost}
           />
         )}
       </main>

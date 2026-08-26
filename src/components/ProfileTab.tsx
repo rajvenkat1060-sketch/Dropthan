@@ -4,7 +4,8 @@ import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
 import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
-import { Instagram } from 'lucide-react';
+import { DeleteConfirmationModal } from './DeleteConfirmationModal';
+import { Instagram, Trash2 } from 'lucide-react';
 
 interface ProfileTabProps {
   user: UserProfile | null;
@@ -19,6 +20,7 @@ interface ProfileTabProps {
   onOpenAdmin?: () => void;
   onEditDetails?: () => void;
   onUpdateProfile?: (updatedUser: UserProfile) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 const ITEMS_PER_PAGE = 6;
@@ -36,6 +38,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   onOpenAdmin,
   onEditDetails,
   onUpdateProfile,
+  onDeletePost,
 }) => {
   const [activeProfileTab, setActiveProfileTab] = useState<'myPosts' | 'saved'>('myPosts');
   const [visiblePostsCount, setVisiblePostsCount] = useState<number>(ITEMS_PER_PAGE);
@@ -45,6 +48,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [websiteInput, setWebsiteInput] = useState<string>(user?.website || user?.websiteUrl || '');
   const [isSavingWebsite, setIsSavingWebsite] = useState(false);
   const [websiteSuccessMsg, setWebsiteSuccessMsg] = useState('');
+  const [postToDelete, setPostToDelete] = useState<PostItem | null>(null);
 
   // Full Edit Business Profile Modal States
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -721,6 +725,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                             <p className="text-[10px] text-slate-500">{post.category}</p>
                           </div>
                         </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          {onDeletePost && (
+                            <button
+                              type="button"
+                              onClick={() => setPostToDelete(post)}
+                              className="inline-flex items-center gap-1 text-[10px] text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1 rounded-lg font-bold transition cursor-pointer active:scale-95 shadow-2xs"
+                              title="Delete this post from Dropthan"
+                            >
+                              <Trash2 className="w-3 h-3 text-rose-600" />
+                              <span>Delete</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex space-x-3 items-center">
@@ -1193,6 +1211,17 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           </div>
         </div>
       )}
+      {/* DELETE CONFIRMATION MODAL */}
+      <DeleteConfirmationModal
+        isOpen={Boolean(postToDelete)}
+        post={postToDelete}
+        onClose={() => setPostToDelete(null)}
+        onConfirm={async (postId) => {
+          if (onDeletePost) {
+            await onDeletePost(postId);
+          }
+        }}
+      />
     </div>
   );
 };
