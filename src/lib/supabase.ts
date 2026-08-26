@@ -167,6 +167,8 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
       user_id: item.user_id || item.userId || undefined,
       userId: item.userId || item.user_id || undefined,
       vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
+      title: item.title || item.product_name || item.productName || item.caption || 'Product Offer',
+      description: item.description || item.caption || item.title || '',
       author:
         item.author ||
         item.company_name ||
@@ -179,29 +181,22 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
         item.user_name ||
         'Dropthan Member',
       role: item.role || item.user_role || item.category_role || 'wholesaler',
-      price: item.price || item.rate || item.unit_price || 'Rate on Request',
-      moq: item.moq || item.minimum_order_quantity || item.min_order || 'Custom MOQ',
-      caption: item.caption || item.description || item.content || item.details || item.text || '',
+      price: item.price || item.rate || item.unit_price || 'Wholesale Rate',
+      moq: item.moq || item.minimum_order_quantity || item.min_order || 'Direct MOQ',
+      caption: item.description || item.caption || item.title || '',
       img: primaryImg,
       images: imageList.length > 0 ? imageList : [primaryImg],
       phone: item.phone || item.mobile || item.contact_number || item.contact || '',
       gstin: item.gstin || item.gst || item.gst_number || '',
-      location: item.location || item.city || item.state || item.address || '',
+      location: item.location || item.city || item.state || item.address || 'India',
       storeAddress: item.store_address || item.storeAddress || item.location || item.city || '',
       lat: item.lat ? Number(item.lat) : undefined,
       lng: item.lng ? Number(item.lng) : undefined,
       country: item.country || 'India',
       category: item.category || item.product_category || 'Textiles & Apparel',
-      likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 15,
+      likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 0,
       authorAvatar: item.author_avatar || item.authorAvatar || item.avatar_url || item.avatarUrl || item.avatar || '',
-      productName: item.product_name || item.productName || item.item_name || item.material_name || undefined,
-      materialDetails: item.material_details || item.materialDetails || item.materials || undefined,
-      promotionDetails: item.promotion_details || item.promotionDetails || item.niche || undefined,
-      exportProducts: item.export_products || item.exportProducts || item.commodities || undefined,
-      packagingMaterials: item.packaging_materials || item.packagingMaterials || item.packaging_types || undefined,
-      serviceDetails: item.service_details || item.serviceDetails || item.services || undefined,
-      website: item.website || item.website_url || item.websiteUrl || undefined,
-      instagram: item.instagram || item.instagram_handle || item.instagramHandle || undefined,
+      productName: item.title || item.product_name || item.productName || undefined,
       createdAt: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
       created_at: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
     };
@@ -230,7 +225,7 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
   const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
 
   if (!primaryImg && (!imagesList || imagesList.length === 0)) {
-    throw new Error('Image URL is missing. Please attach a photo before posting.');
+    throw new Error('Image is required. Please attach a photo before posting.');
   }
 
   // Ensure valid UUID for id
@@ -244,23 +239,15 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
     validUserId = post.userId;
   }
 
-  // Exact 15 Supabase public.posts columns:
-  // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
+  // Exact clean public.posts columns:
+  // id, user_id, title, description, img, images, created_at
   const postPayload: Record<string, any> = {
     id: validPostId,
     user_id: validUserId,
-    author: post.author || 'Dropthan Member',
-    role: post.role || 'wholesaler',
-    price: post.price || 'Rate on Request',
-    moq: post.moq || 'MOQ on Request',
-    caption: post.caption || '',
+    title: post.title || post.caption || 'Product Offer',
+    description: post.description || post.caption || '',
     img: primaryImg,
     images: imagesList.length > 0 ? imagesList : [primaryImg],
-    category: post.category || 'Textiles & Apparel',
-    location: post.location || 'India',
-    phone: post.phone || null,
-    gstin: post.gstin || null,
-    likes_count: post.likesCount ?? 0,
     created_at: post.createdAt || post.created_at || new Date().toISOString(),
   };
 
@@ -341,7 +328,7 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
     console.warn('Server post proxy notice:', serverErr);
   }
 
-  // If both direct insert and fallback failed, THROW the error so UI modal catches it
+  // If direct insert failed and no saved item, THROW the error so UI modal catches it
   if (!savedItem && finalInsertError) {
     const errorMessage = finalInsertError.message || finalInsertError.details || 'Failed to insert post into database.';
     console.error('❌ [Supabase Post Save Critical Error]:', errorMessage);
@@ -356,6 +343,9 @@ export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
     ...post,
     id: savedItem?.id || validPostId,
     user_id: savedItem?.user_id || validUserId || undefined,
+    title: postPayload.title,
+    description: postPayload.description,
+    caption: postPayload.description,
     img: primaryImg,
     images: imagesList.length > 0 ? imagesList : [primaryImg],
     created_at: postPayload.created_at,

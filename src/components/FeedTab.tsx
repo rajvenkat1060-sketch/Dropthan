@@ -1058,11 +1058,16 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                     </button>
                   </div>
 
-                  {/* CAPTION & CATEGORY SPECIFIC PRODUCT BADGES */}
+                  {/* CAPTION & PRODUCT TITLE */}
                   <div className="space-y-1 pt-0.5">
+                    {post.title && (
+                      <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                        {post.title}
+                      </h3>
+                    )}
                     {(post.productName || post.materialDetails || post.promotionDetails || post.exportProducts || post.packagingMaterials || post.serviceDetails) && (
                       <div className="flex flex-wrap gap-1.5 pb-0.5">
-                        {(post.productName || post.materialDetails) && (
+                        {(post.productName || post.materialDetails) && post.productName !== post.title && (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
                             <span>🏷️ Product/Material:</span>
                             <span className="text-blue-700">{post.productName || post.materialDetails}</span>
@@ -1094,7 +1099,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                         )}
                       </div>
                     )}
-                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{post.caption}</p>
+                    <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">{post.description || post.caption}</p>
                   </div>
 
                   {/* WEBSITE & SOCIAL LINK BADGES IF AVAILABLE */}

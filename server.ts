@@ -252,27 +252,19 @@ app.post("/api/posts/create", async (req, res) => {
     const validPostId = rawPost.id && isUuidStr(rawPost.id) ? rawPost.id : crypto.randomUUID();
     const validUserId = (rawPost.user_id && isUuidStr(rawPost.user_id)) ? rawPost.user_id : (rawPost.userId && isUuidStr(rawPost.userId)) ? rawPost.userId : null;
 
-    // Strict 15 public.posts columns:
-    // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
+    // Clean public.posts columns:
+    // id, user_id, title, description, img, images, created_at
     const postPayload: Record<string, any> = {
       id: validPostId,
       user_id: validUserId,
-      author: rawPost.author || "Dropthan Member",
-      role: rawPost.role || "wholesaler",
-      price: rawPost.price || "Rate on Request",
-      moq: rawPost.moq || "MOQ on Request",
-      caption: rawPost.caption || "",
+      title: rawPost.title || rawPost.caption || "Product Offer",
+      description: rawPost.description || rawPost.caption || "",
       img: primaryImg,
-      images: imagesList,
-      category: rawPost.category || "Textiles & Apparel",
-      location: rawPost.location || "India",
-      phone: rawPost.phone || null,
-      gstin: rawPost.gstin || null,
-      likes_count: rawPost.likes_count ?? rawPost.likesCount ?? 0,
+      images: imagesList.length > 0 ? imagesList : [primaryImg],
       created_at: rawPost.created_at || rawPost.createdAt || new Date().toISOString(),
     };
 
-    console.log(`[Server Post Sync] Saving post to Supabase public.posts table by: ${postPayload.author}`);
+    console.log(`[Server Post Sync] Saving post to Supabase public.posts table: ${postPayload.title}`);
 
     let savedData: any = null;
     let savedError: any = null;

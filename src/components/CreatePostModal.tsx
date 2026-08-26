@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { PostItem, UserProfile } from '../types';
-import { uploadMultipleToCloudinary, uploadToCloudinary } from '../lib/cloudinary';
-import { uploadOfferPhotosToSupabase, generateValidUUID, isUuid } from '../lib/supabase';
-import { GoogleLocationInput } from './GoogleLocationInput';
+import { uploadMultipleToCloudinary } from '../lib/cloudinary';
+import { generateValidUUID, isUuid } from '../lib/supabase';
 
 interface CreatePostModalProps {
   currentUser: UserProfile | null;
   onClose: () => void;
-  onAddPost: (newPost: PostItem) => void;
+  onAddPost: (newPost: PostItem) => Promise<void> | void;
 }
 
 export const CreatePostModal: React.FC<CreatePostModalProps> = ({
@@ -15,54 +14,14 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   onClose,
   onAddPost,
 }) => {
-  const [caption, setCaption] = useState('');
-  const [price, setPrice] = useState('');
-  const [moq, setMoq] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [imgUrl, setImgUrl] = useState('');
-  const [category, setCategory] = useState('Textiles & Apparel');
-  const [postLocation, setPostLocation] = useState(currentUser?.location || 'Surat, Gujarat');
-  const [postStoreAddress, setPostStoreAddress] = useState(currentUser?.storeAddress || '');
-  const [postLat, setPostLat] = useState<number | undefined>(currentUser?.lat);
-  const [postLng, setPostLng] = useState<number | undefined>(currentUser?.lng);
-  const [imageMode, setImageMode] = useState<'url' | 'file' | 'presets'>('file');
+  const [imageMode, setImageMode] = useState<'file' | 'url' | 'presets'>('file');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Category-specific input fields
-  const [productName, setProductName] = useState('');
-  const [promotionDetails, setPromotionDetails] = useState('');
-  const [exportProducts, setExportProducts] = useState('');
-  const [packagingMaterials, setPackagingMaterials] = useState('');
-  const [serviceDetails, setServiceDetails] = useState('');
-
-  // Determine role based flags
-  const role = currentUser?.role || 'wholesaler';
-  const isPostingRestricted = role === 'reseller';
-
-  // Category & Role matching
-  const isWholesalerType =
-    role === 'wholesaler' ||
-    role === 'organic_wholesaler' ||
-    category.includes('Textiles') ||
-    category.includes('Organic') ||
-    category.includes('Electronics');
-
-  const isExporterType = role === 'exporter' || category.includes('Export');
-  const isInfluencerType = role === 'influencer' || category.includes('Influencer');
-  const isPrintingType = role === 'printing' || category.includes('Packaging') || category.includes('Printing');
-  const isMarketingType = role === 'marketing' || category.includes('Marketing');
-
-  // Set default category based on user role
-  useEffect(() => {
-    if (role === 'organic_wholesaler') setCategory('Organic & Natural Products');
-    else if (role === 'exporter') setCategory('Global Export Goods');
-    else if (role === 'influencer') setCategory('Influencer Marketing');
-    else if (role === 'printing') setCategory('Packaging & Printing');
-    else if (role === 'marketing') setCategory('Digital Marketing');
-    else setCategory('Textiles & Apparel');
-  }, [role]);
 
   const presetImages = [
     'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
@@ -103,13 +62,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isPostingRestricted) return;
-    if (!caption.trim()) {
-      setErrorMessage('Please enter a product description or offer details.');
+
+    if (!title.trim()) {
+      setErrorMessage('Please enter a Product/Offer Name.');
       return;
     }
-    if (isWholesalerType && (!price || !moq)) {
-      setErrorMessage('Please specify wholesale Price and MOQ.');
+    if (!description.trim()) {
+      setErrorMessage('Please enter a Description (Service / MOQ details).');
+      return;
+    }
+    if (selectedFiles.length === 0 && !imgUrl.trim() && selectedPreviews.length === 0) {
+      setErrorMessage('Please upload or select at least one product photo.');
       return;
     }
 
@@ -119,22 +82,12 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
     try {
       if (selectedFiles.length > 0) {
-        console.log(`☁️ [Post Creation] Uploading ${selectedFiles.length} photo(s) directly to Cloudinary...`);
-        try {
-          uploadedImageUrls = await uploadMultipleToCloudinary(selectedFiles);
-          console.log('✅ [Post Creation] Cloudinary URLs generated:', uploadedImageUrls);
-        } catch (cldErr: any) {
-          console.warn('Direct Cloudinary upload notice, using fallback bucket:', cldErr);
-          const sectionContext = currentUser?.role || category;
-          uploadedImageUrls = await uploadOfferPhotosToSupabase(
-            selectedFiles,
-            currentUser?.displayName || 'user',
-            sectionContext
-          );
-        }
+        console.log(`☁️ [Cloudinary Upload] Uploading ${selectedFiles.length} photo(s) to Cloudinary...`);
+        uploadedImageUrls = await uploadMultipleToCloudinary(selectedFiles);
+        console.log('✅ [Cloudinary Response] Secure URLs:', uploadedImageUrls);
       }
     } catch (err: any) {
-      console.warn('File upload fallback:', err);
+      console.warn('Direct Cloudinary upload notice:', err);
       uploadedImageUrls = selectedPreviews.filter((p) => typeof p === 'string' && p.startsWith('http'));
     }
 
@@ -149,80 +102,49 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     }
 
     const primaryImg = uploadedImageUrls[0];
-
-    const finalPrice = isWholesalerType
-      ? price.startsWith('₹')
-        ? price
-        : `₹${price}`
-      : 'Rate on Request';
-
-    const finalMoq = isWholesalerType
-      ? moq.toLowerCase().includes('moq')
-        ? moq
-        : `MOQ ${moq}`
-      : 'Custom Order';
-
-    // Format rich caption embedding category-specific tags for complete search compatibility
-    let enrichedCaption = caption.trim();
-    if (productName.trim() && isWholesalerType) {
-      enrichedCaption = `${enrichedCaption}\n\n[Product/Material: ${productName.trim()}]`;
-    } else if (promotionDetails.trim() && isInfluencerType) {
-      enrichedCaption = `${enrichedCaption}\n\n[Promotion Niches: ${promotionDetails.trim()}]`;
-    } else if (exportProducts.trim() && isExporterType) {
-      enrichedCaption = `${enrichedCaption}\n\n[Export Commodities: ${exportProducts.trim()}]`;
-    } else if (packagingMaterials.trim() && isPrintingType) {
-      enrichedCaption = `${enrichedCaption}\n\n[Packaging Materials: ${packagingMaterials.trim()}]`;
-    } else if (serviceDetails.trim() && isMarketingType) {
-      enrichedCaption = `${enrichedCaption}\n\n[Marketing Services: ${serviceDetails.trim()}]`;
-    }
-
-    // Generate valid RFC4122 UUID for post ID to satisfy Supabase PostgreSQL uuid column type
     const validPostId = generateValidUUID();
     const validUserId = currentUser?.id && isUuid(currentUser.id) ? currentUser.id : undefined;
 
+    // Clean post object with ONLY required fields and UI-friendly fallbacks
     const newPost: PostItem = {
       id: validPostId,
       user_id: validUserId,
       userId: validUserId,
-      vendor_id: validUserId,
-      author: currentUser?.displayName || currentUser?.companyName || 'Dropthan B2B Member',
-      authorAvatar: currentUser?.avatarUrl,
+      title: title.trim(),
+      description: description.trim(),
+      caption: description.trim(),
+      author: currentUser?.displayName || currentUser?.companyName || 'Dropthan Member',
       role: currentUser?.role || 'wholesaler',
-      price: finalPrice,
-      moq: finalMoq,
-      caption: enrichedCaption,
-      productName: productName.trim() || undefined,
-      materialDetails: productName.trim() || undefined,
-      promotionDetails: promotionDetails.trim() || undefined,
-      exportProducts: exportProducts.trim() || undefined,
-      packagingMaterials: packagingMaterials.trim() || undefined,
-      serviceDetails: serviceDetails.trim() || undefined,
+      price: 'Wholesale Rate',
+      moq: 'Direct MOQ',
       img: primaryImg,
       images: uploadedImageUrls,
-      phone: currentUser?.phone ? (currentUser.phone.startsWith('+') ? currentUser.phone : `+${currentUser.phone}`) : '+919876543210',
-      gstin: currentUser?.gstin,
-      iecCode: currentUser?.iecCode,
-      country: currentUser?.country || 'India',
-      location: postLocation.trim() || currentUser?.location || 'India',
-      storeAddress: postStoreAddress.trim() || currentUser?.storeAddress || postLocation.trim() || 'India',
-      lat: postLat,
-      lng: postLng,
-      category,
-      website: currentUser?.website || currentUser?.websiteUrl,
-      instagram: currentUser?.instagram || currentUser?.instagramHandle,
+      category: 'Textiles & Apparel',
+      location: currentUser?.location || 'India',
+      phone: currentUser?.phone || '',
+      likesCount: 0,
       createdAt: new Date().toISOString(),
       created_at: new Date().toISOString(),
     };
 
     try {
-      console.log('Submitting post payload:', newPost);
+      console.log('Submitting post payload:', {
+        id: newPost.id,
+        user_id: newPost.user_id,
+        title: newPost.title,
+        description: newPost.description,
+        img: newPost.img,
+        images: newPost.images,
+        created_at: newPost.created_at,
+      });
+
       await onAddPost(newPost);
       setIsUploading(false);
       onClose();
     } catch (postErr: any) {
       console.error('Supabase Insert Error:', postErr);
       setIsUploading(false);
-      setErrorMessage(postErr?.message || 'Failed to publish post. Please check console.');
+      setErrorMessage(postErr?.message || 'Failed to publish post. Please check the browser console.');
     }
   };
 
@@ -241,432 +163,209 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           </button>
         </div>
 
-        {isPostingRestricted ? (
-          <div className="space-y-4 text-xs py-2">
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 text-slate-800">
-              <div className="flex items-center space-x-2 text-amber-700 font-bold">
-                <span className="text-lg">🚫</span>
-                <span>Role-Based Posting Restricted</span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-slate-600">
-                Your account is currently registered as a{' '}
-                <strong className="text-amber-900 capitalize">{currentUser?.role}</strong>.
-                Photo uploads and listing offers are reserved for verified{' '}
-                <strong>Wholesalers</strong>, <strong>Print &amp; Packaging Companies</strong>,{' '}
-                <strong>Digital Marketing Agencies</strong>, and <strong>Influencers</strong>.
-              </p>
-              <p className="text-[10px] text-slate-500 pt-1 border-t border-amber-200/60">
-                💡 Dropshippers, Resellers, and Content Creators can browse, save, and directly inquire on wholesale inventory.
-              </p>
-            </div>
-
-            <button
-              onClick={onClose}
-              className="w-full bg-[#0d47a1] hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl cursor-pointer transition shadow"
-            >
-              Understand &amp; Return to Feed
-            </button>
+        <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+          {/* FIELD 1: PRODUCT / OFFER NAME -> mapped to title */}
+          <div>
+            <label className="block text-slate-800 font-bold mb-1 flex items-center justify-between">
+              <span>🏷️ Product / Offer Name *</span>
+              <span className="text-[10px] text-[#0d47a1] font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                Mapped to title
+              </span>
+            </label>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. 100% Bio-Wash Cotton T-Shirts, Surat Silk Sarees, Corrugated Packaging Boxes"
+              className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
+            />
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-            {/* CATEGORY SELECTOR */}
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">Business Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1] font-medium"
-              >
-                <option value="Textiles & Apparel">Textiles &amp; Apparel (Wholesale)</option>
-                <option value="Organic & Natural Products">Organic &amp; Agro Wholesaler (Coconut, Spices, Coir)</option>
-                <option value="Global Export Goods">Global Export Goods / Exporter</option>
-                <option value="Packaging & Printing">Packaging &amp; Printing (Boxes, Labels, Cartons)</option>
-                <option value="Influencer Marketing">Influencer Marketing / Creator</option>
-                <option value="Digital Marketing">Digital Marketing &amp; Agency</option>
-                <option value="Electronics & Gadgets">Electronics &amp; Gadgets</option>
-              </select>
-            </div>
 
-            {/* ADAPTIVE CATEGORY-SPECIFIC REQUIRED INPUT FIELDS */}
-            {/* 1. WHOLESALERS & ORGANIC WHOLESALERS */}
-            {(role === 'wholesaler' || role === 'organic_wholesaler' || category.includes('Textiles') || category.includes('Organic') || category.includes('Electronics')) && (
-              <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-slate-900 font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>🏷️</span> Product Name / Material *
-                  </span>
-                  <span className="text-[10px] text-[#0d47a1] font-extrabold bg-blue-100 px-1.5 py-0.2 rounded">
-                    Direct Searchable
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="e.g. Sarees, 100% Bio-Wash Cotton, Coir (தேங்காய் நார்), Copra, Turmeric, Denim"
-                  className="w-full bg-white border border-blue-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
-                />
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Searching this exact product name or material (e.g. Sarees, Cotton, Coir) will instantly filter and display your profile and listings in the search bar.
-                </p>
-              </div>
-            )}
+          {/* FIELD 2: DESCRIPTION (SERVICE / MOQ DETAILS) -> mapped to description */}
+          <div>
+            <label className="block text-slate-800 font-bold mb-1 flex items-center justify-between">
+              <span>📝 Description (Service / MOQ Details) *</span>
+              <span className="text-[10px] text-[#0d47a1] font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                Mapped to description
+              </span>
+            </label>
+            <textarea
+              required
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Enter pricing, minimum order quantity (MOQ), fabric GSM, customization options, dispatch lead times, and terms..."
+              className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
+            />
+          </div>
 
-            {/* 2. INFLUENCERS */}
-            {(role === 'influencer' || category.includes('Influencer')) && (
-              <div className="bg-purple-50/80 border border-purple-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-slate-900 font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>⭐</span> Influencing / Promotion Details *
-                  </span>
-                  <span className="text-[10px] text-purple-700 font-extrabold bg-purple-100 px-1.5 py-0.2 rounded">
-                    Direct Searchable
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={promotionDetails}
-                  onChange={(e) => setPromotionDetails(e.target.value)}
-                  placeholder="e.g. Cosmetics, Apparel, Lifestyle promotions, Beauty UGC, Tech Gadgets"
-                  className="w-full bg-white border border-purple-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-purple-700 font-medium"
-                />
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Brands searching for promotion niches (e.g. Cosmetics, Fashion, Tech) will find your creator profile immediately.
-                </p>
-              </div>
-            )}
-
-            {/* 3. EXPORTERS */}
-            {(role === 'exporter' || category.includes('Export')) && (
-              <div className="bg-sky-50/80 border border-sky-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-slate-900 font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>🌐</span> Export Products &amp; Commodities *
-                  </span>
-                  <span className="text-[10px] text-sky-800 font-extrabold bg-sky-100 px-1.5 py-0.2 rounded">
-                    Direct Searchable
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={exportProducts}
-                  onChange={(e) => setExportProducts(e.target.value)}
-                  placeholder="e.g. Basmati Rice, Spices, Coir Pith, Organic Tea, Garments, Sea Freight Cargo"
-                  className="w-full bg-white border border-sky-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
-                />
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Global buyers searching for export items and commodities will match your export listings directly.
-                </p>
-              </div>
-            )}
-
-            {/* 4. PACKAGING & PRINT */}
-            {(role === 'printing' || category.includes('Packaging') || category.includes('Printing')) && (
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-slate-900 font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>🖨️</span> Packaging Materials / Services *
-                  </span>
-                  <span className="text-[10px] text-amber-800 font-extrabold bg-amber-100 px-1.5 py-0.2 rounded">
-                    Direct Searchable
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={packagingMaterials}
-                  onChange={(e) => setPackagingMaterials(e.target.value)}
-                  placeholder="e.g. 3-Ply Corrugated Boxes, Mono Cartons, Poly Mailers, Stand-up Pouches, Custom Print"
-                  className="w-full bg-white border border-amber-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-700 font-medium"
-                />
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Wholesale &amp; D2C brands searching for packaging formats and printing services will match your profile.
-                </p>
-              </div>
-            )}
-
-            {/* 5. MARKETING & AGENCIES */}
-            {(role === 'marketing' || category.includes('Marketing')) && (
-              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 space-y-1.5">
-                <label className="block text-slate-900 font-bold flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>📢</span> Marketing Services &amp; Niches *
-                  </span>
-                  <span className="text-[10px] text-emerald-800 font-extrabold bg-emerald-100 px-1.5 py-0.2 rounded">
-                    Direct Searchable
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={serviceDetails}
-                  onChange={(e) => setServiceDetails(e.target.value)}
-                  placeholder="e.g. Meta Ads, Google Ads, ROAS Scaling, Shopify Funnel Setup, Performance Growth"
-                  className="w-full bg-white border border-emerald-300 rounded-lg p-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-700 font-medium"
-                />
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  💡 Businesses searching for marketing services will match your agency profile directly.
-                </p>
-              </div>
-            )}
-
-            {/* GENERAL DESCRIPTION / CAPTION */}
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1">
-                Offer Description / Specifications *
+          {/* CLOUDINARY IMAGE UPLOAD & PREVIEW */}
+          <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-slate-800 font-bold text-xs">
+                📸 Product Photo *
               </label>
-              <textarea
-                required
-                rows={3}
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="Describe stock availability, sizes, GSM, fabric quality, GST terms, delivery lead times..."
-                className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1]"
-              />
+              <div className="flex items-center gap-1 bg-white border border-slate-200 p-0.5 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setImageMode('file')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                    imageMode === 'file'
+                      ? 'bg-[#0d47a1] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  📁 Upload File
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageMode('url')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                    imageMode === 'url'
+                      ? 'bg-[#0d47a1] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  🔗 Image URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageMode('presets')}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                    imageMode === 'presets'
+                      ? 'bg-[#0d47a1] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ✨ Samples
+                </button>
+              </div>
             </div>
 
-            {/* WHOLESALE PRICE & MOQ */}
-            {isWholesalerType && (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">
-                    Wholesale Price *
-                  </label>
-                  <input
-                    type="text"
-                    required={isWholesalerType}
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    placeholder="e.g. ₹180/pc or ₹4,999/mo"
-                    className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">
-                    Minimum Order (MOQ) *
-                  </label>
-                  <input
-                    type="text"
-                    required={isWholesalerType}
-                    value={moq}
-                    onChange={(e) => setMoq(e.target.value)}
-                    placeholder="e.g. 50 pcs or 1 Campaign"
-                    className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1]"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* LOCATION WITH GOOGLE MAPS AUTOCOMPLETE */}
-            <div>
-              <label className="block text-slate-700 font-semibold mb-1 flex items-center justify-between">
-                <span>Dispatch / Item Location *</span>
-                <span className="text-[10px] text-blue-700 font-normal bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                  🗺️ Places Autocomplete
-                </span>
-              </label>
-              <GoogleLocationInput
-                value={postLocation}
-                onChange={(val, details) => {
-                  setPostLocation(val);
-                  if (details) {
-                    if (details.lat !== undefined && details.lng !== undefined) {
-                      setPostLat(details.lat);
-                      setPostLng(details.lng);
-                    }
-                    if (details.formattedAddress) {
-                      setPostStoreAddress(details.formattedAddress);
-                    }
-                  }
-                }}
-                placeholder="Search dispatch city or address..."
-              />
-            </div>
-
-            {/* DIRECT URL & MEDIA IMAGE SELECTOR */}
-            <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-slate-800 font-bold text-xs">
-                  📸 Product / Offer Image
-                </label>
-                <div className="flex items-center gap-1 bg-white border border-slate-200 p-0.5 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setImageMode('url')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
-                      imageMode === 'url'
-                        ? 'bg-[#0d47a1] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🔗 Image URL
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImageMode('file')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
-                      imageMode === 'file'
-                        ? 'bg-[#0d47a1] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    📁 Upload File
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImageMode('presets')}
-                    className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
-                      imageMode === 'presets'
-                        ? 'bg-[#0d47a1] text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    ✨ Samples
-                  </button>
-                </div>
-              </div>
-
-              {imageMode === 'url' && (
-                <div className="space-y-2">
-                  <div>
+            {imageMode === 'file' && (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <label className="flex-1 bg-white hover:bg-blue-50 text-[#0d47a1] border border-dashed border-blue-300 p-3 rounded-xl cursor-pointer text-center font-bold text-xs transition flex flex-col items-center justify-center gap-1 shadow-xs">
+                    <span>📸 Click to Select Photos from Device</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Directly uploads to Cloudinary</span>
                     <input
-                      type="url"
-                      value={imgUrl}
-                      onChange={(e) => setImgUrl(e.target.value)}
-                      placeholder="Paste direct image URL (e.g. https://images.unsplash.com/... or CDN link)"
-                      className="w-full bg-white border border-blue-300 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFilesChange}
+                      className="hidden"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      💡 Standard URL string will be stored directly in Supabase <code className="text-[#0d47a1] font-mono">image_url</code>.
-                    </p>
-                  </div>
-                  {imgUrl.trim() && (
-                    <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-36 bg-slate-100 flex items-center justify-center">
-                      <img
-                        src={imgUrl.trim()}
-                        alt="Direct URL Preview"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                      <span className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] font-bold px-2 py-0.5 rounded">
-                        ✓ Direct URL Active
-                      </span>
-                    </div>
-                  )}
+                  </label>
                 </div>
-              )}
 
-              {imageMode === 'file' && (
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <label className="flex-1 bg-white hover:bg-blue-50 text-[#0d47a1] border border-dashed border-blue-300 p-3 rounded-xl cursor-pointer text-center font-bold text-xs transition flex flex-col items-center justify-center gap-1 shadow-xs">
-                      <span>📸 Click to Select Photos from Device</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Supports JPEG, PNG, WEBP (Direct URL generated)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleFilesChange}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-
-                  {/* THUMBNAIL PREVIEWS GRID */}
-                  {selectedPreviews.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 pt-1">
-                      {selectedPreviews.map((preview, idx) => (
-                        <div key={idx} className="relative group rounded-xl overflow-hidden border border-blue-200 aspect-square">
-                          <img
-                            src={preview}
-                            alt={`Selected preview ${idx + 1}`}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePhoto(idx)}
-                            className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow cursor-pointer"
-                            title="Remove photo"
-                          >
-                            ✕
-                          </button>
-                          <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                            #{idx + 1}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {imageMode === 'presets' && (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-slate-600">Select a high-resolution direct stock image for testing:</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {presetImages.map((url, idx) => (
-                      <button
-                        type="button"
-                        key={idx}
-                        onClick={() => {
-                          setImgUrl(url);
-                          setImageMode('url');
-                        }}
-                        className={`relative rounded-xl overflow-hidden border aspect-square cursor-pointer transition ${
-                          imgUrl === url ? 'ring-2 ring-[#0d47a1] border-[#0d47a1]' : 'border-slate-200 hover:opacity-90'
-                        }`}
-                      >
-                        <img src={url} alt={`Preset ${idx + 1}`} className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-bold text-center py-0.5">
-                          Pick #{idx + 1}
+                {selectedPreviews.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {selectedPreviews.map((preview, idx) => (
+                      <div key={idx} className="relative group rounded-xl overflow-hidden border border-blue-200 aspect-square">
+                        <img
+                          src={preview}
+                          alt={`Selected preview ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePhoto(idx)}
+                          className="absolute top-1 right-1 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold shadow cursor-pointer"
+                          title="Remove photo"
+                        >
+                          ✕
+                        </button>
+                        <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                          #{idx + 1}
                         </span>
-                      </button>
+                      </div>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-
-            {errorMessage && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 animate-in fade-in">
-                <span>⚠️</span>
-                <span>{errorMessage}</span>
+                )}
               </div>
             )}
 
-            <div className="pt-2 flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isUploading}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl cursor-pointer transition border border-slate-200"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isUploading}
-                className="flex-1 bg-[#0d47a1] hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-2.5 rounded-xl cursor-pointer transition shadow flex items-center justify-center space-x-2"
-              >
-                {isUploading ? (
-                  <>
-                    <span className="animate-spin text-xs">⌛</span>
-                    <span>Publishing offer...</span>
-                  </>
-                ) : (
-                  <span>Publish Offer</span>
+            {imageMode === 'url' && (
+              <div className="space-y-2">
+                <input
+                  type="url"
+                  value={imgUrl}
+                  onChange={(e) => setImgUrl(e.target.value)}
+                  placeholder="Paste image URL (e.g. https://images.unsplash.com/... or Cloudinary link)"
+                  className="w-full bg-white border border-blue-300 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
+                />
+                {imgUrl.trim() && (
+                  <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-36 bg-slate-100 flex items-center justify-center">
+                    <img
+                      src={imgUrl.trim()}
+                      alt="Direct URL Preview"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
                 )}
-              </button>
+              </div>
+            )}
+
+            {imageMode === 'presets' && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-600">Select a high-resolution sample product image:</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {presetImages.map((url, idx) => (
+                    <button
+                      type="button"
+                      key={idx}
+                      onClick={() => {
+                        setImgUrl(url);
+                        setImageMode('url');
+                      }}
+                      className={`relative rounded-xl overflow-hidden border aspect-square cursor-pointer transition ${
+                        imgUrl === url ? 'ring-2 ring-[#0d47a1] border-[#0d47a1]' : 'border-slate-200 hover:opacity-90'
+                      }`}
+                    >
+                      <img src={url} alt={`Preset ${idx + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {errorMessage && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 animate-in fade-in">
+              <span>⚠️</span>
+              <span>{errorMessage}</span>
             </div>
-          </form>
-        )}
+          )}
+
+          <div className="pt-2 flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isUploading}
+              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl cursor-pointer transition border border-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isUploading}
+              className="flex-1 bg-[#0d47a1] hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-2.5 rounded-xl cursor-pointer transition shadow flex items-center justify-center space-x-2"
+            >
+              {isUploading ? (
+                <>
+                  <span className="animate-spin text-xs">⌛</span>
+                  <span>Publishing offer...</span>
+                </>
+              ) : (
+                <span>Publish Offer</span>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
