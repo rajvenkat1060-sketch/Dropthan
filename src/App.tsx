@@ -4,8 +4,6 @@ import { INITIAL_POSTS } from './data/initialData';
 import { OnboardingModal } from './components/OnboardingModal';
 import { Header } from './components/Header';
 import { FeedTab } from './components/FeedTab';
-import { ChatTab } from './components/ChatTab';
-import { AIAgentTab } from './components/AIAgentTab';
 import { ProfileTab } from './components/ProfileTab';
 import { CreatePostModal } from './components/CreatePostModal';
 import { BottomNav } from './components/BottomNav';
@@ -33,7 +31,6 @@ export default function App() {
   const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
   const [savedPostIds, setSavedPostIds] = useState<string[]>([]);
   const [likeCountsMap, setLikeCountsMap] = useState<Record<string, number>>({});
-  const [activeVendor, setActiveVendor] = useState<PostItem | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -288,11 +285,6 @@ export default function App() {
     }
   };
 
-  const handleOpenVendorChat = useCallback((vendorPost: PostItem) => {
-    setActiveVendor(vendorPost);
-    setActiveTab('chat');
-  }, []);
-
   const handleAddPost = async (newPost: PostItem) => {
     setPosts((prev) => [newPost, ...prev]);
 
@@ -427,53 +419,17 @@ export default function App() {
       />
 
       {/* MAIN CONTENT AREA */}
-      <main
-        className={`flex-1 p-3.5 space-y-4 w-full mx-auto transition-all ${
-          activeTab === 'chat' || activeTab === 'messages'
-            ? 'max-w-6xl xl:max-w-7xl md:p-5'
-            : 'max-w-lg md:max-w-2xl'
-        }`}
-      >
+      <main className="flex-1 p-3.5 space-y-4 w-full mx-auto transition-all max-w-lg md:max-w-2xl">
         {activeTab === 'feed' && (
           <FeedTab
             posts={postsWithInteraction}
             currentUser={currentUser}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            onOpenVendorChat={handleOpenVendorChat}
             onToggleLike={handleToggleLike}
             onToggleSave={handleToggleSave}
           />
         )}
-
-        {(activeTab === 'chat' || activeTab === 'messages') && (
-          <ChatTab activeVendor={activeVendor} currentUser={currentUser} />
-        )}
-
-        {activeTab === 'explore' && (
-          <div className="space-y-4">
-            <div className="bg-[#0d47a1] text-white p-4 rounded-2xl shadow-md space-y-2">
-              <h2 className="text-sm font-extrabold flex items-center gap-1.5">
-                <span>🔍</span> B2B Network Search & Categories
-              </h2>
-              <p className="text-xs text-blue-100">
-                Search verified wholesalers, manufacturers, influencers, dropshippers, and service agencies across India.
-              </p>
-            </div>
-
-            <FeedTab
-              posts={postsWithInteraction}
-              currentUser={currentUser}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onOpenVendorChat={handleOpenVendorChat}
-              onToggleLike={handleToggleLike}
-              onToggleSave={handleToggleSave}
-            />
-          </div>
-        )}
-
-        {activeTab === 'ai' && <AIAgentTab currentUser={currentUser} />}
 
         {activeTab === 'profile' && (
           <ProfileTab
@@ -482,7 +438,6 @@ export default function App() {
             savedPosts={savedPosts}
             onLogout={handleLogout}
             onOpenCreatePost={() => setIsCreateModalOpen(true)}
-            onOpenVendorChat={handleOpenVendorChat}
             onToggleSave={handleToggleSave}
             onToggleLike={handleToggleLike}
             onUpdateAvatar={handleUpdateAvatar}

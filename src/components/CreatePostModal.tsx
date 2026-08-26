@@ -96,6 +96,12 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     const cleanTitle = title.trim();
     const cleanDesc = description.trim();
 
+    const authorDisplayName =
+      currentUser?.displayName ||
+      currentUser?.fullName ||
+      currentUser?.companyName ||
+      (currentUser?.phone ? `Member (${currentUser.phone.slice(-4)})` : 'Verified Member');
+
     const newPost: PostItem = {
       id: validPostId,
       user_id: validUserId,
@@ -104,15 +110,20 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       product_name: cleanTitle,
       description: cleanDesc,
       caption: cleanDesc,
-      author: currentUser?.displayName || currentUser?.companyName || 'Dropthan Member',
+      author: authorDisplayName,
+      authorAvatar: currentUser?.avatarUrl || '',
       role: currentUser?.role || 'wholesaler',
       price: 'Wholesale Rate',
       moq: 'Direct MOQ',
       img: finalImageUrl,
+      images: [finalImageUrl],
       is_active: true,
       category: 'Textiles & Apparel',
-      location: currentUser?.location || 'India',
+      location: currentUser?.storeAddress || currentUser?.location || 'India',
+      storeAddress: currentUser?.storeAddress || currentUser?.location || 'India',
       phone: currentUser?.phone || '',
+      gstin: currentUser?.gstin || undefined,
+      iecCode: currentUser?.iecCode || undefined,
       likesCount: 0,
       createdAt: new Date().toISOString(),
       created_at: new Date().toISOString(),

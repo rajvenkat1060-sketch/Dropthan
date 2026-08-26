@@ -5,10 +5,8 @@ import {
   updateUserStatusInSupabase,
   deleteUserAccount,
   preRegisterUserAccount,
-  fetchAllSupabaseMessages,
   fetchAllLikesFromSupabase,
   subscribeToAdminRealtime,
-  PersistentMessage,
 } from '../lib/supabase';
 
 interface AdminVerificationModalProps {
@@ -32,7 +30,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [likesList, setLikesList] = useState<LikeRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'approvals' | 'users' | 'daily' | 'chat' | 'products' | 'interactions' | 'sql'>('approvals');
+  const [activeTab, setActiveTab] = useState<'approvals' | 'users' | 'daily' | 'products' | 'interactions' | 'sql'>('approvals');
   const [approvalFilter, setApprovalFilter] = useState<'pending' | 'all' | 'active' | 'rejected'>('pending');
   const [searchTerm, setSearchTerm] = useState('');
   const [isCopiedSql, setIsCopiedSql] = useState(false);
@@ -44,10 +42,6 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
 
   // Selected User Profile View Modal
   const [selectedUserForProfile, setSelectedUserForProfile] = useState<UserProfile | null>(null);
-
-  // Monitoring Chat & Messages
-  const [recentMessages, setRecentMessages] = useState<PersistentMessage[]>([]);
-  const [chatSearchQuery, setChatSearchQuery] = useState('');
 
   // Rejection Reason Modal
   const [rejectReasonModal, setRejectReasonModal] = useState<{
@@ -113,13 +107,11 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [profilesData, messagesData, likesData] = await Promise.all([
+      const [profilesData, likesData] = await Promise.all([
         fetchAllUserProfilesFromSupabase(),
-        fetchAllSupabaseMessages(),
         fetchAllLikesFromSupabase(),
       ]);
       setProfiles(profilesData);
-      setRecentMessages(messagesData);
       setLikesList(likesData);
     } catch (e) {
       console.error('Error fetching admin live data from Supabase:', e);
@@ -151,11 +143,6 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
         fetchAllUserProfilesFromSupabase().then((data) => {
           setProfiles(data);
           if (onStatusChanged) onStatusChanged();
-        });
-      },
-      onMessagesChange: () => {
-        fetchAllSupabaseMessages().then((msgs) => {
-          setRecentMessages(msgs);
         });
       },
       onLikesChange: () => {
@@ -563,7 +550,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
               </span>
             </div>
             <p className="text-xs text-blue-100">
-              Real-time user approvals, messages, product views & interaction logs monitoring.
+              Real-time user approvals, product views & interaction logs monitoring.
             </p>
           </div>
           <button
@@ -613,17 +600,6 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
             }`}
           >
             <span>📈 Daily User Count</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`px-3 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
-              activeTab === 'chat'
-                ? 'bg-[#0d47a1] text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <span>💬 Chat Logs</span>
           </button>
 
           <button
@@ -934,7 +910,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <h3 className="text-sm font-black tracking-tight">Database & User Activity Monitor</h3>
-                    <p className="text-xs text-blue-100">Live data directly queried from Supabase profiles, posts, and messages.</p>
+                    <p className="text-xs text-blue-100">Live data directly queried from Supabase profiles, posts, and likes.</p>
                   </div>
                   <span className="bg-emerald-400 text-slate-900 text-xs font-black px-3 py-1 rounded-full animate-pulse">
                     🟢 Live Database Stream
@@ -959,10 +935,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   <span className="text-xl font-black text-[#0d47a1]">{profiles.length}</span>
                   <span className="text-[10px] text-blue-600 block">Supabase Profiles</span>
                 </div>
-                <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 text-center space-y-1">
-                  <span className="text-[10px] font-bold text-purple-800 uppercase block">Total Messages</span>
-                  <span className="text-xl font-black text-purple-700">{recentMessages.length}</span>
-                  <span className="text-[10px] text-purple-600 block">Live Chat Logs</span>
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 text-center space-y-1">
+                  <span className="text-[10px] font-bold text-rose-800 uppercase block">Total Likes</span>
+                  <span className="text-xl font-black text-rose-700">{likesList.length}</span>
+                  <span className="text-[10px] text-rose-600 block">Item Interactions</span>
                 </div>
               </div>
 
@@ -1147,50 +1123,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: CHAT LOGS MONITOR */}
-          {activeTab === 'chat' && (
-            <div className="space-y-3">
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-black text-slate-800">User Communication & Inquiry Logs</h3>
-                  <p className="text-[11px] text-slate-500">Monitor messages exchanged between buyers and suppliers.</p>
-                </div>
-                <input
-                  type="text"
-                  value={chatSearchQuery}
-                  onChange={(e) => setChatSearchQuery(e.target.value)}
-                  placeholder="Filter chat messages..."
-                  className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800"
-                />
-              </div>
-
-              {recentMessages.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-1">
-                  <span className="text-2xl">💬</span>
-                  <p className="text-xs font-bold text-slate-700">No recent chat logs found</p>
-                  <p className="text-[11px] text-slate-500">User chats initiated on the platform will be logged here.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {recentMessages
-                    .filter((m) => m.text.toLowerCase().includes(chatSearchQuery.toLowerCase()))
-                    .map((msg, i) => (
-                      <div key={msg.id || i} className="bg-white border border-slate-200 rounded-xl p-3 space-y-1">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-bold text-[#0d47a1]">{msg.sender_name || 'User'}</span>
-                          <span className="text-slate-400">{msg.timestamp}</span>
-                        </div>
-                        <p className="text-xs text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                          {msg.text}
-                        </p>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: PRODUCT ITEM VIEWS */}
+          {/* TAB 3: PRODUCT ITEM VIEWS */}
           {activeTab === 'products' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2 text-center bg-blue-50 border border-blue-200 rounded-2xl p-3">
@@ -1409,27 +1342,7 @@ DROP POLICY IF EXISTS "Anyone can delete posts" ON public.posts;
 DROP POLICY IF EXISTS "Public delete access for posts" ON public.posts;
 CREATE POLICY "Public delete access for posts" ON public.posts FOR DELETE TO public, anon, authenticated USING (true);
 
--- 3. MESSAGES TABLE
-CREATE TABLE IF NOT EXISTS public.messages (
-  id TEXT PRIMARY KEY
-);
-
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS chat_id TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender_id TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS receiver_id TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS sender_name TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS text TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_url TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS media_type TEXT;
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
-
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Public can view all messages" ON public.messages;
-CREATE POLICY "Public can view all messages" ON public.messages FOR SELECT TO public, anon, authenticated USING (true);
-DROP POLICY IF EXISTS "Anyone can insert messages" ON public.messages;
-CREATE POLICY "Anyone can insert messages" ON public.messages FOR INSERT TO public, anon, authenticated WITH CHECK (true);
-
--- 4. LIKES TABLE
+-- 3. LIKES TABLE
 CREATE TABLE IF NOT EXISTS public.likes (
   id TEXT PRIMARY KEY
 );
@@ -1446,10 +1359,9 @@ CREATE POLICY "Anyone can insert likes" ON public.likes FOR INSERT TO public, an
 DROP POLICY IF EXISTS "Anyone can delete likes" ON public.likes;
 CREATE POLICY "Anyone can delete likes" ON public.likes FOR DELETE TO public, anon, authenticated USING (true);
 
--- 5. REALTIME REPLICATION (Instant live updates across all clients)
+-- 4. REALTIME REPLICATION (Instant live updates across all clients)
 ALTER TABLE public.posts REPLICA IDENTITY FULL;
 ALTER TABLE public.profiles REPLICA IDENTITY FULL;
-ALTER TABLE public.messages REPLICA IDENTITY FULL;
 ALTER TABLE public.likes REPLICA IDENTITY FULL;
 
 DO $$
@@ -1465,12 +1377,6 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'profiles'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables 
-    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_publication_tables 
@@ -1504,9 +1410,9 @@ END $$;
                   <p className="text-[10px] text-blue-600 font-bold">● Real-time Synced</p>
                 </div>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-1">
-                  <span className="text-xs font-bold text-slate-500 uppercase">Chat Message Records</span>
-                  <div className="text-2xl font-black text-slate-900">{recentMessages.length} Messages</div>
-                  <p className="text-[10px] text-purple-600 font-bold">● Direct Messenger</p>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Total User Likes</span>
+                  <div className="text-2xl font-black text-slate-900">{likesList.length} Likes</div>
+                  <p className="text-[10px] text-rose-600 font-bold">● Live Interactions</p>
                 </div>
               </div>
 

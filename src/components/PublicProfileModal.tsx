@@ -16,7 +16,6 @@ interface PublicProfileModalProps {
   vendorPost?: PostItem | null;
   allPosts: PostItem[];
   currentUser?: UserProfile | null;
-  onOpenVendorChat: (post: PostItem) => void;
   onToggleLike: (postId: string) => void;
   onToggleSave: (postId: string) => void;
 }
@@ -43,7 +42,6 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   vendorPost,
   allPosts,
   currentUser,
-  onOpenVendorChat,
   onToggleLike,
   onToggleSave,
 }) => {
@@ -189,7 +187,13 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   const iecCode = vendorProfile?.iecCode || referencePost?.iecCode || vendorPost?.iecCode;
   const instagram = vendorProfile?.instagram || vendorProfile?.instagramHandle || referencePost?.instagram || vendorPost?.instagram;
   const website = vendorProfile?.website || vendorProfile?.websiteUrl || referencePost?.website || vendorPost?.website;
-  const companyName = vendorProfile?.companyName || vendorProfile?.displayName || vendorPost?.author || cleanVendorName || 'Verified Supplier';
+  const companyName =
+    vendorProfile?.displayName ||
+    vendorProfile?.fullName ||
+    vendorProfile?.companyName ||
+    (vendorPost?.author && !GENERIC_AUTHOR_NAMES.has(vendorPost.author.toLowerCase().trim()) ? vendorPost.author : undefined) ||
+    (cleanVendorName && !GENERIC_AUTHOR_NAMES.has(cleanVendorName.toLowerCase().trim()) ? cleanVendorName : undefined) ||
+    (phone ? `Member (${phone.slice(-4)})` : 'Verified Supplier');
   const productName = vendorProfile?.productName || vendorProfile?.materialDetails || referencePost?.productName || referencePost?.materialDetails || vendorPost?.productName;
   const promotionDetails = vendorProfile?.promotionDetails || referencePost?.promotionDetails || vendorPost?.promotionDetails;
   const exportProducts = vendorProfile?.exportProducts || referencePost?.exportProducts || vendorPost?.exportProducts;
@@ -602,33 +606,6 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  onClose();
-                  const targetPost: PostItem = referencePost || {
-                    id: `vendor-${vendorProfile?.phone || vendorProfile?.id || cleanVendorName || Date.now()}`,
-                    author: companyName,
-                    role: role,
-                    price: 'Direct Wholesale Rate',
-                    moq: 'Wholesale MOQ',
-                    caption: userBio || `${companyName} - Verified Member`,
-                    img: avatarUrl,
-                    images: [avatarUrl],
-                    phone: phone,
-                    location: location,
-                    country: country,
-                    category: 'Textiles & Apparel',
-                    authorAvatar: avatarUrl,
-                  };
-                  onOpenVendorChat(targetPost);
-                }}
-                className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition cursor-pointer shadow-sm flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <span>💬</span>
-                <span>Inquire & Chat</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={handleWhatsApp}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition cursor-pointer shadow-sm flex items-center justify-center gap-1.5 active:scale-95"
               >
@@ -643,6 +620,15 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
               >
                 <span>📞</span>
                 <span>Call Vendor</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleShareProfile}
+                className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-xs font-bold py-2.5 px-3 rounded-xl transition cursor-pointer shadow-2xs flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <span>{copiedShare ? '✓' : '🔗'}</span>
+                <span>{copiedShare ? 'Copied' : 'Share Profile'}</span>
               </button>
 
               <button
@@ -844,16 +830,17 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                           </button>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onClose();
-                            onOpenVendorChat(post);
-                          }}
-                          className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-2xs transition active:scale-95 cursor-pointer"
-                        >
-                          💬 Chat & MOQ
-                        </button>
+                        {post.phone && (
+                          <a
+                            href={`https://wa.me/${post.phone.replace(/\D/g, '').length === 10 ? `91${post.phone.replace(/\D/g, '')}` : post.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${companyName}, I'm inquiring about ${post.title || post.product_name || post.caption || 'your post'} on Dropthan.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-2xs transition active:scale-95 flex items-center gap-1"
+                          >
+                            <span>💬</span>
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
                       </div>
                     </div>
                   );

@@ -12,7 +12,6 @@ interface ProfileTabProps {
   savedPosts: PostItem[];
   onLogout: () => void;
   onOpenCreatePost: () => void;
-  onOpenVendorChat: (post: PostItem) => void;
   onToggleSave: (postId: string) => void;
   onToggleLike: (postId: string) => void;
   onUpdateAvatar?: (avatarUrl: string) => void;
@@ -30,7 +29,6 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   savedPosts,
   onLogout,
   onOpenCreatePost,
-  onOpenVendorChat,
   onToggleSave,
   onToggleLike,
   onUpdateAvatar,
@@ -497,7 +495,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
               </span>
             </div>
             <p className="text-[11px] font-bold text-slate-950/90 leading-tight">
-              Access GST approvals, daily user count, chat logs, liked items, and user profile inspection.
+              Access GST approvals, daily user count, liked items, and user profile inspection.
             </p>
             {onOpenAdmin && (
               <button
@@ -843,12 +841,25 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                           <span>{post.likesCount || 0} Likes</span>
                         </button>
 
-                        <button
-                          onClick={() => onOpenVendorChat(post)}
-                          className="bg-[#0d47a1] hover:bg-blue-700 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition shadow-xs cursor-pointer"
-                        >
-                          💬 Contact Supplier
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {post.phone && (
+                            <a
+                              href={`https://wa.me/${post.phone.replace(/\D/g, '').length === 10 ? `91${post.phone.replace(/\D/g, '')}` : post.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${post.author}, I saved your post on Dropthan and would like to inquire.`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                            >
+                              <span>💬</span>
+                              <span>WhatsApp</span>
+                            </a>
+                          )}
+                          <button
+                            onClick={() => onToggleSave(post.id)}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-1 rounded-lg transition cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1020,7 +1031,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                   rows={3}
                   value={editBio}
                   onChange={(e) => setEditBio(e.target.value)}
-                  placeholder="e.g. Manufacturer and direct exporter of organic goods, apparel, and customized packaging. Low MOQ and wholesale catalogs on chat."
+                  placeholder="e.g. Manufacturer and direct exporter of organic goods, apparel, and customized packaging. Low MOQ and wholesale catalogs available on inquiry."
                   className="w-full bg-white border border-blue-200 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1] resize-none"
                 />
               </div>

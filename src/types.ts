@@ -83,20 +83,6 @@ export interface PostItem {
   created_at?: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  text: string;
-  isMe: boolean;
-  timestamp: string;
-}
-
-export interface AIMessage {
-  id: string;
-  sender: 'user' | 'ai';
-  text: string;
-  timestamp: string;
-}
-
 export interface ReviewItem {
   id?: string;
   reviewerId?: string;

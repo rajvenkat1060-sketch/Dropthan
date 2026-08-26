@@ -39,38 +39,6 @@ interface StoredCredential {
   updatedAt: string;
 }
 
-// Local persistent messages store for fallback and multi-user sync
-const messagesFile = path.join(credentialsDir, "messages_store.json");
-
-const getStoredMessages = (): any[] => {
-  try {
-    if (fs.existsSync(messagesFile)) {
-      const raw = fs.readFileSync(messagesFile, "utf-8");
-      return JSON.parse(raw) || [];
-    }
-  } catch (e) {
-    console.warn("[Messages Store] Error reading messages file:", e);
-  }
-  return [];
-};
-
-const saveStoredMessage = (msg: any) => {
-  try {
-    const list = getStoredMessages();
-    const existingIdx = list.findIndex((m) => m.id === msg.id);
-    if (existingIdx >= 0) {
-      list[existingIdx] = msg;
-    } else {
-      list.push(msg);
-    }
-    // Limit to latest 3000 messages to prevent unbounded growth
-    const trimmed = list.slice(-3000);
-    fs.writeFileSync(messagesFile, JSON.stringify(trimmed, null, 2), "utf-8");
-  } catch (e) {
-    console.warn("[Messages Store] Error saving message file:", e);
-  }
-};
-
 const getStoredCredentials = (): Record<string, StoredCredential> => {
   try {
     if (fs.existsSync(credentialsFile)) {
@@ -192,7 +160,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", app: "Dropthan B2B Mobile App" });
 });
 
-// Server-Side Public Posts Listing Endpoint (Guarantees Shared Global Feed)
+// Server-Side Public Posts Listing Endpoint (Guarantees Shared Global Feed with Real Authors)
 app.get("/api/posts", async (_req, res) => {
   try {
     const supabase = getSupabaseClient();
@@ -201,24 +169,119 @@ app.get("/api/posts", async (_req, res) => {
       return;
     }
 
-    let { data, error } = await supabase
-      .from("posts")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const [postsRes, profilesRes] = await Promise.allSettled([
+      (async () => {
+        let q = await supabase.from("posts").select("*").order("created_at", { ascending: false });
+        if (q.error && q.error.message?.includes("created_at")) {
+          q = await supabase.from("posts").select("*");
+        }
+        return q;
+      })(),
+      supabase.from("profiles").select("*"),
+    ]);
 
-    if (error && error.message?.includes("created_at")) {
-      const fallback = await supabase.from("posts").select("*");
-      data = fallback.data;
-      error = fallback.error;
+    let rawPosts: any[] = [];
+    if (postsRes.status === "fulfilled" && !postsRes.value.error && Array.isArray(postsRes.value.data)) {
+      rawPosts = postsRes.value.data;
     }
 
-    if (error) {
-      console.warn("[Server Posts] Supabase fetch error:", error.message);
-      res.status(400).json({ error: error.message });
-      return;
+    let rawProfiles: any[] = [];
+    if (profilesRes.status === "fulfilled" && !profilesRes.value.error && Array.isArray(profilesRes.value.data)) {
+      rawProfiles = profilesRes.value.data;
     }
 
-    res.json({ success: true, posts: data || [] });
+    // Build profile lookup maps
+    const profById = new Map<string, any>();
+    const profByPhone = new Map<string, any>();
+    const profByName = new Map<string, any>();
+
+    const GENERIC_NAMES = new Set([
+      "dropthan member",
+      "dropthan b2b member",
+      "verified supplier",
+      "supplier",
+      "member",
+      "admin",
+      "user",
+      "wholesaler",
+      "dropshipper",
+      "reseller",
+      "",
+    ]);
+
+    rawProfiles.forEach((p) => {
+      if (!p) return;
+      if (p.id) {
+        profById.set(String(p.id).trim(), p);
+        profById.set(String(p.id).toLowerCase().trim(), p);
+      }
+      if (p.phone) {
+        const d = String(p.phone).replace(/\D/g, "");
+        if (d) {
+          profByPhone.set(d, p);
+          if (d.length >= 10) profByPhone.set(d.slice(-10), p);
+        }
+      }
+      if (p.display_name && !GENERIC_NAMES.has(String(p.display_name).toLowerCase().trim())) {
+        profByName.set(String(p.display_name).toLowerCase().trim(), p);
+      }
+      if (p.full_name && !GENERIC_NAMES.has(String(p.full_name).toLowerCase().trim())) {
+        profByName.set(String(p.full_name).toLowerCase().trim(), p);
+      }
+      if (p.company_name && !GENERIC_NAMES.has(String(p.company_name).toLowerCase().trim())) {
+        profByName.set(String(p.company_name).toLowerCase().trim(), p);
+      }
+    });
+
+    const enrichedPosts = rawPosts.map((post) => {
+      const pUid = String(post.user_id || post.userId || post.vendor_id || "").trim();
+      const pPhone = String(post.phone || post.mobile || "").replace(/\D/g, "");
+      const pAuthor = String(post.author || post.company_name || post.display_name || post.full_name || "").trim();
+
+      let matched = null;
+      if (pUid && profById.has(pUid)) {
+        matched = profById.get(pUid);
+      } else if (pPhone && pPhone.length >= 7) {
+        matched = profByPhone.get(pPhone) || (pPhone.length >= 10 ? profByPhone.get(pPhone.slice(-10)) : null);
+      } else if (pAuthor && !GENERIC_NAMES.has(pAuthor.toLowerCase())) {
+        matched = profByName.get(pAuthor.toLowerCase());
+      }
+
+      const realAuthor =
+        matched?.display_name ||
+        matched?.full_name ||
+        matched?.company_name ||
+        (pAuthor && !GENERIC_NAMES.has(pAuthor.toLowerCase()) ? pAuthor : undefined) ||
+        post.company_name ||
+        post.display_name ||
+        post.full_name ||
+        (matched?.phone || post.phone ? "Verified Member" : "Verified Supplier");
+
+      const realAvatar =
+        matched?.avatar_url ||
+        matched?.author_avatar ||
+        post.author_avatar ||
+        post.authorAvatar ||
+        post.avatar_url ||
+        "";
+
+      return {
+        ...post,
+        author: realAuthor,
+        author_avatar: realAvatar,
+        authorAvatar: realAvatar,
+        role: matched?.role || post.role || "wholesaler",
+        phone: matched?.phone || post.phone || "",
+        location: matched?.store_address || matched?.location || post.location || "India",
+        storeAddress: matched?.store_address || post.store_address || post.location || "India",
+        gstin: matched?.gstin || post.gstin || "",
+        iecCode: matched?.iec_code || post.iec_code || "",
+        user_id: matched?.id || post.user_id,
+        userId: matched?.id || post.user_id,
+      };
+    });
+
+    res.json({ success: true, posts: enrichedPosts });
   } catch (err: any) {
     console.error("[Server Posts] Exception fetching posts:", err);
     res.status(500).json({ error: err?.message || "Failed to fetch posts" });
@@ -447,236 +510,6 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
   } catch (err: any) {
     console.error("[Server Profile By Identifier] Error:", err);
     res.status(500).json({ error: err?.message || "Failed to fetch user data" });
-  }
-});
-
-// Server-Side Messages Listing Endpoint (Supports canonical IDs and sender/receiver cross-matching)
-app.get("/api/messages", async (req, res) => {
-  try {
-    const chatId = (req.query.chat_id as string || "").trim();
-    const userA = (req.query.user_a as string || req.query.sender_id as string || "").trim();
-    const userB = (req.query.user_b as string || req.query.receiver_id as string || "").trim();
-
-    if (!chatId && (!userA || !userB)) {
-      res.status(400).json({ error: "chat_id or (user_a and user_b) is required" });
-      return;
-    }
-
-    const cleanA = (userA || "").replace(/\D/g, "");
-    const cleanB = (userB || "").replace(/\D/g, "");
-    const possibleChatIds = new Set<string>();
-    if (chatId) possibleChatIds.add(chatId);
-    if (cleanA && cleanB) {
-      const sorted = [cleanA, cleanB].sort();
-      possibleChatIds.add(`dm_${sorted[0]}_${sorted[1]}`);
-      possibleChatIds.add(`chat_${sorted[0]}_${sorted[1]}`);
-      possibleChatIds.add(`chat-usr-${cleanA}`);
-      possibleChatIds.add(`chat-usr-${cleanB}`);
-    }
-
-    const supabase = getSupabaseClient();
-    let supabaseMessages: any[] = [];
-
-    if (supabase) {
-      try {
-        const idList = Array.from(possibleChatIds);
-        if (idList.length > 0) {
-          const { data, error } = await supabase
-            .from("messages")
-            .select("*")
-            .in("chat_id", idList)
-            .order("created_at", { ascending: true });
-
-          if (!error && data) {
-            supabaseMessages = data;
-          }
-        }
-
-        // If sender/receiver query provided, also check cross pairs
-        if (userA && userB) {
-          const { data: pairData } = await supabase
-            .from("messages")
-            .select("*")
-            .or(`and(sender_id.eq.${userA},receiver_id.eq.${userB}),and(sender_id.eq.${userB},receiver_id.eq.${userA})`)
-            .order("created_at", { ascending: true });
-
-          if (pairData && pairData.length > 0) {
-            const existingIds = new Set(supabaseMessages.map((m) => String(m.id)));
-            pairData.forEach((m) => {
-              if (!existingIds.has(String(m.id))) {
-                supabaseMessages.push(m);
-                existingIds.add(String(m.id));
-              }
-            });
-          }
-        }
-      } catch (dbErr) {
-        console.warn("[Server Messages DB Query] Notice:", dbErr);
-      }
-    }
-
-    // Merge with server-side stored messages
-    const localStored = getStoredMessages();
-    const matchedLocal = localStored.filter((m) => {
-      if (possibleChatIds.has(m.chat_id)) return true;
-      if (cleanA && cleanB) {
-        const sDigits = (m.sender_id || "").replace(/\D/g, "");
-        const rDigits = (m.receiver_id || "").replace(/\D/g, "");
-        if ((sDigits === cleanA && rDigits === cleanB) || (sDigits === cleanB && rDigits === cleanA)) {
-          return true;
-        }
-      }
-      return false;
-    });
-
-    const mergedMap = new Map<string, any>();
-    supabaseMessages.forEach((m) => mergedMap.set(String(m.id || `${m.sender_id}_${m.created_at}`), m));
-    matchedLocal.forEach((m) => mergedMap.set(String(m.id || `${m.sender_id}_${m.created_at}`), m));
-
-    const finalMessages = Array.from(mergedMap.values()).sort((a, b) => {
-      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-    });
-
-    res.json({ success: true, messages: finalMessages });
-  } catch (err: any) {
-    console.error("[Server Messages] Exception:", err);
-    res.status(500).json({ error: err?.message || "Failed to fetch messages" });
-  }
-});
-
-// Server-Side All Active Threads Endpoint for a User
-app.get("/api/messages/threads", async (req, res) => {
-  try {
-    const userIdentifier = (req.query.user_id as string || req.query.phone as string || "").trim();
-    if (!userIdentifier) {
-      res.status(400).json({ error: "user_id or phone parameter required" });
-      return;
-    }
-
-    const cleanUser = userIdentifier.replace(/\D/g, "");
-    const supabase = getSupabaseClient();
-    let allMessages: any[] = [];
-
-    if (supabase) {
-      try {
-        const { data, error } = await supabase
-          .from("messages")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(500);
-
-        if (!error && data) {
-          allMessages = data;
-        }
-      } catch (e) {}
-    }
-
-    // Merge with local store
-    const local = getStoredMessages();
-    const combinedMap = new Map<string, any>();
-    allMessages.forEach((m) => combinedMap.set(String(m.id), m));
-    local.forEach((m) => combinedMap.set(String(m.id), m));
-
-    const userMessages = Array.from(combinedMap.values()).filter((m) => {
-      const s = String(m.sender_id || "").replace(/\D/g, "");
-      const r = String(m.receiver_id || "").replace(/\D/g, "");
-      const c = String(m.chat_id || "");
-      return (
-        s === cleanUser ||
-        r === cleanUser ||
-        (cleanUser && c.includes(cleanUser)) ||
-        m.sender_id === userIdentifier ||
-        m.receiver_id === userIdentifier
-      );
-    });
-
-    res.json({ success: true, count: userMessages.length, messages: userMessages });
-  } catch (err: any) {
-    console.error("[Server Messages Threads] Error:", err);
-    res.status(500).json({ error: err?.message || "Failed to fetch threads" });
-  }
-});
-
-// Server-Side Message Creation Endpoint (Guarantees Realtime and Multi-User Delivery)
-app.post("/api/messages/create", async (req, res) => {
-  try {
-    const rawMsg = req.body;
-    if (!rawMsg || !rawMsg.chat_id) {
-      res.status(400).json({ error: "chat_id and payload required" });
-      return;
-    }
-
-    const cleanSender = String(rawMsg.sender_id || "").replace(/\D/g, "");
-    const cleanReceiver = String(rawMsg.receiver_id || "").replace(/\D/g, "");
-    let canonicalChatId = rawMsg.chat_id;
-    if (cleanSender && cleanReceiver && !canonicalChatId.startsWith("dm_")) {
-      const sorted = [cleanSender, cleanReceiver].sort();
-      canonicalChatId = `dm_${sorted[0]}_${sorted[1]}`;
-    }
-
-    const msgPayload: Record<string, any> = {
-      chat_id: canonicalChatId,
-      sender_id: rawMsg.sender_id || "",
-      receiver_id: rawMsg.receiver_id || null,
-      sender_name: rawMsg.sender_name || null,
-      text: rawMsg.text || rawMsg.content || "",
-      media_url: rawMsg.media_url || rawMsg.mediaUrl || null,
-      is_me: Boolean(rawMsg.is_me),
-      timestamp: rawMsg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      created_at: rawMsg.created_at || new Date().toISOString(),
-    };
-
-    if (rawMsg.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawMsg.id)) {
-      msgPayload.id = rawMsg.id;
-    } else if (rawMsg.id) {
-      msgPayload.id = rawMsg.id;
-    }
-
-    // 1. Always save in server-side persistent store
-    saveStoredMessage(msgPayload);
-
-    // 2. Insert into Supabase messages table
-    const supabase = getSupabaseClient();
-    let savedData: any = null;
-
-    if (supabase) {
-      for (let attempt = 0; attempt < 6; attempt++) {
-        const resInsert = await supabase.from("messages").insert([msgPayload]).select();
-        if (!resInsert.error) {
-          savedData = resInsert.data;
-          console.log(`[Server Messages Sync] Inserted message on attempt ${attempt + 1}!`);
-          break;
-        }
-
-        const savedError = resInsert.error;
-        console.warn(`[Server Messages Sync] Attempt ${attempt + 1} notice:`, savedError.message);
-
-        if (savedError.message.includes("uuid") || savedError.code === "22P02" || savedError.code === "23505") {
-          delete msgPayload.id;
-          continue;
-        }
-
-        const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
-                                savedError.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
-                                savedError.message.match(/column "(\w+)" does not exist/i);
-
-        if (missingColMatch && missingColMatch[1] && msgPayload[missingColMatch[1]] !== undefined) {
-          delete msgPayload[missingColMatch[1]];
-          continue;
-        }
-
-        if (savedError.message.includes("content") && !msgPayload.content) {
-          msgPayload.content = msgPayload.text;
-        }
-
-        break;
-      }
-    }
-
-    res.json({ success: true, message: msgPayload, data: savedData });
-  } catch (err: any) {
-    console.error("[Server Messages Sync] Exception:", err);
-    res.status(500).json({ error: err?.message || "Internal server error" });
   }
 });
 

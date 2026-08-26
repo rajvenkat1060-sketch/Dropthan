@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { PostItem, UserRole, UserProfile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getPostImageUrl, getPostImagesList } from '../utils/image';
@@ -13,7 +13,6 @@ interface FeedTabProps {
   currentUser?: UserProfile | null;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
-  onOpenVendorChat: (post: PostItem) => void;
   onToggleLike: (postId: string) => void;
   onToggleSave: (postId: string) => void;
 }
@@ -66,7 +65,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   currentUser,
   searchQuery = '',
   onSearchChange,
-  onOpenVendorChat,
   onToggleLike,
   onToggleSave,
 }) => {
@@ -442,10 +440,90 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return () => observer.disconnect();
   }, [hasMore, matchingPosts.length]);
 
+  // Fast profile resolver for post cards ensuring real user names & avatars from the database
+  const resolvePostAuthor = useCallback(
+    (post: PostItem) => {
+      const GENERIC_NAMES = new Set([
+        'dropthan member',
+        'dropthan b2b member',
+        'verified supplier',
+        'supplier',
+        'member',
+        'admin',
+        'user',
+        'wholesaler',
+        'dropshipper',
+        'reseller',
+        '',
+      ]);
+
+      const uid = (post.user_id || post.userId || post.vendor_id || '').trim();
+      const phoneDigits = (post.phone || '').replace(/\D/g, '');
+      const rawAuthor = (post.author || '').trim();
+
+      // Search in allProfiles or currentUser
+      const candidateProfiles = currentUser ? [currentUser, ...allProfiles] : allProfiles;
+
+      const matchedProf = candidateProfiles.find((p) => {
+        if (uid && p.id && (String(p.id).trim() === uid || String(p.id).toLowerCase().trim() === uid.toLowerCase())) {
+          return true;
+        }
+        if (phoneDigits && phoneDigits.length >= 7 && p.phone) {
+          const pDigits = p.phone.replace(/\D/g, '');
+          if (pDigits === phoneDigits || (phoneDigits.length >= 10 && pDigits.slice(-10) === phoneDigits.slice(-10))) {
+            return true;
+          }
+        }
+        if (rawAuthor && !GENERIC_NAMES.has(rawAuthor.toLowerCase())) {
+          const checkAuthor = rawAuthor.toLowerCase();
+          if (p.displayName && p.displayName.toLowerCase().trim() === checkAuthor) return true;
+          if (p.fullName && p.fullName.toLowerCase().trim() === checkAuthor) return true;
+          if (p.companyName && p.companyName.toLowerCase().trim() === checkAuthor) return true;
+        }
+        return false;
+      });
+
+      const authorName =
+        matchedProf?.displayName ||
+        matchedProf?.fullName ||
+        matchedProf?.companyName ||
+        (rawAuthor && !GENERIC_NAMES.has(rawAuthor.toLowerCase()) ? rawAuthor : undefined) ||
+        (matchedProf?.phone || post.phone ? `Verified Member` : 'Verified Supplier');
+
+      const authorAvatar =
+        matchedProf?.avatarUrl ||
+        post.authorAvatar ||
+        '';
+
+      const role = (matchedProf?.role || post.role || 'wholesaler') as UserRole;
+      const location = matchedProf?.storeAddress || matchedProf?.location || post.location || 'India';
+      const gstin = matchedProf?.gstin || post.gstin;
+      const iecCode = matchedProf?.iecCode || post.iecCode;
+      const phone = matchedProf?.phone || post.phone;
+      const country = matchedProf?.country || post.country || 'India';
+      const userId = matchedProf?.id || uid || undefined;
+
+      return {
+        profile: matchedProf,
+        authorName,
+        authorAvatar,
+        role,
+        location,
+        gstin,
+        iecCode,
+        phone,
+        country,
+        userId,
+      };
+    },
+    [allProfiles, currentUser]
+  );
+
   const handleShare = async (post: PostItem) => {
+    const resolved = resolvePostAuthor(post);
     const shareData = {
-      title: `Dropthan Offer: ${post.author}`,
-      text: `${post.author} (${post.price}, ${post.moq}): ${post.caption}`,
+      title: `Dropthan Offer: ${resolved.authorName}`,
+      text: `${resolved.authorName} (${post.price}, ${post.moq}): ${post.caption}`,
       url: window.location.href,
     };
 
@@ -456,21 +534,30 @@ export const FeedTab: React.FC<FeedTabProps> = ({
         console.error('Share cancelled or error:', err);
       }
     } else {
-      navigator.clipboard.writeText(`${post.author} - ${post.price} (${post.moq}): ${post.caption}`);
+      navigator.clipboard.writeText(`${resolved.authorName} - ${post.price} (${post.moq}): ${post.caption}`);
       setCopiedPostId(post.id);
       setTimeout(() => setCopiedPostId(null), 2000);
     }
   };
 
   const openPublicProfile = (post: PostItem) => {
+    const resolved = resolvePostAuthor(post);
     setPublicProfileState({
       isOpen: true,
-      vendorName: post.author,
-      vendorRole: post.role,
+      vendorName: resolved.authorName,
+      vendorRole: resolved.role,
       vendorPost: {
         ...post,
-        user_id: (post as any).user_id || (post as any).userId,
-        userId: (post as any).user_id || (post as any).userId,
+        author: resolved.authorName,
+        authorAvatar: resolved.authorAvatar,
+        role: resolved.role,
+        location: resolved.location,
+        gstin: resolved.gstin,
+        iecCode: resolved.iecCode,
+        phone: resolved.phone,
+        country: resolved.country,
+        user_id: resolved.userId,
+        userId: resolved.userId,
       },
     });
   };
@@ -504,31 +591,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       vendorRole: profile.role,
       vendorPost: pseudoPost,
     });
-  };
-
-  const handleSupplierChat = (profile: UserProfile) => {
-    const pseudoPost: PostItem = {
-      id: `vendor-${profile.phone || profile.id}`,
-      user_id: profile.id,
-      userId: profile.id,
-      vendor_id: profile.id,
-      author: profile.companyName || profile.displayName,
-      role: profile.role,
-      price: 'Direct Wholesale Rate',
-      moq: 'Wholesale MOQ',
-      caption: profile.bio || profile.description || `${profile.companyName || profile.displayName} - Verified Supplier`,
-      img: profile.avatarUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800',
-      phone: profile.phone,
-      location: profile.storeAddress || profile.location || 'India',
-      country: profile.country || 'India',
-      gstin: profile.gstin,
-      iecCode: profile.iecCode,
-      category: profile.role === 'printing' ? 'Packaging & Printing' : profile.role === 'marketing' ? 'Digital Marketing' : 'Textiles & Apparel',
-      website: profile.website || profile.websiteUrl,
-      instagram: profile.instagram || profile.instagramHandle,
-      authorAvatar: profile.avatarUrl,
-    };
-    onOpenVendorChat(pseudoPost);
   };
 
   const totalResults = matchingPosts.length + matchingProfiles.length;
@@ -853,13 +915,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                           </a>
                         </>
                       )}
-                      <button
-                        onClick={() => handleSupplierChat(supplier)}
-                        className="bg-[#0d47a1] hover:bg-blue-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
-                      >
-                        <span>✉️</span>
-                        <span>Chat</span>
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -913,6 +968,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
             </div>
           ) : (
             visiblePosts.map((post, pIdx) => {
+              const resolved = resolvePostAuthor(post);
               return (
                 <div
                   key={`feed-post-${post.id || pIdx}`}
@@ -923,20 +979,20 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                     <div
                       onClick={() => openPublicProfile(post)}
                       className="flex items-center space-x-2.5 cursor-pointer group flex-1 min-w-0"
-                      title={`View Public Profile of ${post.author}`}
+                      title={`View Public Profile of ${resolved.authorName}`}
                     >
                       {/* AVATAR WITH STORY RING ON HOVER */}
                       <div className="relative flex-shrink-0">
                         <div className="w-9 h-9 rounded-full p-[1.5px] bg-gradient-to-tr from-amber-400 via-rose-500 to-[#0d47a1] group-hover:scale-105 transition">
                           <img
-                            src={getAvatarUrl(post.authorAvatar, post.role)}
-                            alt={post.author}
+                            src={getAvatarUrl(resolved.authorAvatar, resolved.role)}
+                            alt={resolved.authorName}
                             loading="lazy"
                             decoding="async"
                             className="w-full h-full rounded-full border border-white object-cover bg-white"
                           />
                         </div>
-                        {post.gstin && (
+                        {resolved.gstin && (
                           <span
                             className="absolute -bottom-0.5 -right-0.5 bg-[#0d47a1] text-white text-[7px] font-black px-1 rounded-full border border-white"
                             title="Verified GST"
@@ -948,16 +1004,16 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
                       <div className="min-w-0">
                         <h4 className="text-xs font-bold text-slate-900 group-hover:text-[#0d47a1] transition flex items-center gap-1 flex-wrap">
-                          <span className="truncate">{post.author}</span>
-                          {post.role === 'organic_wholesaler' ? (
+                          <span className="truncate">{resolved.authorName}</span>
+                          {resolved.role === 'organic_wholesaler' ? (
                             <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
                               🌱 Organic
                             </span>
-                          ) : post.role === 'exporter' ? (
+                          ) : resolved.role === 'exporter' ? (
                             <span className="text-blue-700 bg-blue-50 border border-blue-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
                               🌐 Exporter
                             </span>
-                          ) : post.gstin ? (
+                          ) : resolved.gstin ? (
                             <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 text-[8px] font-extrabold px-1.5 py-0.2 rounded">
                               ✓ GST Approved
                             </span>
@@ -968,7 +1024,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                           )}
                         </h4>
                         <p className="text-[10px] text-slate-500 font-semibold truncate flex items-center gap-1">
-                          <span>📍 {post.location || 'Location'}{post.country ? `, ${post.country}` : ''}</span>
+                          <span>📍 {resolved.location}{resolved.country ? `, ${resolved.country}` : ''}</span>
                           <span className="text-[#0d47a1] font-bold">• View Profile ↗</span>
                         </p>
                       </div>
@@ -981,7 +1037,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                         className="text-[9px] bg-blue-50 hover:bg-blue-100 text-[#0d47a1] px-2.5 py-1 rounded-full font-bold uppercase border border-blue-200 transition cursor-pointer shadow-2xs active:scale-95"
                         title="View Full Public Profile"
                       >
-                        {post.role} ↗
+                        {resolved.role} ↗
                       </button>
                     </div>
                   </div>
@@ -1166,18 +1222,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                       )}
                       <button
                         onClick={() => openPublicProfile(post)}
-                        className="bg-blue-50 hover:bg-blue-100 text-[#0d47a1] border border-blue-200 text-xs font-bold px-2.5 py-1.5 rounded-lg transition cursor-pointer"
+                        className="bg-[#0d47a1] hover:bg-blue-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow transition cursor-pointer flex items-center gap-1"
                         title="View Public Profile & Catalog"
                       >
                         <span>👤</span>
-                        <span>Profile</span>
-                      </button>
-                      <button
-                        onClick={() => onOpenVendorChat(post)}
-                        className="bg-[#0d47a1] hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow transition cursor-pointer flex items-center gap-1"
-                      >
-                        <span>✉️</span>
-                        <span>Chat</span>
+                        <span>Profile & Catalog</span>
                       </button>
                     </div>
                   </div>
@@ -1250,7 +1299,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           vendorPost={publicProfileState.vendorPost}
           allPosts={posts}
           currentUser={currentUser}
-          onOpenVendorChat={onOpenVendorChat}
           onToggleLike={onToggleLike}
           onToggleSave={onToggleSave}
         />

@@ -8,6 +8,20 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publisha
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+export const GENERIC_AUTHOR_NAMES = new Set([
+  'dropthan member',
+  'dropthan b2b member',
+  'verified supplier',
+  'supplier',
+  'member',
+  'admin',
+  'user',
+  'wholesaler',
+  'dropshipper',
+  'reseller',
+  '',
+]);
+
 export const generateValidUUID = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
@@ -99,23 +113,27 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
   } catch (e) {}
 
   let remoteData: any[] = [];
+  let fetchedProfiles: UserProfile[] = [];
 
-  // 1. Direct Supabase Query
+  // 1. Concurrently fetch posts and profiles from Supabase to join author details
   try {
-    let { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const [postsRes, profilesList] = await Promise.allSettled([
+      (async () => {
+        let res = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+        if (res.error && res.error.message?.includes('created_at')) {
+          res = await supabase.from('posts').select('*');
+        }
+        return res;
+      })(),
+      fetchAllUserProfilesFromSupabase().catch(() => []),
+    ]);
 
-    // Fallback if created_at column is missing on older table instances
-    if (error && error.message?.includes('created_at')) {
-      const fallbackQuery = await supabase.from('posts').select('*');
-      data = fallbackQuery.data;
-      error = fallbackQuery.error;
+    if (postsRes.status === 'fulfilled' && !postsRes.value.error && postsRes.value.data && postsRes.value.data.length > 0) {
+      remoteData = postsRes.value.data;
     }
 
-    if (!error && data && data.length > 0) {
-      remoteData = data;
+    if (profilesList.status === 'fulfilled' && Array.isArray(profilesList.value)) {
+      fetchedProfiles = profilesList.value;
     }
   } catch (e: any) {
     console.warn('Direct Supabase fetch posts notice:', e?.message || e);
@@ -140,6 +158,37 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
     return localCache;
   }
 
+  // Build high-speed profile lookup index
+  const profileById = new Map<string, UserProfile>();
+  const profileByPhone = new Map<string, UserProfile>();
+  const profileByName = new Map<string, UserProfile>();
+
+  const indexProfile = (p?: UserProfile | null) => {
+    if (!p) return;
+    if (p.id) {
+      profileById.set(String(p.id).trim(), p);
+      profileById.set(String(p.id).toLowerCase().trim(), p);
+    }
+    if (p.phone) {
+      const digits = p.phone.replace(/\D/g, '');
+      if (digits) {
+        profileByPhone.set(digits, p);
+        if (digits.length >= 10) profileByPhone.set(digits.slice(-10), p);
+      }
+    }
+    if (p.displayName && !GENERIC_AUTHOR_NAMES.has(p.displayName.toLowerCase().trim())) {
+      profileByName.set(p.displayName.toLowerCase().trim(), p);
+    }
+    if (p.fullName && !GENERIC_AUTHOR_NAMES.has(p.fullName.toLowerCase().trim())) {
+      profileByName.set(p.fullName.toLowerCase().trim(), p);
+    }
+    if (p.companyName && !GENERIC_AUTHOR_NAMES.has(p.companyName.toLowerCase().trim())) {
+      profileByName.set(p.companyName.toLowerCase().trim(), p);
+    }
+  };
+
+  fetchedProfiles.forEach(indexProfile);
+
   const mapped: PostItem[] = remoteData.map((item: any) => {
     let imageList: string[] = [];
     if (Array.isArray(item.images) && item.images.length > 0) {
@@ -161,40 +210,72 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
       (imageList.length > 0 ? imageList[0] : '') ||
       'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=80';
 
+    // Resolve matching profile by user_id, phone, or author name
+    const rawUid = (item.user_id || item.userId || item.vendor_id || '').trim();
+    const rawPhone = (item.phone || item.mobile || '').replace(/\D/g, '');
+    const rawAuthor = (item.author || item.company_name || item.display_name || item.full_name || item.name || '').trim();
+
+    let matchedProf: UserProfile | undefined;
+    if (rawUid && profileById.has(rawUid)) {
+      matchedProf = profileById.get(rawUid);
+    } else if (rawPhone && rawPhone.length >= 7) {
+      matchedProf = profileByPhone.get(rawPhone) || (rawPhone.length >= 10 ? profileByPhone.get(rawPhone.slice(-10)) : undefined);
+    } else if (rawAuthor && !GENERIC_AUTHOR_NAMES.has(rawAuthor.toLowerCase())) {
+      matchedProf = profileByName.get(rawAuthor.toLowerCase());
+    }
+
+    const resolvedAuthor =
+      matchedProf?.displayName ||
+      matchedProf?.fullName ||
+      matchedProf?.companyName ||
+      (rawAuthor && !GENERIC_AUTHOR_NAMES.has(rawAuthor.toLowerCase()) ? rawAuthor : undefined) ||
+      item.company_name ||
+      item.display_name ||
+      item.full_name ||
+      item.name ||
+      item.user_name ||
+      (matchedProf?.phone || item.phone ? `Verified Member` : 'Verified Supplier');
+
+    const resolvedAvatar =
+      matchedProf?.avatarUrl ||
+      item.author_avatar ||
+      item.authorAvatar ||
+      item.avatar_url ||
+      item.avatarUrl ||
+      item.avatar ||
+      '';
+
+    const resolvedRole = matchedProf?.role || item.role || item.user_role || item.category_role || 'wholesaler';
+    const resolvedPhone = matchedProf?.phone || item.phone || item.mobile || item.contact_number || item.contact || '';
+    const resolvedLocation = matchedProf?.storeAddress || matchedProf?.location || item.location || item.city || item.state || item.address || 'India';
+    const resolvedGstin = matchedProf?.gstin || item.gstin || item.gst || item.gst_number || '';
+    const resolvedIec = matchedProf?.iecCode || item.iec_code || item.iecCode || '';
+
     return {
       id: String(item.id || `post_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`),
-      user_id: item.user_id || item.userId || undefined,
-      userId: item.userId || item.user_id || undefined,
-      vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
+      user_id: matchedProf?.id || (rawUid || undefined),
+      userId: matchedProf?.id || (rawUid || undefined),
+      vendor_id: matchedProf?.id || (rawUid || undefined),
       title: item.title || item.product_name || item.productName || item.caption || 'Product Offer',
       description: item.description || item.caption || item.title || '',
-      author:
-        item.author ||
-        item.company_name ||
-        item.companyName ||
-        item.display_name ||
-        item.displayName ||
-        item.full_name ||
-        item.fullName ||
-        item.name ||
-        item.user_name ||
-        'Dropthan Member',
-      role: item.role || item.user_role || item.category_role || 'wholesaler',
+      author: resolvedAuthor,
+      role: resolvedRole,
       price: item.price || item.rate || item.unit_price || 'Wholesale Rate',
       moq: item.moq || item.minimum_order_quantity || item.min_order || 'Direct MOQ',
       caption: item.description || item.caption || item.title || '',
       img: primaryImg,
       images: imageList.length > 0 ? imageList : [primaryImg],
-      phone: item.phone || item.mobile || item.contact_number || item.contact || '',
-      gstin: item.gstin || item.gst || item.gst_number || '',
-      location: item.location || item.city || item.state || item.address || 'India',
-      storeAddress: item.store_address || item.storeAddress || item.location || item.city || '',
-      lat: item.lat ? Number(item.lat) : undefined,
-      lng: item.lng ? Number(item.lng) : undefined,
-      country: item.country || 'India',
+      phone: resolvedPhone,
+      gstin: resolvedGstin,
+      iecCode: resolvedIec,
+      location: resolvedLocation,
+      storeAddress: matchedProf?.storeAddress || item.store_address || item.storeAddress || resolvedLocation,
+      lat: item.lat ? Number(item.lat) : matchedProf?.lat,
+      lng: item.lng ? Number(item.lng) : matchedProf?.lng,
+      country: matchedProf?.country || item.country || 'India',
       category: item.category || item.product_category || 'Textiles & Apparel',
       likesCount: item.likes_count ?? item.likesCount ?? item.likes ?? 0,
-      authorAvatar: item.author_avatar || item.authorAvatar || item.avatar_url || item.avatarUrl || item.avatar || '',
+      authorAvatar: resolvedAvatar,
       productName: item.title || item.product_name || item.productName || undefined,
       createdAt: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
       created_at: item.created_at || item.createdAt || item.timestamp || new Date().toISOString(),
@@ -952,349 +1033,6 @@ export const saveUserRatingToSupabase = async (
   return finalSummary;
 };
 
-
-export interface ChatConversation {
-  id: string;
-  partnerId: string;
-  partnerName: string;
-  partnerAvatar?: string;
-  partnerPhone?: string;
-  partnerGstin?: string;
-  lastMessage: string;
-  lastTimestamp: string;
-  unreadCount?: number;
-  isFavourite?: boolean;
-  isArchived?: boolean;
-  isBlocked?: boolean;
-  category?: string;
-}
-
-export interface PersistentMessage {
-  id: string;
-  chat_id: string;
-  sender_id: string;
-  receiver_id?: string;
-  sender_name?: string;
-  text: string;
-  media_url?: string;
-  is_me: boolean;
-  timestamp: string;
-  created_at: string;
-}
-
-// Deterministic 1-on-1 Canonical Chat ID Generator (Instagram DM standard)
-export const getCanonicalChatId = (userA?: string, userB?: string): string => {
-  const cleanA = (userA || '').trim();
-  const cleanB = (userB || '').trim();
-  const digitsA = cleanA.replace(/\D/g, '') || cleanA.toLowerCase() || 'usr_a';
-  const digitsB = cleanB.replace(/\D/g, '') || cleanB.toLowerCase() || 'usr_b';
-  const sorted = [digitsA, digitsB].sort();
-  return `dm_${sorted[0]}_${sorted[1]}`;
-};
-
-export const fetchSupabaseMessages = async (
-  chatId: string,
-  currentUserId?: string,
-  currentUserPhone?: string,
-  partnerId?: string,
-  partnerPhone?: string
-): Promise<PersistentMessage[]> => {
-  const localKey = `dropthan_msg_${chatId}`;
-  let fallback: PersistentMessage[] = [];
-  const stored = localStorage.getItem(localKey);
-  if (stored) {
-    try {
-      fallback = JSON.parse(stored);
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  const cleanPhone = (currentUserPhone || '').replace(/\D/g, '');
-  const cleanUserId = (currentUserId || '').trim();
-  const cleanPartnerPhone = (partnerPhone || '').replace(/\D/g, '');
-  const cleanPartnerId = (partnerId || '').trim();
-
-  // Compute canonical ID and alias list
-  const canonicalId = (cleanPhone && cleanPartnerPhone)
-    ? getCanonicalChatId(cleanPhone, cleanPartnerPhone)
-    : (cleanUserId && cleanPartnerId)
-    ? getCanonicalChatId(cleanUserId, cleanPartnerId)
-    : chatId;
-
-  const candidateChatIds = new Set<string>([chatId, canonicalId]);
-  if (cleanPartnerPhone) {
-    candidateChatIds.add(`chat-usr-${cleanPartnerPhone}`);
-  }
-
-  try {
-    // 1. Direct Supabase query with candidate chat IDs
-    let res = await supabase
-      .from('messages')
-      .select('*')
-      .in('chat_id', Array.from(candidateChatIds))
-      .order('created_at', { ascending: true });
-
-    if (res.error && (res.error.code === '42703' || res.error.message.includes('chat_id'))) {
-      res = await supabase
-        .from('messages')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .limit(300);
-    }
-
-    if (!res.error && res.data && res.data.length > 0) {
-      const msgs: PersistentMessage[] = res.data.map((item: any) => {
-        const sender = String(item.sender_id || item.senderId || '');
-        const senderDigits = sender.replace(/\D/g, '');
-        
-        // Dynamically compute is_me accurately for current viewing user
-        const isMe =
-          (cleanUserId && sender === cleanUserId) ||
-          (cleanPhone && senderDigits && (senderDigits === cleanPhone || cleanPhone.endsWith(senderDigits) || senderDigits.endsWith(cleanPhone))) ||
-          Boolean(item.is_me);
-
-        return {
-          id: String(item.id || `msg-${Date.now()}`),
-          chat_id: String(item.chat_id || item.chatId || chatId),
-          sender_id: sender,
-          receiver_id: item.receiver_id || item.receiverId || '',
-          sender_name: item.sender_name || item.senderName || '',
-          text: item.text || item.content || '',
-          media_url: item.media_url || item.mediaUrl || item.image_url || undefined,
-          is_me: isMe,
-          timestamp: item.timestamp || new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          created_at: item.created_at || new Date().toISOString(),
-        };
-      });
-
-      // Filter to relevant messages for this chat
-      const relevantMsgs = msgs.filter((m) => {
-        if (candidateChatIds.has(m.chat_id)) return true;
-        if (cleanPhone && cleanPartnerPhone) {
-          const sDigits = (m.sender_id || '').replace(/\D/g, '');
-          const rDigits = (m.receiver_id || '').replace(/\D/g, '');
-          return (
-            (sDigits === cleanPhone && rDigits === cleanPartnerPhone) ||
-            (sDigits === cleanPartnerPhone && rDigits === cleanPhone)
-          );
-        }
-        return false;
-      });
-
-      // Merge with localStorage
-      const mergedMap = new Map<string, PersistentMessage>();
-      fallback.forEach((m) => mergedMap.set(m.id, m));
-      relevantMsgs.forEach((m) => mergedMap.set(m.id, m));
-
-      const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      });
-
-      try {
-        localStorage.setItem(localKey, JSON.stringify(mergedList));
-        if (canonicalId !== chatId) {
-          localStorage.setItem(`dropthan_msg_${canonicalId}`, JSON.stringify(mergedList));
-        }
-      } catch (e) {}
-
-      return mergedList;
-    }
-  } catch (err) {
-    console.warn('Notice querying Supabase messages:', err);
-  }
-
-  // 2. Server API fallback
-  try {
-    const queryParams = new URLSearchParams({
-      chat_id: chatId,
-      user_a: currentUserPhone || currentUserId || '',
-      user_b: partnerPhone || partnerId || '',
-    });
-    const resp = await fetch(`/api/messages?${queryParams.toString()}`);
-    if (resp.ok) {
-      const json = await resp.json();
-      if (json.success && Array.isArray(json.messages) && json.messages.length > 0) {
-        const msgs: PersistentMessage[] = json.messages.map((item: any) => {
-          const sender = String(item.sender_id || item.senderId || '');
-          const senderDigits = sender.replace(/\D/g, '');
-          const isMe =
-            (cleanUserId && sender === cleanUserId) ||
-            (cleanPhone && senderDigits && (senderDigits === cleanPhone || cleanPhone.endsWith(senderDigits) || senderDigits.endsWith(cleanPhone))) ||
-            Boolean(item.is_me);
-
-          return {
-            id: String(item.id || `msg-${Date.now()}`),
-            chat_id: String(item.chat_id || chatId),
-            sender_id: sender,
-            receiver_id: item.receiver_id || '',
-            sender_name: item.sender_name || '',
-            text: item.text || item.content || '',
-            media_url: item.media_url || item.mediaUrl || item.image_url || undefined,
-            is_me: isMe,
-            timestamp: item.timestamp || new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            created_at: item.created_at || new Date().toISOString(),
-          };
-        });
-
-        const mergedMap = new Map<string, PersistentMessage>();
-        fallback.forEach((m) => mergedMap.set(m.id, m));
-        msgs.forEach((m) => mergedMap.set(m.id, m));
-
-        const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        });
-
-        localStorage.setItem(localKey, JSON.stringify(mergedList));
-        return mergedList;
-      }
-    }
-  } catch (e) {}
-
-  return fallback;
-};
-
-export const fetchUserChatThreadsFromSupabase = async (
-  userIdentifier: string
-): Promise<PersistentMessage[]> => {
-  const clean = (userIdentifier || '').replace(/\D/g, '');
-  if (!clean && !userIdentifier) return [];
-
-  // Try server endpoint
-  try {
-    const resp = await fetch(`/api/messages/threads?user_id=${encodeURIComponent(clean || userIdentifier)}`);
-    if (resp.ok) {
-      const json = await resp.json();
-      if (json.success && Array.isArray(json.messages)) {
-        return json.messages;
-      }
-    }
-  } catch (e) {}
-
-  // Direct Supabase query
-  try {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
-
-    if (data && Array.isArray(data)) {
-      return data.filter((m: any) => {
-        const s = String(m.sender_id || '').replace(/\D/g, '');
-        const r = String(m.receiver_id || '').replace(/\D/g, '');
-        const c = String(m.chat_id || '');
-        return s === clean || r === clean || (clean && c.includes(clean)) || m.sender_id === userIdentifier || m.receiver_id === userIdentifier;
-      });
-    }
-  } catch (e) {}
-
-  return [];
-};
-
-export const saveSupabaseMessage = async (msg: PersistentMessage): Promise<{ success: boolean; data?: any }> => {
-  // 1. Immediately cache in localStorage for zero latency
-  const localKey = `dropthan_msg_${msg.chat_id}`;
-  let existing: PersistentMessage[] = [];
-  try {
-    const stored = localStorage.getItem(localKey);
-    if (stored) existing = JSON.parse(stored);
-  } catch (e) {}
-
-  const existsIdx = existing.findIndex((m) => m.id === msg.id);
-  if (existsIdx >= 0) {
-    existing[existsIdx] = msg;
-  } else {
-    existing.push(msg);
-  }
-  localStorage.setItem(localKey, JSON.stringify(existing));
-
-  // Also cache under sender / receiver canonical key if different
-  if (msg.sender_id && msg.receiver_id) {
-    const canonicalKey = `dropthan_msg_${getCanonicalChatId(msg.sender_id, msg.receiver_id)}`;
-    if (canonicalKey !== localKey) {
-      localStorage.setItem(canonicalKey, JSON.stringify(existing));
-    }
-  }
-
-  // 2. Prepare payload for Supabase public.messages table
-  const messageUuid = isUuid(msg.id) ? msg.id : generateValidUUID();
-
-  const basePayload: Record<string, any> = {
-    chat_id: msg.chat_id,
-    sender_id: msg.sender_id,
-    receiver_id: msg.receiver_id || null,
-    sender_name: msg.sender_name || null,
-    text: msg.text || '',
-    media_url: msg.media_url || null,
-    is_me: msg.is_me,
-    timestamp: msg.timestamp,
-    created_at: msg.created_at || new Date().toISOString(),
-  };
-
-  let saved = false;
-  let savedData: any = null;
-
-  // Multi-attempt insert with UUID and column fallback
-  const payloadToSave: Record<string, any> = { id: messageUuid, ...basePayload };
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const { data, error } = await supabase.from('messages').insert([payloadToSave]).select();
-    if (!error) {
-      saved = true;
-      savedData = data;
-      console.log('✅ [Supabase Messages] Message inserted successfully into public.messages table:', data);
-      break;
-    }
-
-    console.warn(`[Supabase Message Insert Attempt ${attempt + 1}] notice:`, error.message);
-
-    // If UUID syntax error or PK conflict on id, try without id (let table generate or handle)
-    if (error.message.includes('uuid') || error.code === '22P02' || error.code === '23505') {
-      delete payloadToSave.id;
-      continue;
-    }
-
-    // Extract unknown column from error message and remove from payload
-    const colMatch =
-      error.message.match(/Could not find the '(\w+)' column/i) ||
-      error.message.match(/column "?(\w+)"? of relation "messages" does not exist/i) ||
-      error.message.match(/column "(\w+)" does not exist/i);
-
-    if (colMatch && colMatch[1] && payloadToSave[colMatch[1]] !== undefined) {
-      console.log(`Pruning unmapped column '${colMatch[1]}' from messages payload...`);
-      delete payloadToSave[colMatch[1]];
-      continue;
-    }
-
-    // If content column expected instead of text
-    if (error.message.includes('content') && !payloadToSave.content) {
-      payloadToSave.content = payloadToSave.text;
-    }
-
-    break;
-  }
-
-  // 3. Backup server proxy post
-  try {
-    const resp = await fetch('/api/messages/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: messageUuid, ...basePayload }),
-    });
-    if (resp.ok) {
-      saved = true;
-    }
-  } catch (e) {}
-
-  // 4. Dispatch local event for real-time instant cross-component awareness
-  try {
-    window.dispatchEvent(new CustomEvent('dropthan_message_sent', { detail: msg }));
-  } catch (e) {}
-
-  return { success: saved, data: savedData };
-};
-
 // ==========================================
 // USER PROFILES & GST VERIFICATION MANAGEMENT
 // ==========================================
@@ -1978,33 +1716,6 @@ export const searchProfilesFromSupabase = async (query: string): Promise<UserPro
   return finalMatched;
 };
 
-export const fetchAllSupabaseMessages = async (): Promise<PersistentMessage[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if (!error && data && data.length > 0) {
-      return data.map((item: any) => ({
-        id: String(item.id || `msg-${Date.now()}`),
-        chat_id: String(item.chat_id || item.chatId || ''),
-        sender_id: item.sender_id || item.senderId || '',
-        receiver_id: item.receiver_id || item.receiverId || '',
-        sender_name: item.sender_name || item.senderName || 'Member',
-        text: item.text || item.content || '',
-        is_me: Boolean(item.is_me),
-        timestamp: item.timestamp || new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        created_at: item.created_at || new Date().toISOString(),
-      }));
-    }
-  } catch (err) {
-    console.warn('Notice querying all messages from Supabase:', err);
-  }
-  return [];
-};
-
 export const updateApprovalStatus = async (
   userIdOrPhone: string,
   isApproved: boolean,
@@ -2407,16 +2118,17 @@ export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostIt
   if (!userId) return [];
   try {
     const cleanUid = userId.trim();
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .eq('user_id', cleanUid)
-      .order('created_at', { ascending: false });
+    const [postsRes, userProf] = await Promise.allSettled([
+      supabase
+        .from('posts')
+        .select('*')
+        .eq('user_id', cleanUid)
+        .order('created_at', { ascending: false }),
+      fetchFullUserProfile(cleanUid).catch(() => null),
+    ]);
 
-    if (error) {
-      console.warn('Error fetching posts for user_id:', cleanUid, error.message);
-      return [];
-    }
+    const data = postsRes.status === 'fulfilled' ? postsRes.value.data : [];
+    const prof = userProf.status === 'fulfilled' ? userProf.value : null;
 
     return (data || []).map((item: any) => {
       let imageList: string[] = [];
@@ -2440,26 +2152,39 @@ export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostIt
         (imageList.length > 0 ? imageList[0] : '') ||
         '';
 
+      const authorName =
+        prof?.displayName ||
+        prof?.fullName ||
+        prof?.companyName ||
+        (item.author && !GENERIC_AUTHOR_NAMES.has(item.author.toLowerCase()) ? item.author : undefined) ||
+        (prof?.phone || item.phone ? `Verified Member` : 'Verified Supplier');
+
+      const authorAvatar =
+        prof?.avatarUrl ||
+        item.author_avatar ||
+        item.authorAvatar ||
+        '';
+
       return {
         id: String(item.id || `post_${Date.now()}`),
-        user_id: item.user_id || cleanUid,
-        userId: item.user_id || cleanUid,
-        author: item.author || 'Dropthan Member',
-        role: item.role || 'wholesaler',
+        user_id: prof?.id || item.user_id || cleanUid,
+        userId: prof?.id || item.user_id || cleanUid,
+        author: authorName,
+        role: prof?.role || item.role || 'wholesaler',
         price: item.price || 'Rate on Request',
         moq: item.moq || 'Custom MOQ',
         caption: item.caption || item.description || '',
         img: primaryImg,
         images: imageList.length > 0 ? imageList : [primaryImg],
-        phone: item.phone || '',
-        location: item.location || '',
+        phone: prof?.phone || item.phone || '',
+        location: prof?.storeAddress || prof?.location || item.location || 'India',
         category: item.category || 'Textiles & Apparel',
         likesCount: item.likes_count ?? 15,
-        authorAvatar: item.author_avatar || '',
-        gstin: item.gstin || undefined,
-        iecCode: item.iec_code || item.iecCode || undefined,
-        website: item.website || undefined,
-        instagram: item.instagram || undefined,
+        authorAvatar: authorAvatar,
+        gstin: prof?.gstin || item.gstin || undefined,
+        iecCode: prof?.iecCode || item.iec_code || item.iecCode || undefined,
+        website: prof?.website || item.website || undefined,
+        instagram: prof?.instagram || item.instagram || undefined,
         createdAt: item.created_at || new Date().toISOString(),
         created_at: item.created_at || new Date().toISOString(),
       };
@@ -2529,12 +2254,18 @@ export const fetchPostsByVendor = async (
       '';
     return {
       id: String(item.id || `post_${Date.now()}`),
-      user_id: item.user_id || item.userId || undefined,
-      userId: item.userId || item.user_id || undefined,
-      vendor_id: item.vendor_id || item.vendorId || item.user_id || undefined,
+      user_id: item.user_id || item.userId || (userId || undefined),
+      userId: item.userId || item.user_id || (userId || undefined),
+      vendor_id: item.vendor_id || item.vendorId || item.user_id || (userId || undefined),
       title: item.title || item.caption || item.product_name || 'Product Offer',
       description: item.description || item.caption || '',
-      author: item.author || targetCompany || targetDisplayName || 'Dropthan Member',
+      author:
+        (targetDisplayName && !GENERIC_NAMES.has(targetDisplayName.toLowerCase()) ? targetDisplayName : undefined) ||
+        (targetFullName && !GENERIC_NAMES.has(targetFullName.toLowerCase()) ? targetFullName : undefined) ||
+        (targetCompany && !GENERIC_NAMES.has(targetCompany.toLowerCase()) ? targetCompany : undefined) ||
+        (item.author && !GENERIC_NAMES.has(item.author.toLowerCase()) ? item.author : undefined) ||
+        (targetAuthor && !GENERIC_NAMES.has(targetAuthor.toLowerCase()) ? targetAuthor : undefined) ||
+        (cleanPhone ? `Verified Member` : 'Verified Supplier'),
       role: item.role || 'wholesaler',
       price: item.price || 'Rate on Request',
       moq: item.moq || 'Custom MOQ',
@@ -2940,7 +2671,7 @@ export const authenticateOrRegisterUser = async (
         lng: p.lng ? Number(p.lng) : profileData.lng,
         companyName: p.company_name || p.companyName || profileData.companyName || undefined,
         fullName: p.full_name || p.fullName || profileData.fullName || undefined,
-        displayName: p.display_name || p.displayName || p.company_name || p.full_name || profileData.displayName || 'Dropthan Member',
+        displayName: p.display_name || p.displayName || p.full_name || p.company_name || profileData.displayName || profileData.fullName || profileData.companyName || (cleanPhone ? `Member (${cleanPhone.slice(-4)})` : 'Verified Member'),
         bio: p.bio || p.description || profileData.bio || undefined,
         description: p.description || p.bio || profileData.description || undefined,
         gstin: p.gstin || profileData.gstin || undefined,
@@ -3007,7 +2738,7 @@ export const authenticateOrRegisterUser = async (
       lng: profileData.lng,
       companyName: profileData.companyName,
       fullName: profileData.fullName,
-      displayName: profileData.displayName || profileData.companyName || profileData.fullName || 'Dropthan Member',
+      displayName: profileData.displayName || profileData.fullName || profileData.companyName || (cleanPhone ? `Member (${cleanPhone.slice(-4)})` : 'Verified Member'),
       bio: profileData.bio,
       description: profileData.bio,
       gstin: profileData.gstin,
