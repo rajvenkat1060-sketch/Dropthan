@@ -247,90 +247,67 @@ app.post("/api/posts/create", async (req, res) => {
       : [];
     const primaryImg = rawPost.img || (imagesList.length > 0 ? imagesList[0] : "");
 
+    // Validate UUID for id
+    const isUuidStr = (v?: string) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    const validPostId = rawPost.id && isUuidStr(rawPost.id) ? rawPost.id : crypto.randomUUID();
+    const validUserId = (rawPost.user_id && isUuidStr(rawPost.user_id)) ? rawPost.user_id : (rawPost.userId && isUuidStr(rawPost.userId)) ? rawPost.userId : null;
+
+    // Strict 15 public.posts columns:
+    // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
     const postPayload: Record<string, any> = {
+      id: validPostId,
+      user_id: validUserId,
       author: rawPost.author || "Dropthan Member",
       role: rawPost.role || "wholesaler",
       price: rawPost.price || "Rate on Request",
       moq: rawPost.moq || "MOQ on Request",
       caption: rawPost.caption || "",
       img: primaryImg,
-      image_url: primaryImg,
       images: imagesList,
-      phone: rawPost.phone || null,
-      location: rawPost.location || null,
       category: rawPost.category || "Textiles & Apparel",
-      likes_count: rawPost.likes_count ?? rawPost.likesCount ?? 15,
+      location: rawPost.location || "India",
+      phone: rawPost.phone || null,
+      gstin: rawPost.gstin || null,
+      likes_count: rawPost.likes_count ?? rawPost.likesCount ?? 0,
       created_at: rawPost.created_at || rawPost.createdAt || new Date().toISOString(),
     };
 
-    if (rawPost.id) postPayload.id = rawPost.id;
-    if (rawPost.user_id || rawPost.userId) postPayload.user_id = rawPost.user_id || rawPost.userId;
-    if (rawPost.author_avatar || rawPost.authorAvatar) postPayload.author_avatar = rawPost.author_avatar || rawPost.authorAvatar;
-    if (rawPost.product_name || rawPost.productName) postPayload.product_name = rawPost.product_name || rawPost.productName;
-    if (rawPost.material_details || rawPost.materialDetails) postPayload.material_details = rawPost.material_details || rawPost.materialDetails;
-    if (rawPost.promotion_details || rawPost.promotionDetails) postPayload.promotion_details = rawPost.promotion_details || rawPost.promotionDetails;
-    if (rawPost.export_products || rawPost.exportProducts) postPayload.export_products = rawPost.export_products || rawPost.exportProducts;
-    if (rawPost.packaging_materials || rawPost.packagingMaterials) postPayload.packaging_materials = rawPost.packaging_materials || rawPost.packagingMaterials;
-    if (rawPost.service_details || rawPost.serviceDetails) postPayload.service_details = rawPost.service_details || rawPost.serviceDetails;
-    if (rawPost.gstin) postPayload.gstin = rawPost.gstin;
-    if (rawPost.iec_code || rawPost.iecCode) postPayload.iec_code = rawPost.iec_code || rawPost.iecCode;
-    if (rawPost.website || rawPost.websiteUrl) postPayload.website = rawPost.website || rawPost.websiteUrl;
-    if (rawPost.instagram || rawPost.instagramHandle) postPayload.instagram = rawPost.instagram || rawPost.instagramHandle;
-    if (rawPost.store_address || rawPost.storeAddress) postPayload.store_address = rawPost.store_address || rawPost.storeAddress;
-    if (rawPost.lat !== undefined && rawPost.lat !== null) postPayload.lat = Number(rawPost.lat);
-    if (rawPost.lng !== undefined && rawPost.lng !== null) postPayload.lng = Number(rawPost.lng);
-
-    console.log(`[Server Post Sync] Attempting to save post by: ${postPayload.author} (${postPayload.phone})`);
+    console.log(`[Server Post Sync] Saving post to Supabase public.posts table by: ${postPayload.author}`);
 
     let savedData: any = null;
     let savedError: any = null;
 
-    // Resilient upsert with dynamic column pruning
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const resUpsert = await supabase.from("posts").upsert(postPayload, { onConflict: postPayload.id ? "id" : undefined });
-      if (!resUpsert.error) {
-        savedData = resUpsert.data;
-        savedError = null;
-        console.log(`[Server Post Sync] Post saved successfully on attempt ${attempt + 1}!`);
-        break;
-      }
-
-      savedError = resUpsert.error;
-      console.warn(`[Server Post Sync] Attempt ${attempt + 1} notice:`, savedError.message);
-
-      // Check for missing column error and prune it
-      const missingColMatch = savedError.message.match(/Could not find the '(\w+)' column/i) ||
-                              savedError.message.match(/column "?(\w+)"? of relation "posts" does not exist/i) ||
-                              savedError.message.match(/column "(\w+)" does not exist/i);
-
-      if (missingColMatch && missingColMatch[1] && postPayload[missingColMatch[1]] !== undefined) {
-        console.log(`[Server Post Sync] Pruning unmapped column '${missingColMatch[1]}' and retrying...`);
-        delete postPayload[missingColMatch[1]];
-        continue;
-      }
-
-      // If id is invalid/conflict, delete id and try standard insert
-      if (postPayload.id && (savedError.message.includes("id") || savedError.code === "22P02")) {
-        delete postPayload.id;
-        const resInsert = await supabase.from("posts").insert([postPayload]);
-        if (!resInsert.error) {
-          savedData = resInsert.data;
-          savedError = null;
-          console.log(`[Server Post Sync] Fallback insert without ID succeeded!`);
-          break;
+    const resInsert = await supabase.from("posts").insert([postPayload]).select().maybeSingle();
+    if (!resInsert.error && resInsert.data) {
+      savedData = resInsert.data;
+    } else {
+      if (resInsert.error) {
+        console.warn("[Server Post Sync] Initial insert error:", resInsert.error.message);
+        // If user_id constraint fails, retry with user_id = null
+        if (resInsert.error.code === "23503" || resInsert.error.message.includes("user_id")) {
+          const resRetry = await supabase.from("posts").insert([{ ...postPayload, user_id: null }]).select().maybeSingle();
+          if (!resRetry.error && resRetry.data) {
+            savedData = resRetry.data;
+          }
         }
       }
-
-      break;
+      if (!savedData) {
+        const resUpsert = await supabase.from("posts").upsert(postPayload, { onConflict: "id" }).select().maybeSingle();
+        if (!resUpsert.error && resUpsert.data) {
+          savedData = resUpsert.data;
+        } else {
+          savedError = resUpsert.error || resInsert.error;
+        }
+      }
     }
 
-    if (savedError) {
+    if (savedError && !savedData) {
       console.error("[Server Post Sync] Failed to save post to Supabase:", savedError);
       res.status(400).json({ error: savedError.message, details: savedError });
       return;
     }
 
-    res.json({ success: true, post: postPayload, data: savedData });
+    res.json({ success: true, post: postPayload, data: savedData || postPayload });
   } catch (err: any) {
     console.error("[Server Post Sync] Server error saving post:", err);
     res.status(500).json({ error: err?.message || "Internal server error" });

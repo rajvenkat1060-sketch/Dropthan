@@ -225,101 +225,131 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
   return allCombined;
 };
 
-export const saveSupabasePost = async (post: PostItem) => {
+export const saveSupabasePost = async (post: PostItem): Promise<PostItem> => {
   try {
     const imagesList = post.images && post.images.length > 0 ? post.images : (post.img ? [post.img] : []);
     const primaryImg = post.img || (imagesList.length > 0 ? imagesList[0] : '');
 
-    const basePayload: any = {
-      user_id: post.user_id || post.userId || null,
-      author: post.author,
-      role: post.role,
-      price: post.price,
-      moq: post.moq,
-      caption: post.caption,
-      product_name: post.productName || null,
-      material_details: post.materialDetails || null,
-      promotion_details: post.promotionDetails || null,
-      export_products: post.exportProducts || null,
-      packaging_materials: post.packagingMaterials || null,
-      service_details: post.serviceDetails || null,
+    // Ensure valid UUID for id
+    const validPostId = post.id && isUuid(post.id) ? post.id : generateValidUUID();
+
+    // Ensure valid UUID for user_id to satisfy PostgreSQL uuid data type
+    let validUserId: string | null = null;
+    if (post.user_id && isUuid(post.user_id)) {
+      validUserId = post.user_id;
+    } else if (post.userId && isUuid(post.userId)) {
+      validUserId = post.userId;
+    }
+
+    // Exact 15 Supabase public.posts columns:
+    // id, user_id, author, role, price, moq, caption, img, images, category, location, phone, gstin, likes_count, created_at
+    const postPayload: Record<string, any> = {
+      id: validPostId,
+      user_id: validUserId,
+      author: post.author || 'Dropthan Member',
+      role: post.role || 'wholesaler',
+      price: post.price || 'Rate on Request',
+      moq: post.moq || 'MOQ on Request',
+      caption: post.caption || '',
       img: primaryImg,
-      image_url: primaryImg,
       images: imagesList,
-      phone: post.phone,
+      category: post.category || 'Textiles & Apparel',
+      location: post.location || 'India',
+      phone: post.phone || null,
       gstin: post.gstin || null,
-      location: post.location || null,
-      store_address: post.storeAddress || post.location || null,
-      lat: post.lat || null,
-      lng: post.lng || null,
-      category: post.category,
-      likes_count: post.likesCount || 15,
-      author_avatar: post.authorAvatar || null,
-      website: post.website || null,
-      instagram: post.instagram || null,
+      likes_count: post.likesCount ?? 0,
       created_at: post.createdAt || post.created_at || new Date().toISOString(),
     };
 
-    let saved = false;
+    console.log('📦 [Supabase Post Insert] Executing insert with payload:', {
+      id: postPayload.id,
+      user_id: postPayload.user_id,
+      author: postPayload.author,
+      category: postPayload.category,
+      price: postPayload.price,
+      moq: postPayload.moq,
+      img: postPayload.img ? `${postPayload.img.substring(0, 40)}...` : null,
+    });
 
-    // Multi-attempt adaptive client-side upsert with column pruning
-    const payloadToSave = { ...basePayload, id: post.id };
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const { error } = await supabase.from('posts').upsert(payloadToSave);
-      if (!error) {
-        saved = true;
-        console.log('✅ [Supabase Post Save]: Saved post to Supabase posts table successfully!');
-        break;
-      }
+    let savedItem: any = null;
 
-      console.warn(`[Supabase Post Save Attempt ${attempt + 1}] notice:`, error.message);
+    // 1. Direct Supabase insert call
+    const { data: insertedData, error: insertError } = await supabase
+      .from('posts')
+      .insert([postPayload])
+      .select()
+      .maybeSingle();
 
-      // Check for missing column and prune
-      const missingColMatch =
-        error.message.match(/Could not find the '(\w+)' column/i) ||
-        error.message.match(/column "?(\w+)"? of relation "posts" does not exist/i) ||
-        error.message.match(/column "(\w+)" does not exist/i);
+    if (!insertError && insertedData) {
+      savedItem = insertedData;
+      console.log('✅ [Supabase Post Insert]: Post successfully saved to Supabase public.posts table!');
+    } else if (insertError) {
+      console.warn('⚠️ [Supabase Post Insert Initial Attempt]:', insertError.message);
 
-      if (missingColMatch && missingColMatch[1] && payloadToSave[missingColMatch[1]] !== undefined) {
-        console.log(`Pruning unmapped column '${missingColMatch[1]}' from post payload and retrying...`);
-        delete payloadToSave[missingColMatch[1]];
-        continue;
-      }
+      // If user_id constraint failed, retry with user_id = null
+      if (insertError.code === '23503' || insertError.message.includes('foreign key') || insertError.message.includes('user_id')) {
+        console.log('Retrying insert without user_id foreign key constraint...');
+        const payloadWithoutUserId = { ...postPayload, user_id: null };
+        const { data: retryData, error: retryError } = await supabase
+          .from('posts')
+          .insert([payloadWithoutUserId])
+          .select()
+          .maybeSingle();
 
-      // If id column is invalid or constraint fails, try insert without id
-      if (payloadToSave.id) {
-        delete payloadToSave.id;
-        const { error: insertErr } = await supabase.from('posts').insert([payloadToSave]);
-        if (!insertErr) {
-          saved = true;
-          console.log('✅ [Supabase Post Save]: Fallback insert without ID succeeded!');
-          break;
+        if (!retryError && retryData) {
+          savedItem = retryData;
+          console.log('✅ [Supabase Post Insert]: Retry with user_id=null succeeded!');
         }
       }
 
-      break;
+      // If id exists or conflict, try upsert
+      if (!savedItem) {
+        const { data: upsertData, error: upsertError } = await supabase
+          .from('posts')
+          .upsert(postPayload, { onConflict: 'id' })
+          .select()
+          .maybeSingle();
+
+        if (!upsertError && upsertData) {
+          savedItem = upsertData;
+          console.log('✅ [Supabase Post Upsert]: Post saved with upsert!');
+        }
+      }
     }
 
-    // Direct server-side proxy backup to ensure persistence across all devices
+    // 2. Direct server-side proxy backup to ensure synchronization across all devices
     try {
       const resp = await fetch('/api/posts/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...basePayload, id: post.id }),
+        body: JSON.stringify(postPayload),
       });
       if (resp.ok) {
-        console.log('✅ [Server Post Proxy]: Post successfully synced to Supabase through server proxy!');
-        saved = true;
+        const serverJson = await resp.json();
+        if (serverJson.data || serverJson.post) {
+          console.log('✅ [Server Post Proxy]: Post successfully synced through server proxy!');
+          if (!savedItem) savedItem = serverJson.data || serverJson.post;
+        }
       }
     } catch (serverErr) {
-      console.warn('Server post proxy backup notice:', serverErr);
+      console.warn('Server post proxy notice:', serverErr);
     }
 
     try {
       window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
     } catch (e) {}
+
+    return {
+      ...post,
+      id: savedItem?.id || validPostId,
+      user_id: savedItem?.user_id || validUserId || undefined,
+      img: primaryImg,
+      images: imagesList,
+      created_at: postPayload.created_at,
+    };
   } catch (e) {
     console.warn('Exception saving post to Supabase (locally preserved):', e);
+    return post;
   }
 };
 

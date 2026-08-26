@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PostItem, UserProfile } from '../types';
-import { uploadOfferPhotosToSupabase } from '../lib/supabase';
+import { uploadMultipleToCloudinary, uploadToCloudinary } from '../lib/cloudinary';
+import { uploadOfferPhotosToSupabase, generateValidUUID, isUuid } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
 
 interface CreatePostModalProps {
@@ -23,10 +24,11 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [postStoreAddress, setPostStoreAddress] = useState(currentUser?.storeAddress || '');
   const [postLat, setPostLat] = useState<number | undefined>(currentUser?.lat);
   const [postLng, setPostLng] = useState<number | undefined>(currentUser?.lng);
-  const [imageMode, setImageMode] = useState<'url' | 'file' | 'presets'>('url');
+  const [imageMode, setImageMode] = useState<'url' | 'file' | 'presets'>('file');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [selectedPreviews, setSelectedPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Category-specific input fields
   const [productName, setProductName] = useState('');
@@ -102,31 +104,45 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isPostingRestricted) return;
-    if (!caption) return;
-    if (isWholesalerType && (!price || !moq)) return;
+    if (!caption.trim()) {
+      setErrorMessage('Please enter a product description or offer details.');
+      return;
+    }
+    if (isWholesalerType && (!price || !moq)) {
+      setErrorMessage('Please specify wholesale Price and MOQ.');
+      return;
+    }
 
     setIsUploading(true);
+    setErrorMessage(null);
     let uploadedImageUrls: string[] = [];
 
     try {
       if (selectedFiles.length > 0) {
-        const sectionContext = currentUser?.role || category;
-        uploadedImageUrls = await uploadOfferPhotosToSupabase(
-          selectedFiles,
-          currentUser?.displayName || 'user',
-          sectionContext
-        );
+        console.log(`☁️ [Post Creation] Uploading ${selectedFiles.length} photo(s) directly to Cloudinary...`);
+        try {
+          uploadedImageUrls = await uploadMultipleToCloudinary(selectedFiles);
+          console.log('✅ [Post Creation] Cloudinary URLs generated:', uploadedImageUrls);
+        } catch (cldErr: any) {
+          console.warn('Direct Cloudinary upload notice, using fallback bucket:', cldErr);
+          const sectionContext = currentUser?.role || category;
+          uploadedImageUrls = await uploadOfferPhotosToSupabase(
+            selectedFiles,
+            currentUser?.displayName || 'user',
+            sectionContext
+          );
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('File upload fallback:', err);
-      uploadedImageUrls = selectedPreviews;
-    } finally {
-      setIsUploading(false);
+      uploadedImageUrls = selectedPreviews.filter((p) => typeof p === 'string' && p.startsWith('http'));
     }
 
-    if (uploadedImageUrls.length === 0) {
+    if (!uploadedImageUrls || uploadedImageUrls.length === 0) {
       if (imgUrl.trim()) {
         uploadedImageUrls = [imgUrl.trim()];
+      } else if (selectedPreviews.length > 0 && selectedPreviews[0].startsWith('http')) {
+        uploadedImageUrls = selectedPreviews;
       } else {
         uploadedImageUrls = [presetImages[Math.floor(Math.random() * presetImages.length)]];
       }
@@ -147,24 +163,28 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       : 'Custom Order';
 
     // Format rich caption embedding category-specific tags for complete search compatibility
-    let enrichedCaption = caption;
+    let enrichedCaption = caption.trim();
     if (productName.trim() && isWholesalerType) {
-      enrichedCaption = `${caption}\n\n[Product/Material: ${productName.trim()}]`;
+      enrichedCaption = `${enrichedCaption}\n\n[Product/Material: ${productName.trim()}]`;
     } else if (promotionDetails.trim() && isInfluencerType) {
-      enrichedCaption = `${caption}\n\n[Promotion Niches: ${promotionDetails.trim()}]`;
+      enrichedCaption = `${enrichedCaption}\n\n[Promotion Niches: ${promotionDetails.trim()}]`;
     } else if (exportProducts.trim() && isExporterType) {
-      enrichedCaption = `${caption}\n\n[Export Commodities: ${exportProducts.trim()}]`;
+      enrichedCaption = `${enrichedCaption}\n\n[Export Commodities: ${exportProducts.trim()}]`;
     } else if (packagingMaterials.trim() && isPrintingType) {
-      enrichedCaption = `${caption}\n\n[Packaging Materials: ${packagingMaterials.trim()}]`;
+      enrichedCaption = `${enrichedCaption}\n\n[Packaging Materials: ${packagingMaterials.trim()}]`;
     } else if (serviceDetails.trim() && isMarketingType) {
-      enrichedCaption = `${caption}\n\n[Marketing Services: ${serviceDetails.trim()}]`;
+      enrichedCaption = `${enrichedCaption}\n\n[Marketing Services: ${serviceDetails.trim()}]`;
     }
 
+    // Generate valid RFC4122 UUID for post ID to satisfy Supabase PostgreSQL uuid column type
+    const validPostId = generateValidUUID();
+    const validUserId = currentUser?.id && isUuid(currentUser.id) ? currentUser.id : undefined;
+
     const newPost: PostItem = {
-      id: `post-${Date.now()}`,
-      user_id: currentUser?.id,
-      userId: currentUser?.id,
-      vendor_id: currentUser?.id,
+      id: validPostId,
+      user_id: validUserId,
+      userId: validUserId,
+      vendor_id: validUserId,
       author: currentUser?.displayName || currentUser?.companyName || 'Dropthan B2B Member',
       authorAvatar: currentUser?.avatarUrl,
       role: currentUser?.role || 'wholesaler',
@@ -194,8 +214,15 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       created_at: new Date().toISOString(),
     };
 
-    onAddPost(newPost);
-    onClose();
+    try {
+      await onAddPost(newPost);
+      setIsUploading(false);
+      onClose();
+    } catch (postErr: any) {
+      console.error('Error in onAddPost:', postErr);
+      setIsUploading(false);
+      setErrorMessage(postErr?.message || 'Failed to publish post. Please check your connection.');
+    }
   };
 
   return (
@@ -605,6 +632,13 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 </div>
               )}
             </div>
+
+            {errorMessage && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 animate-in fade-in">
+                <span>⚠️</span>
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             <div className="pt-2 flex items-center space-x-2">
               <button
