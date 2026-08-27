@@ -294,8 +294,26 @@ export default function App() {
     const updatedUser: UserProfile = { ...currentUser, avatarUrl: newAvatarUrl };
     setCurrentUser(updatedUser);
     localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
+
+    // Also update any posts in memory authored by current user so state immediately reflects
+    setPosts((prevPosts) =>
+      prevPosts.map((p) => {
+        const pUid = (p.user_id || p.userId || '').trim();
+        const pPhone = (p.phone || '').replace(/\D/g, '');
+        const curDigits = (currentUser.phone || '').replace(/\D/g, '');
+        const isMyPost =
+          (currentUser.id && pUid === currentUser.id) ||
+          (curDigits && pPhone && (pPhone === curDigits || (curDigits.length >= 10 && pPhone.slice(-10) === curDigits.slice(-10))));
+        if (isMyPost) {
+          return { ...p, authorAvatar: newAvatarUrl };
+        }
+        return p;
+      })
+    );
+
     try {
       await saveUserProfileToSupabase(updatedUser);
+      window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
       showToast('✓ Profile picture updated & saved to Supabase!');
     } catch (err) {
       console.warn('Avatar supabase sync notice:', err);
@@ -387,10 +405,41 @@ export default function App() {
     }
   }, [currentUser?.phone, currentUser?.status]);
 
-  const handleUpdateProfile = useCallback((updatedUser: UserProfile) => {
+  const handleUpdateProfile = useCallback(async (updatedUser: UserProfile) => {
     setCurrentUser(updatedUser);
     localStorage.setItem('dropthan_user', JSON.stringify(updatedUser));
-    saveUserProfileToSupabase(updatedUser).catch((err) => console.warn('Profile supabase sync notice:', err));
+
+    // Also update any posts in memory authored by current user so state immediately reflects
+    setPosts((prevPosts) =>
+      prevPosts.map((p) => {
+        const pUid = (p.user_id || p.userId || '').trim();
+        const pPhone = (p.phone || '').replace(/\D/g, '');
+        const curDigits = (updatedUser.phone || '').replace(/\D/g, '');
+        const isMyPost =
+          (updatedUser.id && pUid === updatedUser.id) ||
+          (curDigits && pPhone && (pPhone === curDigits || (curDigits.length >= 10 && pPhone.slice(-10) === curDigits.slice(-10))));
+        if (isMyPost) {
+          return {
+            ...p,
+            author: updatedUser.displayName || updatedUser.companyName || updatedUser.fullName || p.author,
+            authorAvatar: updatedUser.avatarUrl || p.authorAvatar,
+            role: updatedUser.role || p.role,
+            location: updatedUser.storeAddress || updatedUser.location || p.location,
+            country: updatedUser.country || p.country,
+            gstin: updatedUser.gstin || p.gstin,
+            iecCode: updatedUser.iecCode || p.iecCode,
+          };
+        }
+        return p;
+      })
+    );
+
+    try {
+      await saveUserProfileToSupabase(updatedUser);
+      window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+    } catch (err) {
+      console.warn('Profile supabase sync notice:', err);
+    }
   }, []);
 
   const cleanPhoneNum = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';

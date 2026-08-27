@@ -87,8 +87,14 @@ export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
       console.log('📡 [Supabase Realtime Channel Status - Profiles]:', status);
     });
 
+  const handleLocalProfileUpdate = () => {
+    onProfilesChange();
+  };
+  window.addEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
+
   return () => {
     supabase.removeChannel(channel);
+    window.removeEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
   };
 };
 
@@ -1531,28 +1537,28 @@ export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] 
     if (byId.has(canonicalId)) {
       const existing = byId.get(canonicalId)!;
       const merged: UserProfile = {
-        ...existing,
         ...prof,
+        ...existing,
         id: canonicalId,
-        avatarUrl: prof.avatarUrl || existing.avatarUrl,
-        companyName: prof.companyName || existing.companyName,
-        displayName: prof.displayName || existing.displayName,
-        fullName: prof.fullName || existing.fullName,
-        phone: prof.phone || existing.phone,
-        location: prof.location || existing.location,
-        storeAddress: prof.storeAddress || existing.storeAddress,
-        role: prof.role || existing.role,
-        bio: prof.bio || existing.bio,
-        description: prof.description || existing.description,
-        gstin: prof.gstin || existing.gstin,
-        iecCode: prof.iecCode || existing.iecCode,
-        website: prof.website || existing.website,
-        websiteUrl: prof.websiteUrl || existing.websiteUrl,
-        instagram: prof.instagram || existing.instagram,
-        instagramHandle: prof.instagramHandle || existing.instagramHandle,
-        status: prof.status || existing.status,
-        is_gst_approved: prof.is_gst_approved !== undefined ? prof.is_gst_approved : existing.is_gst_approved,
-        isGstApproved: prof.isGstApproved !== undefined ? prof.isGstApproved : existing.isGstApproved,
+        avatarUrl: existing.avatarUrl || prof.avatarUrl,
+        companyName: existing.companyName || prof.companyName,
+        displayName: existing.displayName || prof.displayName,
+        fullName: existing.fullName || prof.fullName,
+        phone: existing.phone || prof.phone,
+        location: existing.location || prof.location,
+        storeAddress: existing.storeAddress || prof.storeAddress,
+        role: existing.role || prof.role,
+        bio: existing.bio || prof.bio,
+        description: existing.description || prof.description,
+        gstin: existing.gstin || prof.gstin,
+        iecCode: existing.iecCode || prof.iecCode,
+        website: existing.website || prof.website,
+        websiteUrl: existing.websiteUrl || prof.websiteUrl,
+        instagram: existing.instagram || prof.instagram,
+        instagramHandle: existing.instagramHandle || prof.instagramHandle,
+        status: existing.status || prof.status,
+        is_gst_approved: existing.is_gst_approved !== undefined ? existing.is_gst_approved : prof.is_gst_approved,
+        isGstApproved: existing.isGstApproved !== undefined ? existing.isGstApproved : prof.isGstApproved,
       };
       byId.set(canonicalId, merged);
     } else {
@@ -1577,16 +1583,28 @@ export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] 
 export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]> => {
   const localKey = 'dropthan_all_profiles';
   let localProfiles: UserProfile[] = [];
+  let currentUserObj: UserProfile | null = null;
+
   try {
+    const cur = localStorage.getItem('dropthan_user');
+    if (cur) {
+      currentUserObj = JSON.parse(cur);
+    }
     const stored = localStorage.getItem(localKey);
     if (stored) {
       localProfiles = JSON.parse(stored);
     }
-    const cur = localStorage.getItem('dropthan_user');
-    if (cur) {
-      const u = JSON.parse(cur);
-      if (u && u.phone && !localProfiles.some((p) => p.phone === u.phone)) {
-        localProfiles.unshift(u);
+    if (currentUserObj && currentUserObj.phone) {
+      const uDigits = currentUserObj.phone.replace(/\D/g, '');
+      const existingIndex = localProfiles.findIndex(
+        (p) =>
+          (p.phone && p.phone.replace(/\D/g, '') === uDigits) ||
+          (p.id && currentUserObj?.id && p.id === currentUserObj.id)
+      );
+      if (existingIndex >= 0) {
+        localProfiles[existingIndex] = { ...localProfiles[existingIndex], ...currentUserObj };
+      } else {
+        localProfiles.unshift(currentUserObj);
       }
     }
   } catch (e) {}
@@ -1677,7 +1695,8 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
       };
     });
 
-    const finalProfiles = deduplicateUserProfiles([...remoteProfiles, ...localProfiles]);
+    const priorityList = currentUserObj ? [currentUserObj, ...remoteProfiles, ...localProfiles] : [...remoteProfiles, ...localProfiles];
+    const finalProfiles = deduplicateUserProfiles(priorityList);
     try {
       localStorage.setItem(localKey, JSON.stringify(finalProfiles));
     } catch (e) {}
@@ -1685,7 +1704,8 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     return finalProfiles;
   }
 
-  return deduplicateUserProfiles(localProfiles);
+  const fallbackList = currentUserObj ? [currentUserObj, ...localProfiles] : localProfiles;
+  return deduplicateUserProfiles(fallbackList);
 };
 
 export const fetchAllProfilesFromSupabase = fetchAllUserProfilesFromSupabase;

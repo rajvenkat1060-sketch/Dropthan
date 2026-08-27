@@ -1,6 +1,6 @@
 {
   "name": "Dropthan",
-  "description": "B2B wholesale, dropshipping, marketing & packaging mobile marketplace with GST verification, direct supplier contact, and supplier public catalogs.",
+  "description": "B2B Marketplace, Sourcing & Business Services Ecosystem with GST verification, direct supplier contact, supplier catalogs, Meta Ads management, and Billing software.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

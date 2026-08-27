@@ -227,41 +227,69 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return roleClean === catId || catClean.includes(catId);
   };
 
-  // Compile full list of suppliers/businesses from live Supabase profiles
+  // Compile full list of suppliers/businesses from live Supabase profiles + current user
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
-    return deduplicateUserProfiles(allProfiles);
-  }, [allProfiles]);
+    const list = currentUser ? [currentUser, ...allProfiles] : allProfiles;
+    return deduplicateUserProfiles(list);
+  }, [allProfiles, currentUser]);
 
   // Profile lookup map for dynamic enrichment of post author details & avatars
   const profileLookupMap = useMemo(() => {
     const map = new Map<string, UserProfile>();
-    allProfiles.forEach((p) => {
-      if (p.phone) map.set(p.phone.replace(/\D/g, ''), p);
-      if (p.id) map.set(p.id.toLowerCase(), p);
+    const list = currentUser ? [currentUser, ...allProfiles] : allProfiles;
+    list.forEach((p) => {
+      if (!p) return;
+      if (p.id) {
+        map.set(String(p.id).trim(), p);
+        map.set(String(p.id).toLowerCase().trim(), p);
+      }
+      if (p.phone) {
+        const digits = p.phone.replace(/\D/g, '');
+        if (digits) {
+          map.set(digits, p);
+          if (digits.length >= 10) map.set(digits.slice(-10), p);
+        }
+      }
       if (p.displayName) map.set(p.displayName.toLowerCase().trim(), p);
       if (p.companyName) map.set(p.companyName.toLowerCase().trim(), p);
       if (p.fullName) map.set(p.fullName.toLowerCase().trim(), p);
     });
     return map;
-  }, [allProfiles]);
+  }, [allProfiles, currentUser]);
 
   // Dynamically enrich posts with latest author avatar and company details
   const enrichedPosts = useMemo<PostItem[]>(() => {
     return posts.map((post) => {
+      const uid = (post.user_id || post.userId || post.vendor_id || '').trim();
       const cleanPhone = (post.phone || '').replace(/\D/g, '');
       const authorKey = (post.author || '').toLowerCase().trim();
-      const matchedProfile = (cleanPhone ? profileLookupMap.get(cleanPhone) : null) || profileLookupMap.get(authorKey);
+
+      let matchedProfile: UserProfile | undefined;
+      if (uid && profileLookupMap.has(uid)) {
+        matchedProfile = profileLookupMap.get(uid);
+      } else if (uid && profileLookupMap.has(uid.toLowerCase())) {
+        matchedProfile = profileLookupMap.get(uid.toLowerCase());
+      } else if (cleanPhone && profileLookupMap.has(cleanPhone)) {
+        matchedProfile = profileLookupMap.get(cleanPhone);
+      } else if (cleanPhone && cleanPhone.length >= 10 && profileLookupMap.has(cleanPhone.slice(-10))) {
+        matchedProfile = profileLookupMap.get(cleanPhone.slice(-10));
+      } else if (authorKey && profileLookupMap.has(authorKey)) {
+        matchedProfile = profileLookupMap.get(authorKey);
+      }
 
       if (matchedProfile) {
         return {
           ...post,
+          author: matchedProfile.displayName || matchedProfile.companyName || matchedProfile.fullName || post.author,
           authorAvatar: matchedProfile.avatarUrl || post.authorAvatar,
-          location: matchedProfile.location || post.location,
+          role: matchedProfile.role || post.role,
+          location: matchedProfile.storeAddress || matchedProfile.location || post.location,
           country: matchedProfile.country || post.country,
           gstin: matchedProfile.gstin || post.gstin,
           iecCode: matchedProfile.iecCode || post.iecCode,
           website: matchedProfile.website || matchedProfile.websiteUrl || post.website,
           instagram: matchedProfile.instagram || matchedProfile.instagramHandle || post.instagram,
+          phone: matchedProfile.phone || post.phone,
         };
       }
       return post;
