@@ -4,7 +4,6 @@ export const DEFAULT_AVATARS_BY_ROLE: Record<UserRole, string> = {
   wholesaler: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
   organic_wholesaler: 'https://images.unsplash.com/photo-1592417817098-8f3d6eb231fc?w=200&auto=format&fit=crop&q=80',
   exporter: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200&auto=format&fit=crop&q=80',
-  marketing: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
   printing: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
   reseller: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80',
   dropshipper: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80',

@@ -399,6 +399,17 @@ app.delete("/api/posts/:id", async (req, res) => {
       return;
     }
 
+    const isUuidStr = (v?: string) =>
+      typeof v === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.trim());
+
+    // If not a valid UUID format, this is a local/mock client post that does not exist in Supabase Postgres table
+    if (!isUuidStr(postId)) {
+      console.log(`[Server Post Delete] Post ${postId} is a non-UUID local/client post ID, acknowledging deletion.`);
+      res.json({ success: true, message: `Post ${postId} deleted locally` });
+      return;
+    }
+
     const supabase = getSupabaseClient();
     if (!supabase) {
       res.status(500).json({ error: "Supabase client not available on server" });
@@ -407,23 +418,22 @@ app.delete("/api/posts/:id", async (req, res) => {
 
     console.log(`[Server Post Delete] Deleting post ${postId} from Supabase (user: ${userId || 'n/a'})...`);
 
-    let deleteQuery = supabase.from("posts").delete().eq("id", postId);
-    if (userId) {
-      deleteQuery = deleteQuery.eq("user_id", userId);
-    }
-
-    let { error } = await deleteQuery;
-    if (error && userId) {
-      const fallback = await supabase.from("posts").delete().eq("id", postId);
-      error = fallback.error;
-    }
+    // Delete directly by primary key UUID
+    let { error } = await supabase.from("posts").delete().eq("id", postId);
 
     // Clean associated likes
     try {
-      await supabase.from("likes").delete().eq("post_id", postId);
+      if (isUuidStr(postId)) {
+        await supabase.from("likes").delete().eq("post_id", postId);
+      }
     } catch (e) {}
 
     if (error) {
+      if (error.message?.includes("invalid input syntax for type uuid") || error.code === "22P02") {
+        console.log(`[Server Post Delete] Post ${postId} was not in Postgres schema, resolved.`);
+        res.json({ success: true, message: `Post ${postId} deleted` });
+        return;
+      }
       console.warn("[Server Post Delete] Error:", error.message);
       res.status(400).json({ error: error.message });
       return;
@@ -1459,7 +1469,7 @@ app.post("/api/ai/sourcing", async (req, res) => {
       return;
     }
 
-    const systemInstruction = `You are Dropthan AI Sourcing Assistant, an expert B2B wholesale, dropshipping, logistics, GST, and digital marketing advisor for Indian and global e-commerce traders.
+    const systemInstruction = `You are Dropthan AI Sourcing Assistant, an expert B2B wholesale, dropshipping, logistics, GST, and supply chain advisor for Indian and global e-commerce traders.
 Provide concise, highly relevant, actionable B2B advice, price estimation, MOQ guidance, GST breakdown (e.g. 5% or 18% HSN codes), or supplier negotiation tips.
 User context: Role: ${userContext?.role || 'Traders'}, Company/Name: ${userContext?.displayName || 'User'}, Location: ${userContext?.location || 'India'}.
 Keep responses structured, professional, and easy to read on mobile screens (use bolding and clear line breaks).`;

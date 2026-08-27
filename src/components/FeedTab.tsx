@@ -41,13 +41,11 @@ const CATEGORY_SYNONYMS: Record<string, string[]> = {
   organic: ['organic_wholesaler', 'agro', 'spice', 'ayurveda', 'coconut', 'herbal', 'natural', 'pure', 'farm', 'honey', 'turmeric', 'cardamom', 'pepper', 'ginger', 'coir', 'copra'],
   influencer: ['creator', 'social', 'reels', 'promotion', 'collab', 'shoutout', 'ugc', 'model', 'video', 'youtube', 'instagram', 'cosmetics', 'beauty', 'apparel', 'lifestyle'],
   creator: ['influencer', 'social', 'reels', 'promotion', 'ugc', 'model', 'collab', 'video', 'instagram', 'youtube'],
-  promotion: ['influencer', 'creator', 'social', 'reels', 'shoutout', 'ugc', 'campaign', 'collab', 'cosmetics', 'apparel', 'marketing'],
+  promotion: ['influencer', 'creator', 'social', 'reels', 'shoutout', 'ugc', 'campaign', 'collab', 'cosmetics', 'apparel'],
   printing: ['packaging', 'box', 'boxes', 'label', 'carton', 'cartons', 'corrugated', 'pouch', 'pouches', 'polybag', 'tag', 'print', 'duplex', 'offset', 'mailer', 'tape', 'mono carton'],
   packaging: ['printing', 'box', 'boxes', 'label', 'carton', 'cartons', 'corrugated', 'tape', 'pouch', 'pouches', 'bag', 'mailer box', 'plastic', 'packing', 'mono carton', 'poly mailer'],
   box: ['packaging', 'printing', 'boxes', 'carton', 'corrugated', 'mailer', 'duplex', 'label', '3 ply', '5 ply'],
   boxes: ['packaging', 'printing', 'box', 'carton', 'corrugated', 'mailer', 'duplex', 'label'],
-  marketing: ['agency', 'ads', 'meta', 'facebook', 'google', 'performance', 'roas', 'scale', 'growth', 'leads', 'shopify', 'digital', 'funnel', 'media buyer'],
-  agency: ['marketing', 'ads', 'meta', 'facebook', 'google', 'performance', 'roas', 'scale', 'growth', 'leads', 'shopify'],
   electronics: ['gadget', 'earbuds', 'mobile', 'charger', 'bluetooth', 'accessories', 'nova', 'speaker', 'powerbank', 'cable', 'smart watch', 'tws', 'anc'],
   reseller: ['dropshipper', 'reselling', 'margin', 'b2b', 'bulk', 'dropship', 'supply'],
 };
@@ -57,7 +55,7 @@ const POPULAR_B2B_SEARCHES = [
   { label: '🧵 Surat Sarees & Kurtis', query: 'Surat Saree Kurti' },
   { label: '🥥 Organic Coconut & Copra', query: 'Organic Coconut' },
   { label: '📦 Corrugated Boxes', query: 'Packaging Boxes' },
-  { label: '📢 Meta & Google Ads Agency', query: 'Marketing Agency' },
+  { label: '🏷️ Garment Tags & Labels', query: 'Garment Tags' },
   { label: '🌐 IEC Verified Exporters', query: 'Exporter IEC' },
   { label: '🏢 Apex Apparel Wholesale', query: 'Apex Apparel' },
   { label: '🎧 ANC Wireless Earbuds', query: 'Earbuds Electronics' },
@@ -151,7 +149,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     { id: 'organic_wholesaler', label: '🌱 Organic Wholesalers' },
     { id: 'influencer', label: '⭐ Influencers' },
     { id: 'printing', label: '🖨️ Print & Packaging' },
-    { id: 'marketing', label: '📢 Agencies & Marketing' },
     { id: 'reseller', label: '🏷️ Resellers' },
   ];
 
@@ -215,15 +212,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
         catClean.includes('print') ||
         catClean.includes('box') ||
         catClean.includes('label')
-      );
-    }
-
-    if (catId === 'marketing') {
-      return (
-        roleClean === 'marketing' ||
-        catClean.includes('market') ||
-        catClean.includes('agency') ||
-        catClean.includes('ad')
       );
     }
 
@@ -584,7 +572,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       country: profile.country || 'India',
       gstin: profile.gstin,
       iecCode: profile.iecCode,
-      category: profile.role === 'printing' ? 'Packaging & Printing' : profile.role === 'marketing' ? 'Digital Marketing' : 'Textiles & Apparel',
+      category: profile.role === 'printing' ? 'Packaging & Printing' : profile.role === 'organic_wholesaler' ? 'Organic & Spices' : 'Textiles & Apparel',
       website: profile.website || profile.websiteUrl,
       instagram: profile.instagram || profile.instagramHandle,
       authorAvatar: profile.avatarUrl,

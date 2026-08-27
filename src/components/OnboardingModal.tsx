@@ -68,7 +68,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
     selectedRole === 'wholesaler' ||
     selectedRole === 'organic_wholesaler' ||
     selectedRole === 'exporter' ||
-    selectedRole === 'marketing' ||
     selectedRole === 'printing';
   const isExporterRole = selectedRole === 'exporter';
 
@@ -345,28 +344,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               </div>
               <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
                 {selectedRole === 'exporter' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
-              </div>
-            </div>
-
-            {/* Digital Marketing Agency */}
-            <div
-              id="role-option-marketing"
-              onClick={() => handleRoleSelect('marketing')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'marketing'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">📢</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Digital Marketing Agency</h4>
-                  <p className="text-[10px] text-slate-500">Ad campaigns, leads & design services.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'marketing' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
               </div>
             </div>
 

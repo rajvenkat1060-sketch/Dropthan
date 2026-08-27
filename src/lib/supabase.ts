@@ -96,17 +96,33 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
   const cacheKey = 'dropthan_cached_supabase_posts';
   const customPostsKey = 'dropthan_custom_posts';
 
+  let deletedIds = new Set<string>();
+  try {
+    const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+    if (delStr) {
+      const arr = JSON.parse(delStr);
+      if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+    }
+  } catch (e) {}
+
   let localCache: PostItem[] = [];
   try {
     const cached = localStorage.getItem(cacheKey);
-    if (cached) localCache = JSON.parse(cached);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        localCache = parsed.filter((p) => !deletedIds.has(String(p.id)));
+      }
+    }
     const custom = localStorage.getItem(customPostsKey);
     if (custom) {
       const parsedCustom = JSON.parse(custom);
       if (Array.isArray(parsedCustom)) {
         const idSet = new Set(localCache.map((p) => String(p.id)));
         parsedCustom.forEach((p) => {
-          if (!idSet.has(String(p.id))) localCache.push(p);
+          if (!idSet.has(String(p.id)) && !deletedIds.has(String(p.id))) {
+            localCache.push(p);
+          }
         });
       }
     }
@@ -129,7 +145,7 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
     ]);
 
     if (postsRes.status === 'fulfilled' && !postsRes.value.error && postsRes.value.data && postsRes.value.data.length > 0) {
-      remoteData = postsRes.value.data;
+      remoteData = postsRes.value.data.filter((item: any) => !deletedIds.has(String(item.id)));
     }
 
     if (profilesList.status === 'fulfilled' && Array.isArray(profilesList.value)) {
@@ -146,7 +162,7 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
       if (resp.ok) {
         const json = await resp.json();
         if (json.success && Array.isArray(json.posts) && json.posts.length > 0) {
-          remoteData = json.posts;
+          remoteData = json.posts.filter((item: any) => !deletedIds.has(String(item.id)));
         }
       }
     } catch (apiErr) {
@@ -155,7 +171,7 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
   }
 
   if (remoteData.length === 0) {
-    return localCache;
+    return localCache.filter((p) => !deletedIds.has(String(p.id)));
   }
 
   // Build high-speed profile lookup index
@@ -282,10 +298,18 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
     };
   });
 
-  // Merge remote and cached posts deduplicating by ID
+  // Merge remote and cached posts deduplicating by ID (strictly excluding any deleted post IDs)
   const mergedMap = new Map<string, PostItem>();
-  localCache.forEach((p) => mergedMap.set(String(p.id), p));
-  mapped.forEach((p) => mergedMap.set(String(p.id), p));
+  localCache.forEach((p) => {
+    if (!deletedIds.has(String(p.id))) {
+      mergedMap.set(String(p.id), p);
+    }
+  });
+  mapped.forEach((p) => {
+    if (!deletedIds.has(String(p.id))) {
+      mergedMap.set(String(p.id), p);
+    }
+  });
   const allCombined = Array.from(mergedMap.values()).sort((a, b) => {
     const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
     const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
@@ -490,49 +514,18 @@ export const deleteSupabasePost = async (postId: string, userId?: string): Promi
   if (!postId) return { success: false, error: 'Post ID is required' };
 
   console.log(`🗑️ [Supabase Post Delete] Deleting post ${postId} (userId: ${userId || 'n/a'})...`);
-  let lastError: any = null;
 
-  // 1. Direct Supabase delete from public.posts
+  // 1. Immediately record in persistent deleted IDs set to prevent caching resurrection
   try {
-    let query = supabase.from('posts').delete().eq('id', postId);
-    if (userId && isUuid(userId)) {
-      query = query.eq('user_id', userId);
+    const deletedStr = localStorage.getItem('dropthan_deleted_post_ids');
+    const deletedList: string[] = deletedStr ? JSON.parse(deletedStr) : [];
+    if (!deletedList.includes(postId)) {
+      deletedList.push(postId);
+      localStorage.setItem('dropthan_deleted_post_ids', JSON.stringify(deletedList));
     }
-    const { error } = await query;
-    if (error) {
-      console.warn('Supabase post delete initial attempt:', error.message);
-      lastError = error;
-      // Fallback without user_id filter if schema mismatch occurs
-      const { error: retryError } = await supabase.from('posts').delete().eq('id', postId);
-      if (!retryError) {
-        lastError = null;
-        console.log(`✅ [Supabase Post Delete]: Post ${postId} deleted by ID.`);
-      }
-    } else {
-      console.log(`✅ [Supabase Post Delete]: Post ${postId} successfully deleted from Supabase!`);
-    }
-  } catch (err: any) {
-    console.warn('Supabase post delete exception:', err);
-    lastError = err;
-  }
-
-  // 2. Also delete associated likes from likes table
-  try {
-    await supabase.from('likes').delete().eq('post_id', postId);
   } catch (e) {}
 
-  // 3. Server-side proxy delete call
-  try {
-    await fetch(`/api/posts/${encodeURIComponent(postId)}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
-    });
-  } catch (e) {
-    console.warn('Server delete post proxy notice:', e);
-  }
-
-  // 4. Clean local storage custom posts and saved IDs
+  // 2. Clean all local storage caches
   try {
     const customStr = localStorage.getItem('dropthan_custom_posts');
     if (customStr) {
@@ -540,17 +533,89 @@ export const deleteSupabasePost = async (postId: string, userId?: string): Promi
       const filtered = posts.filter((p) => String(p.id) !== String(postId));
       localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
     }
+    const cachedSupabaseStr = localStorage.getItem('dropthan_cached_supabase_posts');
+    if (cachedSupabaseStr) {
+      const posts: any[] = JSON.parse(cachedSupabaseStr);
+      const filtered = posts.filter((p) => String(p.id) !== String(postId));
+      localStorage.setItem('dropthan_cached_supabase_posts', JSON.stringify(filtered));
+    }
+    const postsLocal = localStorage.getItem('dropthan_posts');
+    if (postsLocal) {
+      const posts: any[] = JSON.parse(postsLocal);
+      const filtered = posts.filter((p) => String(p.id) !== String(postId));
+      localStorage.setItem('dropthan_posts', JSON.stringify(filtered));
+    }
     const savedStr = localStorage.getItem('dropthan_saved_ids');
     if (savedStr) {
       const saved: string[] = JSON.parse(savedStr);
       const filtered = saved.filter((id) => id !== postId);
       localStorage.setItem('dropthan_saved_ids', JSON.stringify(filtered));
     }
-  } catch (e) {}
+    const likedStr = localStorage.getItem('dropthan_liked_ids');
+    if (likedStr) {
+      const liked: string[] = JSON.parse(likedStr);
+      const filtered = liked.filter((id) => id !== postId);
+      localStorage.setItem('dropthan_liked_ids', JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.error('Error updating local storage caches on delete:', e);
+  }
 
+  let dbError: any = null;
+
+  // 3. Direct Supabase delete from public.posts: supabase.from('posts').delete().eq('id', postId)
+  if (isUuid(postId)) {
+    try {
+      console.log(`[Supabase Post Delete] Executing direct delete: supabase.from('posts').delete().eq('id', '${postId}')`);
+      const { error, count } = await supabase
+        .from('posts')
+        .delete({ count: 'exact' })
+        .eq('id', postId);
+
+      if (error) {
+        console.error('❌ [Supabase Direct Delete Error]:', error.message, error);
+        dbError = error;
+      } else {
+        console.log(`✅ [Supabase Direct Delete Success]: Post ${postId} removed from Supabase (rows affected: ${count ?? 1}).`);
+      }
+    } catch (err: any) {
+      console.error('❌ [Supabase Direct Delete Exception]:', err);
+      dbError = err;
+    }
+
+    // Also delete associated likes from likes table
+    try {
+      await supabase.from('likes').delete().eq('post_id', postId);
+    } catch (e) {
+      console.warn('Likes cleanup notice:', e);
+    }
+  } else {
+    console.log(`ℹ️ [Supabase Post Delete]: Post ${postId} is a client-side post; skipping remote Postgres UUID query.`);
+  }
+
+  // 4. Server-side proxy delete call
+  try {
+    const res = await fetch(`/api/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!res.ok) {
+      const resJson = await res.json().catch(() => ({}));
+      console.warn('Server delete endpoint notice:', resJson);
+    }
+  } catch (e) {
+    console.warn('Server delete post proxy notice:', e);
+  }
+
+  // 5. Trigger event for any listening UI components
   try {
     window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
   } catch (e) {}
+
+  if (dbError && dbError.message && !dbError.message.includes('invalid input syntax')) {
+    return { success: false, error: dbError.message };
+  }
 
   return { success: true };
 };

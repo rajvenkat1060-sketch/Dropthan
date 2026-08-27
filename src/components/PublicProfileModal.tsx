@@ -492,7 +492,7 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
                 </button>
 
                 {/* GST APPROVED / B2B VERIFIED BADGE (Raw GST number is strictly kept private for Admin review) */}
-                {isApproved && (gstin || role === 'wholesaler' || role === 'printing' || role === 'marketing') && (
+                {isApproved && (gstin || role === 'wholesaler' || role === 'printing') && (
                   <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-xl font-bold text-[11px] shadow-2xs">
                     <span>🛡️</span>
                     <span>GST Approved</span>

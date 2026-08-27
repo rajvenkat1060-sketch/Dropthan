@@ -1,4 +1,4 @@
-export type UserRole = 'wholesaler' | 'organic_wholesaler' | 'exporter' | 'marketing' | 'printing' | 'reseller' | 'influencer' | 'dropshipper' | 'admin';
+export type UserRole = 'wholesaler' | 'organic_wholesaler' | 'exporter' | 'printing' | 'reseller' | 'influencer' | 'dropshipper' | 'admin';
 
 export type UserStatus = 'Active' | 'Pending' | 'Rejected';
 

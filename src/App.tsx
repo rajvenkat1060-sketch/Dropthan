@@ -142,16 +142,31 @@ export default function App() {
   const syncPostsFromSupabase = useCallback(async () => {
     try {
       const remotePosts = await fetchSupabasePosts();
-      if (remotePosts && remotePosts.length > 0) {
-        setPosts((prev) => {
+      if (remotePosts) {
+        let deletedIds = new Set<string>();
+        try {
+          const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+          if (delStr) {
+            const arr = JSON.parse(delStr);
+            if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+          }
+        } catch (e) {}
+
+        setPosts(() => {
           const postMap = new Map<string, PostItem>();
-          // Base fallback posts
-          INITIAL_POSTS.forEach((p) => postMap.set(String(p.id), p));
-          // Locally created / current posts
-          prev.forEach((p) => postMap.set(String(p.id), p));
-          // All historical and newly fetched posts from Supabase cloud
-          remotePosts.forEach((p) => postMap.set(String(p.id), p));
-          
+          // Base fallback posts (excluding deleted)
+          INITIAL_POSTS.forEach((p) => {
+            if (!deletedIds.has(String(p.id))) {
+              postMap.set(String(p.id), p);
+            }
+          });
+          // All historical and newly fetched posts from Supabase cloud (excluding deleted)
+          remotePosts.forEach((p) => {
+            if (!deletedIds.has(String(p.id))) {
+              postMap.set(String(p.id), p);
+            }
+          });
+
           return Array.from(postMap.values()).sort((a, b) => {
             const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
             const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
@@ -309,29 +324,53 @@ export default function App() {
   const handleDeletePost = useCallback(async (postId: string) => {
     if (!postId) return;
 
-    // Instant local frontend state removal for silky-smooth experience
-    setPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
-    setSavedPostIds((prev) => prev.filter((id) => id !== postId));
-    setLikedPostIds((prev) => prev.filter((id) => id !== postId));
-
-    // Remove from localStorage custom posts
     try {
-      const savedCustomStr = localStorage.getItem('dropthan_custom_posts');
-      if (savedCustomStr) {
-        const parsed: PostItem[] = JSON.parse(savedCustomStr);
-        const filtered = parsed.filter((p) => String(p.id) !== String(postId));
-        localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
-      }
-    } catch (e) {}
+      console.log(`🗑️ [App.tsx handleDeletePost] Deleting post ID: ${postId}`);
 
-    showToast('🗑️ Post deleted successfully!');
+      // 1. Instant local frontend state removal so UI updates immediately
+      setPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
+      setSavedPostIds((prev) => prev.filter((id) => id !== postId));
+      setLikedPostIds((prev) => prev.filter((id) => id !== postId));
 
-    // Persist deletion in live Supabase public.posts table
-    try {
+      // 2. Persist deletion in persistent tombstone registry
+      try {
+        const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+        const delList: string[] = delStr ? JSON.parse(delStr) : [];
+        if (!delList.includes(postId)) {
+          delList.push(postId);
+          localStorage.setItem('dropthan_deleted_post_ids', JSON.stringify(delList));
+        }
+      } catch (e) {}
+
+      // 3. Remove from localStorage custom posts & cache
+      try {
+        const savedCustomStr = localStorage.getItem('dropthan_custom_posts');
+        if (savedCustomStr) {
+          const parsed: PostItem[] = JSON.parse(savedCustomStr);
+          const filtered = parsed.filter((p) => String(p.id) !== String(postId));
+          localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
+        }
+        const cachedSupabaseStr = localStorage.getItem('dropthan_cached_supabase_posts');
+        if (cachedSupabaseStr) {
+          const parsed: PostItem[] = JSON.parse(cachedSupabaseStr);
+          const filtered = parsed.filter((p) => String(p.id) !== String(postId));
+          localStorage.setItem('dropthan_cached_supabase_posts', JSON.stringify(filtered));
+        }
+      } catch (e) {}
+
+      // 4. Persist deletion in live Supabase public.posts table
       const uid = currentUser?.id || (currentUser?.phone ? `usr_${currentUser.phone.replace(/\D/g, '')}` : undefined);
-      await deleteSupabasePost(postId, uid);
-    } catch (err) {
-      console.warn('Error deleting post from Supabase:', err);
+      const result = await deleteSupabasePost(postId, uid);
+
+      if (result.success) {
+        showToast('🗑️ Post deleted successfully!');
+      } else {
+        console.error('Supabase post delete reported error:', result.error);
+        showToast('🗑️ Post removed from catalog.');
+      }
+    } catch (err: any) {
+      console.error('❌ Error in handleDeletePost:', err);
+      showToast('❌ Failed to delete post: ' + (err?.message || 'Please try again.'));
     }
   }, [currentUser]);
 
