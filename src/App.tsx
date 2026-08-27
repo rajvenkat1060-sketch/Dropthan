@@ -4,6 +4,7 @@ import { INITIAL_POSTS } from './data/initialData';
 import { OnboardingModal } from './components/OnboardingModal';
 import { Header } from './components/Header';
 import { FeedTab } from './components/FeedTab';
+import { ServicesTab } from './components/ServicesTab';
 import { ProfileTab } from './components/ProfileTab';
 import { CreatePostModal } from './components/CreatePostModal';
 import { BottomNav } from './components/BottomNav';
@@ -499,6 +500,10 @@ export default function App() {
             onToggleSave={handleToggleSave}
             onDeletePost={handleDeletePost}
           />
+        )}
+
+        {activeTab === 'services' && (
+          <ServicesTab user={currentUser} />
         )}
 
         {activeTab === 'profile' && (
