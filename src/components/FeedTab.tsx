@@ -618,6 +618,47 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
   return (
     <div className="space-y-3.5">
+      {/* BRAND VALUE PROPOSITION & ECOSYSTEM PILLARS */}
+      {!searchQuery && (
+        <div id="dropthan-ecosystem-banner" className="bg-gradient-to-r from-blue-900 via-[#0d47a1] to-indigo-900 text-white rounded-2xl p-3 shadow-sm border border-blue-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-white text-[#0d47a1] font-black text-sm px-2.5 py-1 rounded-xl italic tracking-tighter shadow-md border border-blue-200/50 flex items-center justify-center shrink-0 select-none">
+              dptn
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-black tracking-tight text-white">Dropthan B2B Ecosystem</span>
+                <span className="text-[9px] bg-amber-400 text-slate-900 font-extrabold px-1.5 py-0.2 rounded-full uppercase tracking-wider">
+                  Zero Middleman
+                </span>
+              </div>
+              <p className="text-[10px] text-blue-100/90 font-medium">
+                Dropshippers, Wholesalers &amp; Exporters Network • Direct WhatsApp • Meta Ads &amp; Billing Apps
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
+            <div className="flex items-center gap-1 text-[9px] font-bold bg-blue-950/60 border border-blue-400/30 px-2 py-0.5 rounded-lg text-blue-100">
+              <span>📦</span>
+              <span>Dropshippers</span>
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-bold bg-blue-950/60 border border-blue-400/30 px-2 py-0.5 rounded-lg text-blue-100">
+              <span>🛡️</span>
+              <span>GST Wholesalers</span>
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-bold bg-blue-950/60 border border-blue-400/30 px-2 py-0.5 rounded-lg text-blue-100">
+              <span>🌍</span>
+              <span>Exporters</span>
+            </div>
+            <div className="flex items-center gap-1 text-[9px] font-bold bg-blue-950/60 border border-blue-400/30 px-2 py-0.5 rounded-lg text-amber-300">
+              <span>⚡</span>
+              <span>Services</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Category filter buttons (rendered when not searching or in normal browse mode) */}
       {!searchQuery && (
         <div className="space-y-2.5">

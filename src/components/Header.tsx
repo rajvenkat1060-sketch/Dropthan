@@ -29,16 +29,16 @@ export const Header: React.FC<HeaderProps> = ({
       {/* TOP LOGO BAR */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-2 cursor-pointer" onClick={() => onSelectTab('feed')}>
-            <div className="bg-white text-[#0d47a1] font-black text-lg px-2 py-0.5 rounded-lg italic tracking-tighter shadow-sm">
+          <div id="dropthan-brand-header" className="flex items-center space-x-2.5 cursor-pointer" onClick={() => onSelectTab('feed')}>
+            <div className="bg-white text-[#0d47a1] font-black text-sm sm:text-base px-2.5 py-0.5 rounded-xl italic tracking-tighter shadow-sm flex items-center justify-center select-none shrink-0 border border-blue-200/50">
               dptn
             </div>
             <div>
-              <h1 className="text-xs font-extrabold text-white flex items-center gap-1">
-                Dropthan <span className="text-[9px] bg-blue-800 text-white border border-blue-300/40 px-1.5 py-0.2 rounded-full font-bold">B2B</span>
+              <h1 className="text-xs font-black text-white flex items-center gap-1">
+                Dropthan <span className="text-[9px] bg-blue-800 text-blue-100 border border-blue-300/40 px-1.5 py-0.2 rounded-full font-bold">B2B Ecosystem</span>
               </h1>
-              <p className="text-[9px] text-blue-100/90">
-                {user?.role ? `${user.role.toUpperCase()} Network` : 'Wholesale Network'}
+              <p className="text-[9px] text-blue-100/90 font-medium">
+                {user?.role ? `${user.role.toUpperCase()} Network` : 'Verified Wholesalers & Services'}
               </p>
             </div>
           </div>
