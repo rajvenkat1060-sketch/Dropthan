@@ -5,7 +5,8 @@ import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../uti
 import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
-import { Instagram, Trash2 } from 'lucide-react';
+import { AboutUsModal } from './AboutUsModal';
+import { Instagram, Trash2, Award, Info, ShieldCheck, Sparkles, ExternalLink } from 'lucide-react';
 
 interface ProfileTabProps {
   user: UserProfile | null;
@@ -49,6 +50,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [isSavingWebsite, setIsSavingWebsite] = useState(false);
   const [websiteSuccessMsg, setWebsiteSuccessMsg] = useState('');
   const [postToDelete, setPostToDelete] = useState<PostItem | null>(null);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   // Full Edit Business Profile Modal States
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
@@ -899,6 +901,61 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         </div>
       </div>
 
+      {/* ABOUT DROPTHAN & LEADERSHIP CARD */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="bg-gradient-to-r from-blue-900 via-[#0d47a1] to-indigo-900 text-white font-black text-xs px-2.5 py-1 rounded-xl italic tracking-tighter shadow-sm">
+              dptn
+            </div>
+            <div>
+              <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                <span>About Dropthan</span>
+                <span className="text-[9px] bg-blue-100 text-[#0d47a1] px-1.5 py-0.2 rounded-full font-bold">
+                  B2B Ecosystem
+                </span>
+              </h3>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Dropshippers, Wholesalers &amp; Exporters Network
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAboutModalOpen(true)}
+            className="text-[11px] font-bold text-[#0d47a1] hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <span>Learn More</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        </div>
+
+        <div className="bg-amber-50/80 border border-amber-200/70 rounded-xl p-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-700 to-indigo-900 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-2xs border border-amber-300">
+              VR
+            </div>
+            <div>
+              <p className="text-[11px] font-black text-slate-900">
+                Founder: <span className="text-amber-950 font-bold">Mr. Venkatraj</span>
+              </p>
+              <p className="text-[9px] text-slate-500 font-medium">
+                Zero Middleman B2B Direct Connectivity
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAboutModalOpen(true)}
+            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] rounded-lg shadow-2xs transition cursor-pointer"
+          >
+            View Details
+          </button>
+        </div>
+      </div>
+
       {/* EDIT WEBSITE LINK MODAL */}
       {isEditingWebsiteModal && (
         <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1221,6 +1278,12 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             await onDeletePost(postId);
           }
         }}
+      />
+
+      {/* ABOUT US & LEADERSHIP MODAL */}
+      <AboutUsModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
       />
     </div>
   );

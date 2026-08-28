@@ -10,6 +10,7 @@ import { CreatePostModal } from './components/CreatePostModal';
 import { BottomNav } from './components/BottomNav';
 import { PendingVerificationView } from './components/PendingVerificationView';
 import { AdminVerificationModal } from './components/AdminVerificationModal';
+import { AboutUsModal } from './components/AboutUsModal';
 import {
   fetchSupabasePosts,
   saveSupabasePost,
@@ -35,6 +36,7 @@ export default function App() {
   const [likeCountsMap, setLikeCountsMap] = useState<Record<string, number>>({});
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -572,6 +574,41 @@ export default function App() {
             onDeletePost={handleDeletePost}
           />
         )}
+        {/* OFFICIAL PLATFORM FOOTER */}
+        <footer className="pt-4 pb-2 border-t border-slate-200/80 text-center space-y-2 select-none">
+          <div className="flex items-center justify-center space-x-2 text-xs font-bold text-slate-700">
+            <span className="text-[#0d47a1] font-black">Dropthan</span>
+            <span>•</span>
+            <span className="text-[11px] text-slate-600">Dropshippers, Wholesalers &amp; Exporters</span>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap">
+            <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+              Founder: Mr. Venkatraj
+            </span>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={() => setIsAboutModalOpen(true)}
+              className="text-[#0d47a1] font-bold hover:underline cursor-pointer"
+            >
+              About Us &amp; Leadership
+            </button>
+            <span>•</span>
+            <a
+              href="https://wa.me/918838533014"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-700 font-bold hover:underline"
+            >
+              Support
+            </a>
+          </div>
+
+          <p className="text-[10px] text-slate-400">
+            © {new Date().getFullYear()} Dropthan. Zero Middleman B2B Direct Ecosystem.
+          </p>
+        </footer>
       </main>
 
       {/* CREATE OFFER / POST MODAL */}
@@ -582,6 +619,12 @@ export default function App() {
           onAddPost={handleAddPost}
         />
       )}
+
+      {/* ABOUT US & LEADERSHIP MODAL */}
+      <AboutUsModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
+      />
 
       {/* ADMIN GST VERIFICATION & MONITORING DASHBOARD MODAL */}
       <AdminVerificationModal
