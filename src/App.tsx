@@ -528,8 +528,8 @@ export default function App() {
 
   return (
     <GoogleMapsWrapper>
-      <div className="min-h-screen flex flex-col pb-20 bg-slate-50 text-slate-900 select-none">
-      {/* HEADER WITH REAL-TIME SEARCH */}
+      <div className="min-h-screen flex flex-col pb-24 md:pb-10 bg-slate-50 text-slate-900 select-none">
+      {/* HEADER WITH REAL-TIME SEARCH & DESKTOP NAVIGATION */}
       <Header
         user={currentUser}
         activeTab={activeTab}
@@ -537,10 +537,11 @@ export default function App() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onOpenAdmin={isAdminUserAuthorized ? handleOpenAdmin : undefined}
+        onOpenCreatePost={() => setIsCreateModalOpen(true)}
       />
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 p-3.5 space-y-4 w-full mx-auto transition-all max-w-lg md:max-w-2xl">
+      {/* MAIN CONTENT AREA - RESPONSIVE CONTAINER */}
+      <main className="flex-1 px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6 w-full max-w-7xl mx-auto transition-all">
         {activeTab === 'feed' && (
           <FeedTab
             posts={postsWithInteraction}
@@ -550,6 +551,7 @@ export default function App() {
             onToggleLike={handleToggleLike}
             onToggleSave={handleToggleSave}
             onDeletePost={handleDeletePost}
+            onOpenCreatePost={() => setIsCreateModalOpen(true)}
           />
         )}
 
@@ -575,11 +577,11 @@ export default function App() {
           />
         )}
         {/* OFFICIAL PLATFORM FOOTER */}
-        <footer className="pt-4 pb-2 border-t border-slate-200/80 text-center space-y-2 select-none">
+        <footer className="pt-6 pb-4 border-t border-slate-200/80 text-center space-y-2 select-none">
           <div className="flex items-center justify-center space-x-2 text-xs font-bold text-slate-700">
             <span className="text-[#0d47a1] font-black">Dropthan</span>
             <span>•</span>
-            <span className="text-[11px] text-slate-600">Dropshippers, Wholesalers &amp; Exporters</span>
+            <span className="text-[11px] text-slate-600">Dropshippers, Wholesalers &amp; Exporters Ecosystem</span>
           </div>
 
           <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap">
@@ -633,12 +635,12 @@ export default function App() {
 
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[250] bg-slate-900/95 text-white border border-slate-700/80 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-bold backdrop-blur-md flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div className="fixed bottom-20 md:bottom-8 left-1/2 -translate-x-1/2 md:left-auto md:right-8 md:translate-x-0 z-[250] bg-slate-900/95 text-white border border-slate-700/80 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-bold backdrop-blur-md flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* BOTTOM NAVIGATION BAR */}
+      {/* BOTTOM NAVIGATION BAR (MOBILE ONLY) */}
       <BottomNav
         activeTab={activeTab}
         onSelectTab={setActiveTab}

@@ -65,43 +65,45 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
   ];
 
   return (
-    <div className="space-y-4 max-w-lg md:max-w-2xl mx-auto pb-10">
+    <div className="space-y-6 w-full pb-10">
       {/* HERO HEADER */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#0a2f6c] text-white p-5 sm:p-6 shadow-md border border-blue-400/20">
-        <div className="relative z-10 space-y-2">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#0a2f6c] text-white p-6 sm:p-8 shadow-md border border-blue-400/20">
+        <div className="relative z-10 space-y-3">
           <div className="inline-flex items-center gap-1.5 bg-blue-400/20 border border-blue-300/30 text-blue-100 text-[11px] font-extrabold px-3 py-1 rounded-full backdrop-blur-sm shadow-xs">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             <span>Dropthan Growth Ecosystem</span>
           </div>
 
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white leading-snug">
+          <h2 className="text-xl sm:text-3xl font-black tracking-tight text-white leading-snug">
             Scale Your Wholesale & E-Commerce Business
           </h2>
 
-          <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed max-w-md">
+          <p className="text-xs sm:text-base text-blue-100/90 leading-relaxed max-w-2xl">
             Supercharge your B2B operations with high-converting Meta advertising campaigns and automated GST billing software.
           </p>
 
           {/* QUICK PERKS */}
-          <div className="pt-2 flex flex-wrap gap-2 text-[10px] font-bold text-blue-100">
-            <span className="flex items-center gap-1 bg-blue-900/50 px-2.5 py-1 rounded-xl border border-blue-400/20">
-              <Zap className="w-3 h-3 text-amber-300" /> Fast 15-Min Setup
+          <div className="pt-2 flex flex-wrap gap-2.5 text-xs font-bold text-blue-100">
+            <span className="flex items-center gap-1.5 bg-blue-900/50 px-3 py-1.5 rounded-xl border border-blue-400/20">
+              <Zap className="w-3.5 h-3.5 text-amber-300" /> Fast 15-Min Setup
             </span>
-            <span className="flex items-center gap-1 bg-blue-900/50 px-2.5 py-1 rounded-xl border border-blue-400/20">
-              <ShieldCheck className="w-3 h-3 text-emerald-400" /> 100% Verified Solutions
+            <span className="flex items-center gap-1.5 bg-blue-900/50 px-3 py-1.5 rounded-xl border border-blue-400/20">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> 100% Verified Solutions
             </span>
-            <span className="flex items-center gap-1 bg-blue-900/50 px-2.5 py-1 rounded-xl border border-blue-400/20">
-              <MessageCircle className="w-3 h-3 text-emerald-300" /> 24/7 WhatsApp Support
+            <span className="flex items-center gap-1.5 bg-blue-900/50 px-3 py-1.5 rounded-xl border border-blue-400/20">
+              <MessageCircle className="w-3.5 h-3.5 text-emerald-300" /> 24/7 WhatsApp Support
             </span>
           </div>
         </div>
 
         {/* BACKGROUND GLOW */}
-        <div className="absolute -right-8 -bottom-8 w-44 h-44 bg-blue-400/20 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -right-8 -bottom-8 w-60 h-60 bg-blue-400/20 rounded-full blur-3xl pointer-events-none" />
       </div>
 
+      {/* 2-COLUMN SERVICE GRID ON DESKTOP */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* SERVICE 1: META ADS MANAGEMENT */}
-      <div id="service-card-meta-ads" className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm space-y-4 hover:border-blue-300 transition">
+      <div id="service-card-meta-ads" className="flex flex-col justify-between h-full bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-5 hover:border-blue-300 transition">
         {/* CARD TOP */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center space-x-3">
@@ -123,12 +125,12 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
         </div>
 
         {/* DESCRIPTION */}
-        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3 rounded-2xl border border-slate-100">
+        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3.5 rounded-2xl border border-slate-100">
           Get profitable customer acquisitions with expert campaign architecture. We design video creatives, write persuasive copy, configure Meta Pixel / Conversion API, and scale budgets with target 3x–6x ROAS.
         </p>
 
         {/* BULLET FEATURES */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700 font-medium">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-slate-700 font-medium">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Custom B2B & D2C Audience Research</span>
@@ -148,7 +150,7 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
         </div>
 
         {/* PLAN SELECTION PILLS */}
-        <div className="space-y-1.5 pt-1">
+        <div className="space-y-2 pt-1">
           <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
             Select Campaign Scope:
           </label>
@@ -201,7 +203,7 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
         <button
           id="btn-meta-ads-whatsapp"
           onClick={() => handleOpenWhatsApp('Meta Ads Management Service', `Plan: ${selectedMetaPlan.toUpperCase()}`)}
-          className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition shadow-md cursor-pointer"
+          className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3.5 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition shadow-md cursor-pointer mt-auto"
         >
           <MessageCircle className="w-4 h-4 fill-white" />
           <span>Inquire & Start Meta Ads on WhatsApp</span>
@@ -210,7 +212,7 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
       </div>
 
       {/* SERVICE 2: BILLING & INVOICING APP */}
-      <div id="service-card-billing-app" className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm space-y-4 hover:border-blue-300 transition">
+      <div id="service-card-billing-app" className="flex flex-col justify-between h-full bg-white rounded-3xl p-6 border border-slate-200/90 shadow-sm space-y-5 hover:border-blue-300 transition">
         {/* CARD TOP */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center space-x-3">
@@ -232,12 +234,12 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
         </div>
 
         {/* DESCRIPTION */}
-        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3 rounded-2xl border border-slate-100">
+        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3.5 rounded-2xl border border-slate-100">
           Create GST compliant invoices, manage catalog inventory, generate thermal barcodes, and send automated PDF bills with payment links directly to customer WhatsApp in seconds.
         </p>
 
         {/* BULLET FEATURES */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-700 font-medium">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-slate-700 font-medium">
           <div className="flex items-center gap-2">
             <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>Mobile & Desktop Real-Time Sync</span>
@@ -289,12 +291,13 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
         <button
           id="btn-billing-app-whatsapp"
           onClick={() => handleOpenWhatsApp('Billing & Invoicing App', `Plan Duration: ${selectedBillingPlan.toUpperCase()} (Demo Request)`)}
-          className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition shadow-md cursor-pointer"
+          className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-3.5 px-4 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition shadow-md cursor-pointer mt-auto"
         >
           <MessageCircle className="w-4 h-4 fill-white" />
           <span>Get Billing App Demo on WhatsApp</span>
           <ArrowRight className="w-4 h-4" />
         </button>
+      </div>
       </div>
 
       {/* DIRECT CONSULTATION & SUPPORT BANNER */}

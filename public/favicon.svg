@@ -1,28 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!-- Solid Blue Circle Background matching Dropthan brand -->
   <circle cx="256" cy="256" r="256" fill="#0d47a1" />
 
-  <g transform="translate(0, 0)">
-    <!-- Stylized "dptn" brand mark in white -->
+  <g text-anchor="middle">
+    <!-- Stylized "dptn" brand logo in crisp white bold italic -->
     <text x="256" y="270" 
-          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" 
-          font-size="140" 
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
+          font-size="144" 
           font-weight="900" 
           font-style="italic" 
-          letter-spacing="-7px" 
+          letter-spacing="-6px" 
           fill="#ffffff" 
-          text-anchor="middle"
-          dominant-baseline="middle">
+          dominant-baseline="central">
       dptn
     </text>
-    <!-- "B2B BUSINESS" subtitle perfectly centered below -->
-    <text x="256" y="360" 
-          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" 
+    <!-- "B2B BUSINESS" subtitle perfectly centered -->
+    <text x="256" y="365" 
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
           font-size="34" 
           font-weight="800" 
           letter-spacing="5px" 
-          fill="#ffffff" 
-          text-anchor="middle">
+          fill="#ffffff">
       B2B BUSINESS
     </text>
   </g>

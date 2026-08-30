@@ -24,6 +24,7 @@ interface FeedTabProps {
   onToggleLike: (postId: string) => void;
   onToggleSave: (postId: string) => void;
   onDeletePost?: (postId: string) => void;
+  onOpenCreatePost?: () => void;
 }
 
 const PAGE_SIZE = 8;
@@ -75,6 +76,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   onToggleLike,
   onToggleSave,
   onDeletePost,
+  onOpenCreatePost,
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchTab, setSearchTab] = useState<'all' | 'products' | 'suppliers'>('all');
@@ -878,7 +880,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {matchingProfiles.map((supplier, idx) => {
               const avatar = getAvatarUrl(supplier.avatarUrl, supplier.role);
               const cleanName = supplier.companyName || supplier.displayName || 'Verified Supplier';
@@ -889,7 +891,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
               return (
                 <div
                   key={`supplier-card-${supplier.id || supplier.phone || 'sup'}-${idx}`}
-                  className="bg-white border border-blue-100 hover:border-blue-300 rounded-2xl p-3.5 space-y-2.5 shadow-2xs hover:shadow-md transition"
+                  className="flex flex-col justify-between h-full bg-white border border-blue-100 hover:border-blue-300 rounded-2xl p-4 space-y-3 shadow-2xs hover:shadow-md transition"
                 >
                   <div className="flex items-start justify-between gap-2.5">
                     <div
@@ -1087,29 +1089,30 @@ export const FeedTab: React.FC<FeedTabProps> = ({
               )}
             </div>
           ) : (
-            visiblePosts.map((post, pIdx) => {
-              const resolved = resolvePostAuthor(post);
-              const cleanCurrentPhone = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';
-              const cleanPostPhone = (post.phone || resolved.phone || '').replace(/\D/g, '');
-              const postUserId = (post as any).user_id || (post as any).userId;
-              const isOwnPost = Boolean(
-                currentUser && (
-                  (postUserId && currentUser.id && (String(postUserId).trim() === String(currentUser.id).trim())) ||
-                  (resolved.userId && currentUser.id && (String(resolved.userId).trim() === String(currentUser.id).trim())) ||
-                  (cleanCurrentPhone && cleanPostPhone && (
-                    cleanCurrentPhone === cleanPostPhone ||
-                    (cleanCurrentPhone.length >= 10 && cleanPostPhone.length >= 10 && cleanCurrentPhone.slice(-10) === cleanPostPhone.slice(-10))
-                  )) ||
-                  (currentUser.displayName && (resolved.authorName === currentUser.displayName || post.author === currentUser.displayName)) ||
-                  (currentUser.companyName && (resolved.authorName === currentUser.companyName || post.author === currentUser.companyName)) ||
-                  (currentUser.fullName && (resolved.authorName === currentUser.fullName || post.author === currentUser.fullName))
-                )
-              );
-              return (
-                <div
-                  key={`feed-post-${post.id || pIdx}`}
-                  className="bg-white border border-blue-100 rounded-2xl p-3.5 space-y-2.5 shadow-sm hover:shadow-md hover:border-blue-200 transition"
-                >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+              {visiblePosts.map((post, pIdx) => {
+                const resolved = resolvePostAuthor(post);
+                const cleanCurrentPhone = currentUser?.phone ? currentUser.phone.replace(/\D/g, '') : '';
+                const cleanPostPhone = (post.phone || resolved.phone || '').replace(/\D/g, '');
+                const postUserId = (post as any).user_id || (post as any).userId;
+                const isOwnPost = Boolean(
+                  currentUser && (
+                    (postUserId && currentUser.id && (String(postUserId).trim() === String(currentUser.id).trim())) ||
+                    (resolved.userId && currentUser.id && (String(resolved.userId).trim() === String(currentUser.id).trim())) ||
+                    (cleanCurrentPhone && cleanPostPhone && (
+                      cleanCurrentPhone === cleanPostPhone ||
+                      (cleanCurrentPhone.length >= 10 && cleanPostPhone.length >= 10 && cleanCurrentPhone.slice(-10) === cleanPostPhone.slice(-10))
+                    )) ||
+                    (currentUser.displayName && (resolved.authorName === currentUser.displayName || post.author === currentUser.displayName)) ||
+                    (currentUser.companyName && (resolved.authorName === currentUser.companyName || post.author === currentUser.companyName)) ||
+                    (currentUser.fullName && (resolved.authorName === currentUser.fullName || post.author === currentUser.fullName))
+                  )
+                );
+                return (
+                  <div
+                    key={`feed-post-${post.id || pIdx}`}
+                    className="flex flex-col justify-between h-full bg-white border border-blue-100 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-sm hover:shadow-md hover:border-blue-200 transition"
+                  >
                   {/* AUTHOR HEADER -> PUBLIC PROFILE TRIGGER */}
                   <div className="flex items-center justify-between">
                     <div
@@ -1373,7 +1376,8 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
 
           {/* INFINITE SCROLL / LOAD MORE SENTINEL */}

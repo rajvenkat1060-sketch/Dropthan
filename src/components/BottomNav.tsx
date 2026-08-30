@@ -15,7 +15,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab }) 
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-slate-200 py-1.5 px-3 z-50 flex justify-around items-center text-[11px] font-bold text-slate-500 shadow-lg">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-md border-t border-slate-200 py-1.5 px-3 z-50 flex justify-around items-center text-[11px] font-bold text-slate-500 shadow-lg">
       {navItems.map((item) => {
         const isActive = activeTab === item.id;
         return (

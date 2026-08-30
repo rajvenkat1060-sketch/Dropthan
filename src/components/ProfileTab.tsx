@@ -297,22 +297,22 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   };
 
   return (
-    <div className="space-y-4 max-w-md mx-auto">
+    <div className="space-y-6 w-full max-w-5xl mx-auto pb-10">
       {/* CLEAR TOP BACK BUTTON NAVIGATION */}
-      <div className="flex items-center justify-between bg-white border border-blue-100 rounded-2xl p-3 shadow-sm">
+      <div className="flex items-center justify-between bg-white border border-blue-100 rounded-2xl p-3.5 shadow-sm">
         <button
           onClick={() => onSelectTab ? onSelectTab('feed') : null}
-          className="flex items-center space-x-1.5 text-xs font-bold text-[#0d47a1] bg-blue-50 hover:bg-blue-100 active:scale-95 px-3 py-1.5 rounded-xl border border-blue-200 transition cursor-pointer shadow-2xs"
+          className="flex items-center space-x-1.5 text-xs font-bold text-[#0d47a1] bg-blue-50 hover:bg-blue-100 active:scale-95 px-3.5 py-2 rounded-xl border border-blue-200 transition cursor-pointer shadow-2xs"
           title="Return to Main Feed"
         >
           <span className="text-sm font-extrabold">←</span>
-          <span>Back to Feed</span>
+          <span>Back to Marketplace</span>
         </button>
-        <span className="text-xs font-extrabold text-slate-700 tracking-wider">Account & Profile</span>
+        <span className="text-xs sm:text-sm font-extrabold text-slate-700 tracking-wider">Account & Business Profile</span>
       </div>
 
       {/* USER PROFILE HEADER CARD */}
-      <div className="bg-white border border-blue-100 rounded-2xl p-4 space-y-4 shadow-md">
+      <div className="bg-white border border-blue-100 rounded-3xl p-5 sm:p-7 space-y-5 shadow-md">
         <div className="flex items-start space-x-3.5">
           {/* DYNAMIC CIRCULAR PROFILE PICTURE WITH UPLOAD BUTTON */}
           <div className="relative group flex-shrink-0">
@@ -708,70 +708,72 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {visibleUserPosts.map((post, pIdx) => (
-                    <div
-                      key={`user-profile-post-${post.id || pIdx}`}
-                      className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 shadow-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {visibleUserPosts.map((post, pIdx) => (
+                      <div
+                        key={`user-profile-post-${post.id || pIdx}`}
+                        className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5 shadow-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <img
+                              src={getAvatarUrl(post.authorAvatar, post.role)}
+                              alt={post.author}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-7 h-7 rounded-full border border-blue-200 object-cover flex-shrink-0"
+                            />
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-900">{post.author}</h4>
+                              <p className="text-[10px] text-slate-500">{post.category}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1.5">
+                            {onDeletePost && (
+                              <button
+                                type="button"
+                                onClick={() => setPostToDelete(post)}
+                                className="inline-flex items-center gap-1 text-[10px] text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1 rounded-lg font-bold transition cursor-pointer active:scale-95 shadow-2xs"
+                                title="Delete this post from Dropthan"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-600" />
+                                <span>Delete</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex space-x-3 items-center">
                           <img
-                            src={getAvatarUrl(post.authorAvatar, post.role)}
-                            alt={post.author}
+                            src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
+                            className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
+                            alt={post.caption || 'Product offer'}
                             loading="lazy"
                             decoding="async"
-                            className="w-7 h-7 rounded-full border border-blue-200 object-cover flex-shrink-0"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (!target.src.includes('unsplash.com')) {
+                                target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
+                              }
+                            }}
                           />
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-900">{post.author}</h4>
-                            <p className="text-[10px] text-slate-500">{post.category}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs font-black text-[#0d47a1]">{post.price}</span>
+                              <span className="text-[10px] text-slate-500 font-semibold">{post.moq}</span>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-1.5">
-                          {onDeletePost && (
-                            <button
-                              type="button"
-                              onClick={() => setPostToDelete(post)}
-                              className="inline-flex items-center gap-1 text-[10px] text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1 rounded-lg font-bold transition cursor-pointer active:scale-95 shadow-2xs"
-                              title="Delete this post from Dropthan"
-                            >
-                              <Trash2 className="w-3 h-3 text-rose-600" />
-                              <span>Delete</span>
-                            </button>
-                          )}
+                        <div className="pt-1 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
+                          <span className="font-semibold">❤️ {post.likesCount || 0} Authentic Likes</span>
+                          <span className="text-[10px] text-emerald-600 font-bold">Active in Feed</span>
                         </div>
                       </div>
-
-                      <div className="flex space-x-3 items-center">
-                        <img
-                          src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
-                          className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
-                          alt={post.caption || 'Product offer'}
-                          loading="lazy"
-                          decoding="async"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (!target.src.includes('unsplash.com')) {
-                              target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
-                            }
-                          }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs font-black text-[#0d47a1]">{post.price}</span>
-                            <span className="text-[10px] text-slate-500 font-semibold">{post.moq}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-1 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
-                        <span className="font-semibold">❤️ {post.likesCount || 0} Authentic Likes</span>
-                        <span className="text-[10px] text-emerald-600 font-bold">Active in Feed</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
 
                   {visiblePostsCount < userPosts.length && (
                     <div className="text-center pt-2">
@@ -801,88 +803,90 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {visibleSavedPosts.map((post, sIdx) => (
-                    <div
-                      key={`saved-post-item-${post.id || sIdx}`}
-                      className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 shadow-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <img
-                            src={getAvatarUrl(post.authorAvatar, post.role)}
-                            alt={post.author}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-7 h-7 rounded-full border border-blue-200 object-cover flex-shrink-0"
-                          />
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-900 truncate max-w-[150px]">{post.author}</h4>
-                            <p className="text-[10px] text-slate-500">{post.location || post.category}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {visibleSavedPosts.map((post, sIdx) => (
+                      <div
+                        key={`saved-post-item-${post.id || sIdx}`}
+                        className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2.5 shadow-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <img
+                              src={getAvatarUrl(post.authorAvatar, post.role)}
+                              alt={post.author}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-7 h-7 rounded-full border border-blue-200 object-cover flex-shrink-0"
+                            />
+                            <div>
+                              <h4 className="text-xs font-bold text-slate-900 truncate max-w-[150px]">{post.author}</h4>
+                              <p className="text-[10px] text-slate-500">{post.location || post.category}</p>
+                            </div>
                           </div>
-                        </div>
 
-                        <button
-                          onClick={() => onToggleSave(post.id)}
-                          className="text-[10px] text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-bold hover:bg-slate-200 transition cursor-pointer"
-                        >
-                          Unsave 🔖
-                        </button>
-                      </div>
-
-                      <div className="flex space-x-3 items-center">
-                        <img
-                          src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
-                          className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
-                          alt={post.caption || 'Product offer'}
-                          loading="lazy"
-                          decoding="async"
-                          onError={(e) => {
-                            const target = e.currentTarget;
-                            if (!target.src.includes('unsplash.com')) {
-                              target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
-                            }
-                          }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs font-black text-[#0d47a1]">{post.price}</span>
-                            <span className="text-[10px] text-slate-500 font-semibold">{post.moq}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 text-xs">
-                        <button
-                          onClick={() => onToggleLike(post.id)}
-                          className="text-[10px] font-bold text-slate-600 flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>{post.isLiked ? '❤️' : '🤍'}</span>
-                          <span>{post.likesCount || 0} Likes</span>
-                        </button>
-
-                        <div className="flex items-center gap-1.5">
-                          {post.phone && (
-                            <a
-                              href={`https://wa.me/${post.phone.replace(/\D/g, '').length === 10 ? `91${post.phone.replace(/\D/g, '')}` : post.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${post.author}, I saved your post on Dropthan and would like to inquire.`)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
-                            >
-                              <span>💬</span>
-                              <span>WhatsApp</span>
-                            </a>
-                          )}
                           <button
                             onClick={() => onToggleSave(post.id)}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-1 rounded-lg transition cursor-pointer"
+                            className="text-[10px] text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-bold hover:bg-slate-200 transition cursor-pointer"
                           >
-                            Remove
+                            Unsave 🔖
                           </button>
                         </div>
+
+                        <div className="flex space-x-3 items-center">
+                          <img
+                            src={getOptimizedImageUrl(getPostImageUrl(post), 300)}
+                            className="w-16 h-16 object-cover rounded-lg border border-slate-200 flex-shrink-0 bg-slate-100"
+                            alt={post.caption || 'Product offer'}
+                            loading="lazy"
+                            decoding="async"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (!target.src.includes('unsplash.com')) {
+                                target.src = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=80';
+                              }
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-slate-800 line-clamp-2 leading-snug">{post.caption}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs font-black text-[#0d47a1]">{post.price}</span>
+                              <span className="text-[10px] text-slate-500 font-semibold">{post.moq}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 text-xs">
+                          <button
+                            onClick={() => onToggleLike(post.id)}
+                            className="text-[10px] font-bold text-slate-600 flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{post.isLiked ? '❤️' : '🤍'}</span>
+                            <span>{post.likesCount || 0} Likes</span>
+                          </button>
+
+                          <div className="flex items-center gap-1.5">
+                            {post.phone && (
+                              <a
+                                href={`https://wa.me/${post.phone.replace(/\D/g, '').length === 10 ? `91${post.phone.replace(/\D/g, '')}` : post.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${post.author}, I saved your post on Dropthan and would like to inquire.`)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition shadow-2xs flex items-center gap-1"
+                              >
+                                <span>💬</span>
+                                <span>WhatsApp</span>
+                              </a>
+                            )}
+                            <button
+                              onClick={() => onToggleSave(post.id)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-1 rounded-lg transition cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
 
                   {visibleSavedCount < savedPosts.length && (
                     <div className="text-center pt-2">
