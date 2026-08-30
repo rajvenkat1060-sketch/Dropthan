@@ -36,6 +36,9 @@ export interface UserProfile {
   is_gst_approved?: boolean;
   isGstApproved?: boolean;
   rejectionReason?: string;
+  admin_rating?: number;
+  adminRating?: number;
+  rating?: number;
 }
 
 export interface PostItem {

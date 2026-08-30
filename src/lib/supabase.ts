@@ -46,6 +46,14 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
 };
 
 export const subscribeToSupabasePosts = (onPostsChange: (payload?: any) => void) => {
+  let debounceTimer: any = null;
+  const debouncedPostsChange = (payload?: any) => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      onPostsChange(payload);
+    }, 150);
+  };
+
   const channelName = `realtime_posts_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const channel = supabase
     .channel(channelName)
@@ -54,7 +62,7 @@ export const subscribeToSupabasePosts = (onPostsChange: (payload?: any) => void)
       { event: '*', schema: 'public', table: 'posts' },
       (payload) => {
         console.log('⚡ [Realtime Supabase] Posts table update detected:', payload.eventType, payload);
-        onPostsChange(payload);
+        debouncedPostsChange(payload);
       }
     )
     .subscribe((status) => {
@@ -62,17 +70,26 @@ export const subscribeToSupabasePosts = (onPostsChange: (payload?: any) => void)
     });
 
   const handleLocalEvent = (e: any) => {
-    onPostsChange({ eventType: 'INSERT', new: e?.detail });
+    debouncedPostsChange({ eventType: 'INSERT', new: e?.detail });
   };
   window.addEventListener('dropthan_posts_updated', handleLocalEvent);
 
   return () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
     supabase.removeChannel(channel);
     window.removeEventListener('dropthan_posts_updated', handleLocalEvent);
   };
 };
 
 export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
+  let debounceTimer: any = null;
+  const debouncedProfilesChange = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      onProfilesChange();
+    }, 150);
+  };
+
   const channel = supabase
     .channel('public:profiles')
     .on(
@@ -80,7 +97,7 @@ export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
       { event: '*', schema: 'public', table: 'profiles' },
       (payload) => {
         console.log('⚡ [Realtime Supabase] Profiles table update detected:', payload.eventType);
-        onProfilesChange();
+        debouncedProfilesChange();
       }
     )
     .subscribe((status) => {
@@ -88,11 +105,12 @@ export const subscribeToSupabaseProfiles = (onProfilesChange: () => void) => {
     });
 
   const handleLocalProfileUpdate = () => {
-    onProfilesChange();
+    debouncedProfilesChange();
   };
   window.addEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
 
   return () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
     supabase.removeChannel(channel);
     window.removeEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
   };
@@ -1018,11 +1036,209 @@ export const toggleSupabaseLike = async (postId: string, userId: string, isLikin
   }
 };
 
+let inMemoryAdminRatingsCache: Record<string, number> | null = null;
+
+const getInMemoryAdminRatings = (): Record<string, number> => {
+  if (inMemoryAdminRatingsCache !== null) {
+    return inMemoryAdminRatingsCache;
+  }
+  try {
+    const stored = localStorage.getItem('dropthan_admin_ratings');
+    inMemoryAdminRatingsCache = stored ? JSON.parse(stored) : {};
+  } catch (e) {
+    inMemoryAdminRatingsCache = {};
+  }
+  return inMemoryAdminRatingsCache || {};
+};
+
+export const getEffectiveAdminRating = (userOrId: UserProfile | string | undefined): number | undefined => {
+  if (!userOrId) return undefined;
+  
+  let id = '';
+  let phone = '';
+  let name = '';
+  let company = '';
+  let directRating: number | undefined = undefined;
+
+  if (typeof userOrId === 'object') {
+    id = userOrId.id || '';
+    phone = userOrId.phone || '';
+    name = userOrId.displayName || userOrId.fullName || '';
+    company = userOrId.companyName || '';
+    if (typeof userOrId.admin_rating === 'number') directRating = userOrId.admin_rating;
+    else if (typeof userOrId.adminRating === 'number') directRating = userOrId.adminRating;
+    else if (typeof userOrId.rating === 'number') directRating = userOrId.rating;
+  } else {
+    id = String(userOrId).trim();
+    phone = String(userOrId).trim();
+  }
+
+  const cleanId = id.trim();
+  const cleanPhone = phone.trim();
+  const digits = (cleanPhone || cleanId).replace(/\D/g, '');
+  const cleanName = name.toLowerCase().trim();
+  const cleanCompany = company.toLowerCase().trim();
+
+  // 1. Check live admin overrides in fast in-memory cache FIRST (O(1) lookup)
+  const map = getInMemoryAdminRatings();
+  if (cleanId && typeof map[cleanId] === 'number') return map[cleanId];
+  if (cleanPhone && typeof map[cleanPhone] === 'number') return map[cleanPhone];
+  if (digits && typeof map[digits] === 'number') return map[digits];
+  if (cleanName && typeof map[cleanName] === 'number') return map[cleanName];
+  if (cleanCompany && typeof map[cleanCompany] === 'number') return map[cleanCompany];
+
+  // 2. Check direct rating property from profile object
+  if (directRating !== undefined) {
+    return directRating;
+  }
+
+  // 3. Check rating summary cache
+  const cleanKey = (cleanId || cleanPhone).replace(/[^a-zA-Z0-9]/g, '_');
+  if (cleanKey) {
+    try {
+      const rStored = localStorage.getItem(`dropthan_ratings_${cleanKey}`);
+      if (rStored) {
+        const parsed = JSON.parse(rStored);
+        if (parsed && typeof parsed.average === 'number') return parsed.average;
+      }
+    } catch (e) {}
+  }
+
+  return undefined;
+};
+
+export const getAdminRatingForUser = (userOrId: UserProfile | string | undefined): number => {
+  const rating = getEffectiveAdminRating(userOrId);
+  return rating !== undefined ? rating : 5.0;
+};
+
+export const updateUserAdminRatingInSupabase = async (
+  userIdentifier: string,
+  ratingScore: number
+): Promise<{ success: boolean; score: number }> => {
+  const normalizedScore = Math.min(5.0, Math.max(1.0, Math.round(ratingScore * 10) / 10));
+  const cleanId = userIdentifier.trim();
+  const digits = cleanId.replace(/\D/g, '');
+
+  console.log(`⭐ [Admin Rating Update] Setting official rating for "${cleanId}" to ${normalizedScore} / 5.0`);
+
+  // 1. Update in-memory cache and localStorage dropthan_admin_ratings dictionary
+  try {
+    const adminRatings = { ...getInMemoryAdminRatings() };
+    adminRatings[cleanId] = normalizedScore;
+    if (digits) adminRatings[digits] = normalizedScore;
+    inMemoryAdminRatingsCache = adminRatings;
+    localStorage.setItem('dropthan_admin_ratings', JSON.stringify(adminRatings));
+  } catch (e) {}
+
+  // 2. Update dropthan_all_profiles in localStorage
+  try {
+    const localKey = 'dropthan_all_profiles';
+    const stored = localStorage.getItem(localKey);
+    if (stored) {
+      const list: UserProfile[] = JSON.parse(stored);
+      const updatedList = list.map((p) => {
+        const pDigits = (p.phone || '').replace(/\D/g, '');
+        const match =
+          p.id === cleanId ||
+          p.phone === cleanId ||
+          (digits && pDigits === digits) ||
+          (p.displayName && p.displayName.toLowerCase() === cleanId.toLowerCase()) ||
+          (p.companyName && p.companyName.toLowerCase() === cleanId.toLowerCase());
+        if (match) {
+          return {
+            ...p,
+            admin_rating: normalizedScore,
+            adminRating: normalizedScore,
+          };
+        }
+        return p;
+      });
+      localStorage.setItem(localKey, JSON.stringify(updatedList));
+    }
+  } catch (e) {}
+
+  // 3. Update current user if matching
+  try {
+    const cur = localStorage.getItem('dropthan_user');
+    if (cur) {
+      const u: UserProfile = JSON.parse(cur);
+      const uDigits = (u.phone || '').replace(/\D/g, '');
+      if (u.id === cleanId || u.phone === cleanId || (digits && uDigits === digits)) {
+        u.admin_rating = normalizedScore;
+        u.adminRating = normalizedScore;
+        localStorage.setItem('dropthan_user', JSON.stringify(u));
+      }
+    }
+  } catch (e) {}
+
+  // 4. Update rating summary cache
+  const sanitizeKey = cleanId.replace(/[^a-zA-Z0-9]/g, '_');
+  const ratingKey = `dropthan_ratings_${sanitizeKey}`;
+  const summary: RatingSummary = {
+    average: normalizedScore,
+    count: 1,
+    reviews: [
+      {
+        id: `admin-rating-${Date.now()}`,
+        reviewerId: 'admin_official',
+        reviewerName: 'Dropthan Admin Verified Assessment',
+        ratingScore: normalizedScore,
+        reviewText: 'Official verified B2B rating assigned and verified by Dropthan platform admin.',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+  try {
+    localStorage.setItem(ratingKey, JSON.stringify(summary));
+  } catch (e) {}
+
+  // 5. Update Supabase profiles table
+  try {
+    const queryPromises: Promise<any>[] = [];
+    queryPromises.push(
+      supabase.from('profiles').update({ admin_rating: normalizedScore } as any).eq('id', cleanId) as any
+    );
+    queryPromises.push(
+      supabase.from('profiles').update({ admin_rating: normalizedScore } as any).eq('phone', cleanId) as any
+    );
+    if (digits && digits.length >= 7) {
+      queryPromises.push(
+        supabase.from('profiles').update({ admin_rating: normalizedScore } as any).ilike('phone', `%${digits}%`) as any
+      );
+    }
+    await Promise.allSettled(queryPromises);
+  } catch (err) {
+    console.warn('Notice updating admin rating in Supabase:', err);
+  }
+
+  // 6. Broadcast events for UI reactivity
+  window.dispatchEvent(new CustomEvent('dropthan_rating_updated', { detail: { userId: cleanId, score: normalizedScore } }));
+  window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+
+  return { success: true, score: normalizedScore };
+};
+
 export const fetchUserRatingsFromSupabase = async (
   targetUserId: string,
   reviewerId?: string
 ): Promise<RatingSummary> => {
-  let defaultSummary: RatingSummary = { average: 0, count: 0, reviews: [] };
+  const adminScore = getAdminRatingForUser(targetUserId);
+
+  let defaultSummary: RatingSummary = {
+    average: adminScore,
+    count: 1,
+    reviews: [
+      {
+        id: `admin-rating-${targetUserId}`,
+        reviewerId: 'admin_official',
+        reviewerName: 'Dropthan Admin Verified Assessment',
+        ratingScore: adminScore,
+        reviewText: 'Official verified B2B rating assigned and audited by Dropthan platform admin.',
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
 
   const sanitizeKey = targetUserId.replace(/[^a-zA-Z0-9]/g, '_');
   const localKey = `dropthan_ratings_${sanitizeKey}`;
@@ -1030,65 +1246,31 @@ export const fetchUserRatingsFromSupabase = async (
   if (localData) {
     try {
       const parsed = JSON.parse(localData);
-      if (parsed && typeof parsed.average === 'number') {
+      if (parsed && typeof parsed.average === 'number' && parsed.average > 0) {
         defaultSummary = {
-          average: parsed.average || 0,
-          count: parsed.count || 0,
+          average: parsed.average,
+          count: parsed.count || 1,
           userRating: parsed.userRating,
           userReview: parsed.userReview,
-          reviews: Array.isArray(parsed.reviews) ? parsed.reviews : [],
+          reviews: Array.isArray(parsed.reviews) ? parsed.reviews : defaultSummary.reviews,
         };
       }
-    } catch (e) {
-      /* ignore */
-    }
+    } catch (e) {}
   }
 
   try {
     const { data, error } = await supabase
-      .from('ratings')
-      .select('*')
-      .eq('target_user_id', targetUserId)
-      .order('created_at', { ascending: false });
+      .from('profiles')
+      .select('admin_rating')
+      .or(`id.eq.${targetUserId},phone.eq.${targetUserId}`)
+      .maybeSingle();
 
-    if (!error && data) {
-      if (data.length === 0) {
-        const summary: RatingSummary = { average: 0, count: 0, userRating: undefined, userReview: undefined, reviews: [] };
-        localStorage.setItem(localKey, JSON.stringify(summary));
-        return summary;
-      }
-
-      const count = data.length;
-      const totalScore = data.reduce((acc: number, curr: any) => acc + (Number(curr.rating_score) || 0), 0);
-      const average = count > 0 ? Math.round((totalScore / count) * 10) / 10 : 0;
-
-      let userRating: number | undefined = undefined;
-      let userReview: string | undefined = undefined;
-
-      const reviews: ReviewItem[] = data.map((item: any) => {
-        const score = Number(item.rating_score) || 5;
-        const revId = item.reviewer_id || 'anonymous';
-        const revName = item.reviewer_name || (revId.length > 8 ? `${revId.substring(0, 6)}...` : revId);
-        const text = item.review_text || '';
-
-        if (reviewerId && (revId === reviewerId || revId === reviewerId.replace(/\D/g, ''))) {
-          userRating = score;
-          userReview = text;
-        }
-
-        return {
-          id: String(item.id || `${revId}-${Date.now()}`),
-          reviewerId: revId,
-          reviewerName: revName,
-          ratingScore: score,
-          reviewText: text,
-          createdAt: item.created_at || new Date().toISOString(),
-        };
-      });
-
-      const summary: RatingSummary = { average, count, userRating, userReview, reviews };
-      localStorage.setItem(localKey, JSON.stringify(summary));
-      return summary;
+    if (!error && data && data.admin_rating !== undefined && data.admin_rating !== null) {
+      const liveAdminScore = Number(data.admin_rating);
+      defaultSummary.average = liveAdminScore;
+      defaultSummary.count = 1;
+      localStorage.setItem(localKey, JSON.stringify(defaultSummary));
+      return defaultSummary;
     }
   } catch (err) {
     console.warn('Supabase fetch ratings notice:', err);
@@ -1104,73 +1286,9 @@ export const saveUserRatingToSupabase = async (
   reviewerName?: string,
   reviewText?: string
 ): Promise<RatingSummary> => {
-  const sanitizeKey = targetUserId.replace(/[^a-zA-Z0-9]/g, '_');
-  const localKey = `dropthan_ratings_${sanitizeKey}`;
-
-  // 1. Persist to Supabase
-  try {
-    const payload: any = {
-      target_user_id: targetUserId,
-      reviewer_id: reviewerId,
-      rating_score: ratingScore,
-      created_at: new Date().toISOString(),
-    };
-    if (reviewerName) payload.reviewer_name = reviewerName;
-    if (reviewText) payload.review_text = reviewText;
-
-    const { error } = await supabase.from('ratings').upsert(payload, { onConflict: 'target_user_id,reviewer_id' });
-    if (error) {
-      console.warn('Supabase extended rating upsert notice, retrying core fields:', error.message);
-      // Fallback if custom columns review_text/reviewer_name are missing in table schema
-      await supabase.from('ratings').upsert(
-        {
-          target_user_id: targetUserId,
-          reviewer_id: reviewerId,
-          rating_score: ratingScore,
-          created_at: new Date().toISOString(),
-        },
-        { onConflict: 'target_user_id,reviewer_id' }
-      );
-    }
-  } catch (err) {
-    console.warn('Supabase save rating notice:', err);
-  }
-
-  // 2. Refresh live summary from Supabase or update local state
-  const updatedSummary = await fetchUserRatingsFromSupabase(targetUserId, reviewerId);
-
-  // If local array doesn't have the new review text yet (e.g., offline or schema fallback), update local cache directly
-  let localReviews = updatedSummary.reviews || [];
-  const existingIdx = localReviews.findIndex((r) => r.reviewerId === reviewerId);
-  const newReviewObj: ReviewItem = {
-    id: `rev-${reviewerId}-${Date.now()}`,
-    reviewerId,
-    reviewerName: reviewerName || reviewerId,
-    ratingScore,
-    reviewText: reviewText || '',
-    createdAt: new Date().toISOString(),
-  };
-
-  if (existingIdx >= 0) {
-    localReviews[existingIdx] = newReviewObj;
-  } else {
-    localReviews = [newReviewObj, ...localReviews];
-  }
-
-  const finalCount = localReviews.length;
-  const totalScore = localReviews.reduce((acc, r) => acc + r.ratingScore, 0);
-  const finalAvg = finalCount > 0 ? Math.round((totalScore / finalCount) * 10) / 10 : ratingScore;
-
-  const finalSummary: RatingSummary = {
-    average: finalAvg,
-    count: finalCount,
-    userRating: ratingScore,
-    userReview: reviewText,
-    reviews: localReviews,
-  };
-
-  localStorage.setItem(localKey, JSON.stringify(finalSummary));
-  return finalSummary;
+  // Directly route to admin rating persistence
+  await updateUserAdminRatingInSupabase(targetUserId, ratingScore);
+  return fetchUserRatingsFromSupabase(targetUserId, reviewerId);
 };
 
 // ==========================================
@@ -1559,12 +1677,16 @@ export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] 
         status: existing.status || prof.status,
         is_gst_approved: existing.is_gst_approved !== undefined ? existing.is_gst_approved : prof.is_gst_approved,
         isGstApproved: existing.isGstApproved !== undefined ? existing.isGstApproved : prof.isGstApproved,
+        admin_rating: getEffectiveAdminRating(existing) ?? getEffectiveAdminRating(prof) ?? existing.admin_rating ?? prof.admin_rating,
+        adminRating: getEffectiveAdminRating(existing) ?? getEffectiveAdminRating(prof) ?? existing.adminRating ?? prof.adminRating,
       };
       byId.set(canonicalId, merged);
     } else {
       const normalized = {
         ...prof,
         id: canonicalId,
+        admin_rating: getEffectiveAdminRating(prof) ?? prof.admin_rating,
+        adminRating: getEffectiveAdminRating(prof) ?? prof.adminRating,
       };
       byId.set(canonicalId, normalized);
     }
@@ -1688,10 +1810,12 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
         password: item.password || undefined,
         createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-        status: (item.status as UserStatus) || 'Active',
-        is_gst_approved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : (item.status === 'Active' || item.status === 'active'),
-        isGstApproved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : (item.status === 'Active' || item.status === 'active'),
+        status: (item.status as UserStatus) || (item.is_gst_approved ? 'Active' : 'Pending'),
+        is_gst_approved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : false,
+        isGstApproved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : false,
         rejectionReason: item.rejection_reason || undefined,
+        admin_rating: getEffectiveAdminRating(item.id || cleanPhone) ?? (item.admin_rating !== undefined ? Number(item.admin_rating) : (item.rating !== undefined ? Number(item.rating) : undefined)),
+        adminRating: getEffectiveAdminRating(item.id || cleanPhone) ?? (item.admin_rating !== undefined ? Number(item.admin_rating) : (item.rating !== undefined ? Number(item.rating) : undefined)),
       };
     });
 
@@ -2176,9 +2300,9 @@ export const fetchFullUserProfile = async (
       instagramHandle: data.instagram || data.instagram_handle || undefined,
       avatarUrl: data.avatar_url || data.avatarUrl || undefined,
       createdAt: data.created_at || data.createdAt || new Date().toISOString(),
-      status: (data.status as UserStatus) || 'Active',
-      is_gst_approved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : (data.status === 'Active' || data.status === 'active'),
-      isGstApproved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : (data.status === 'Active' || data.status === 'active'),
+      status: (data.status as UserStatus) || (data.is_gst_approved ? 'Active' : 'Pending'),
+      is_gst_approved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : false,
+      isGstApproved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : false,
       rejectionReason: data.rejection_reason || undefined,
     };
   };
@@ -2641,6 +2765,8 @@ const parseProfileFromSupabase = (data: any): UserProfile => {
     createdAt: data.created_at || new Date().toISOString(),
     status: (data.status as UserStatus) || 'Active',
     rejectionReason: data.rejection_reason || undefined,
+    admin_rating: data.admin_rating !== undefined ? Number(data.admin_rating) : (data.rating !== undefined ? Number(data.rating) : undefined),
+    adminRating: data.admin_rating !== undefined ? Number(data.admin_rating) : (data.rating !== undefined ? Number(data.rating) : undefined),
   };
 };
 

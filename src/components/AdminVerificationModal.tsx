@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { UserProfile, PostItem, LikeRecord } from '../types';
 import {
   fetchAllUserProfilesFromSupabase,
   updateUserStatusInSupabase,
+  updateUserAdminRatingInSupabase,
   deleteUserAccount,
   preRegisterUserAccount,
   fetchAllLikesFromSupabase,
   subscribeToAdminRealtime,
+  getEffectiveAdminRating,
+  getAdminRatingForUser,
 } from '../lib/supabase';
 
 interface AdminVerificationModalProps {
@@ -33,6 +36,9 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
   const [activeTab, setActiveTab] = useState<'approvals' | 'users' | 'daily' | 'products' | 'interactions' | 'sql'>('approvals');
   const [approvalFilter, setApprovalFilter] = useState<'pending' | 'all' | 'active' | 'rejected'>('pending');
   const [searchTerm, setSearchTerm] = useState('');
+  const [usersSearchTerm, setUsersSearchTerm] = useState('');
+  const [approvalsPage, setApprovalsPage] = useState(1);
+  const [usersPage, setUsersPage] = useState(1);
   const [isCopiedSql, setIsCopiedSql] = useState(false);
   
   // Security PIN states
@@ -347,6 +353,28 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     if (onStatusChanged) onStatusChanged();
   };
 
+  const handleUpdateRating = async (phoneOrId: string, rating: number) => {
+    const clamped = Math.max(1.0, Math.min(5.0, Number(rating.toFixed(1))));
+    await updateUserAdminRatingInSupabase(phoneOrId, clamped);
+    setProfiles((prev) =>
+      prev.map((p) =>
+        p.phone === phoneOrId || p.id === phoneOrId ? { ...p, admin_rating: clamped, rating: clamped } : p
+      )
+    );
+    if (
+      selectedUserForProfile &&
+      (selectedUserForProfile.phone === phoneOrId || selectedUserForProfile.id === phoneOrId)
+    ) {
+      setSelectedUserForProfile((prev) => (prev ? { ...prev, admin_rating: clamped, rating: clamped } : null));
+    }
+    setToastMessage({
+      type: 'success',
+      text: `✓ Admin rating updated to ${clamped.toFixed(1)} ★`,
+    });
+    setTimeout(() => setToastMessage(null), 3000);
+    if (onStatusChanged) onStatusChanged();
+  };
+
   const handleOpenReject = (phone: string, name: string) => {
     setRejectReasonModal({
       isOpen: true,
@@ -510,31 +538,69 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     }
   };
 
-  // COUNTERS & FILTERS
-  const pendingCount = profiles.filter((p) => !p.status || p.status.toLowerCase() === 'pending').length;
-  const activeCount = profiles.filter((p) => p.status?.toLowerCase() === 'active').length;
-  const rejectedCount = profiles.filter((p) => p.status?.toLowerCase() === 'rejected').length;
+  const PAGE_SIZE = 20;
 
-  const filteredProfiles = profiles.filter((p) => {
-    const status = (p.status || 'Pending').toLowerCase();
-    if (approvalFilter === 'pending' && status !== 'pending') return false;
-    if (approvalFilter === 'active' && status !== 'active') return false;
-    if (approvalFilter === 'rejected' && status !== 'rejected') return false;
+  // COUNTERS & FILTERS (MEMOIZED)
+  const pendingCount = useMemo(
+    () => profiles.filter((p) => !p.status || p.status.toLowerCase() === 'pending').length,
+    [profiles]
+  );
+  const activeCount = useMemo(
+    () => profiles.filter((p) => p.status?.toLowerCase() === 'active').length,
+    [profiles]
+  );
+  const rejectedCount = useMemo(
+    () => profiles.filter((p) => p.status?.toLowerCase() === 'rejected').length,
+    [profiles]
+  );
 
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
+  const filteredProfiles = useMemo(() => {
+    return profiles.filter((p) => {
+      const status = (p.status || 'Pending').toLowerCase();
+      if (approvalFilter === 'pending' && status !== 'pending') return false;
+      if (approvalFilter === 'active' && status !== 'active') return false;
+      if (approvalFilter === 'rejected' && status !== 'rejected') return false;
+
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
+        const matchGstin = (p.gstin || '').toLowerCase().includes(q);
+        const matchPhone = (p.phone || '').toLowerCase().includes(q);
+        const matchRole = (p.role || '').toLowerCase().includes(q);
+        return matchName || matchGstin || matchPhone || matchRole;
+      }
+      return true;
+    });
+  }, [profiles, approvalFilter, searchTerm]);
+
+  const totalApprovalsPages = Math.max(1, Math.ceil(filteredProfiles.length / PAGE_SIZE));
+  const paginatedApprovalProfiles = useMemo(() => {
+    const start = (approvalsPage - 1) * PAGE_SIZE;
+    return filteredProfiles.slice(start, start + PAGE_SIZE);
+  }, [filteredProfiles, approvalsPage]);
+
+  // Registered Users Filter and Pagination
+  const filteredRegisteredUsers = useMemo(() => {
+    if (!usersSearchTerm.trim()) return profiles;
+    const q = usersSearchTerm.toLowerCase();
+    return profiles.filter((p) => {
       const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
       const matchGstin = (p.gstin || '').toLowerCase().includes(q);
       const matchPhone = (p.phone || '').toLowerCase().includes(q);
       const matchRole = (p.role || '').toLowerCase().includes(q);
       return matchName || matchGstin || matchPhone || matchRole;
-    }
-    return true;
-  });
+    });
+  }, [profiles, usersSearchTerm]);
+
+  const totalUsersPages = Math.max(1, Math.ceil(filteredRegisteredUsers.length / PAGE_SIZE));
+  const paginatedRegisteredUsers = useMemo(() => {
+    const start = (usersPage - 1) * PAGE_SIZE;
+    return filteredRegisteredUsers.slice(start, start + PAGE_SIZE);
+  }, [filteredRegisteredUsers, usersPage]);
 
   // Calculate Product analytics metrics
   const totalPosts = posts.length;
-  const totalLikes = posts.reduce((acc, p) => acc + (p.likeCount || 0), 0);
+  const totalLikes = useMemo(() => posts.reduce((acc, p) => acc + (p.likeCount || 0), 0), [posts]);
 
   return (
     <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
@@ -725,7 +791,9 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   <p className="text-xs text-slate-500">All submitted GST registrations are processed.</p>
                 </div>
               ) : (
-                filteredProfiles.map((user, uIdx) => {
+                <>
+                  <div className="space-y-4">
+                    {paginatedApprovalProfiles.map((user, uIdx) => {
                   const statusStr = (user.status || 'Pending').toLowerCase();
                   const isPending = statusStr === 'pending';
                   const isApproved = statusStr === 'active';
@@ -839,6 +907,69 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         </div>
                       </div>
 
+                      {/* ADMIN-CONTROLLED RATING MANAGER */}
+                      <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-amber-500 font-bold text-base">★</span>
+                            <span className="text-xs font-bold text-amber-950">
+                              Admin-Controlled Rating:{' '}
+                              <span className="font-black text-sm text-amber-900">
+                                {getAdminRatingForUser(user).toFixed(1)}
+                              </span>{' '}
+                              / 5.0
+                            </span>
+                          </div>
+                          <div>
+                            {getAdminRatingForUser(user) >= 4.0 ? (
+                              <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <span>✓</span>
+                                <span>Verified Feed Eligible (≥4.0★)</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-rose-100 text-rose-800 border border-rose-300 font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <span>🚫</span>
+                                <span>Hidden from Verified Feed (&lt;4.0★)</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-amber-200/60">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {[5.0, 4.8, 4.5, 4.2, 4.0, 3.8, 3.5, 3.2, 3.0, 2.5, 1.0].map((score) => (
+                              <button
+                                key={`rating-btn-${user.id || user.phone}-${score}`}
+                                type="button"
+                                onClick={() => handleUpdateRating(user.phone || user.id, score)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer active:scale-95 ${
+                                  getAdminRatingForUser(user) === score
+                                    ? score >= 4.0
+                                      ? 'bg-amber-500 text-white border-amber-600 shadow-2xs'
+                                      : 'bg-slate-700 text-white border-slate-800 shadow-2xs'
+                                    : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                                }`}
+                              >
+                                {score.toFixed(1)}★
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1 text-[10px] text-amber-900 font-bold">
+                            <span>Score:</span>
+                            <select
+                              value={getAdminRatingForUser(user).toFixed(1)}
+                              onChange={(e) => handleUpdateRating(user.phone || user.id, parseFloat(e.target.value))}
+                              className="bg-white border border-amber-300 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-800 cursor-pointer focus:outline-none"
+                            >
+                              {[5.0, 4.9, 4.8, 4.7, 4.6, 4.5, 4.2, 4.0, 3.8, 3.5, 3.2, 3.0, 2.5, 2.0, 1.5, 1.0].map((num) => (
+                                <option key={num} value={num.toFixed(1)}>
+                                  {num.toFixed(1)} ★ {num >= 4.0 ? '(≥4.0★ Visible)' : '(<4.0★ Hidden)'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
                       {user.rejectionReason && isRejected && (
                         <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl p-2.5 font-medium">
                           ⚠️ Rejection Reason: {user.rejectionReason}
@@ -898,7 +1029,37 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                       </div>
                     </div>
                   );
-                })
+                })}
+                  </div>
+
+                  {/* APPROVALS PAGINATION CONTROLS */}
+                  {totalApprovalsPages > 1 && (
+                    <div className="flex items-center justify-between pt-3 pb-1 border-t border-slate-200 text-xs font-bold text-slate-700 flex-wrap gap-2">
+                      <span className="text-slate-500 text-[11px]">
+                        Showing {(approvalsPage - 1) * PAGE_SIZE + 1}–{Math.min(approvalsPage * PAGE_SIZE, filteredProfiles.length)} of {filteredProfiles.length}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          disabled={approvalsPage === 1}
+                          onClick={() => setApprovalsPage((p) => Math.max(1, p - 1))}
+                          className="px-3 py-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-bold shadow-2xs"
+                        >
+                          ‹ Previous
+                        </button>
+                        <span className="px-2 text-[11px] text-[#0d47a1] font-black">
+                          Page {approvalsPage} of {totalApprovalsPages}
+                        </span>
+                        <button
+                          disabled={approvalsPage >= totalApprovalsPages}
+                          onClick={() => setApprovalsPage((p) => Math.min(totalApprovalsPages, p + 1))}
+                          className="px-3 py-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-bold shadow-2xs"
+                        >
+                          Next ›
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1058,6 +1219,21 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                 </div>
               </div>
 
+              {/* SEARCH FILTER FOR REGISTERED USERS */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={usersSearchTerm}
+                  onChange={(e) => {
+                    setUsersSearchTerm(e.target.value);
+                    setUsersPage(1);
+                  }}
+                  placeholder="Search registered user by Company Name, GSTIN, Phone, or Role..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1]"
+                />
+                <span className="absolute left-3 top-2.5 text-xs text-slate-400">🔍</span>
+              </div>
+
               <div className="overflow-x-auto border border-slate-200 rounded-2xl shadow-xs">
                 <table className="w-full text-left text-xs text-slate-800">
                   <thead className="bg-slate-100 text-[#0d47a1] font-black uppercase text-[10px] border-b border-slate-200">
@@ -1066,13 +1242,20 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                       <th className="p-3">Phone</th>
                       <th className="p-3">Role</th>
                       <th className="p-3">GSTIN</th>
-                      <th className="p-3">Location</th>
+                      <th className="p-3">Rating (Admin)</th>
                       <th className="p-3">Status</th>
                       <th className="p-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {profiles.map((p, i) => (
+                    {paginatedRegisteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="text-center p-8 text-slate-500 font-bold">
+                          No matching registered users found.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedRegisteredUsers.map((p, i) => (
                       <tr key={`admin-users-tab-row-${p.id || p.phone || 'usr'}-${i}`} className="hover:bg-slate-50 transition">
                         <td className="p-3 font-bold text-slate-900">
                           {p.companyName || p.fullName || p.displayName}
@@ -1084,7 +1267,37 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                           </span>
                         </td>
                         <td className="p-3 font-mono text-slate-600">{p.gstin || 'N/A'}</td>
-                        <td className="p-3 text-slate-600">{p.location || 'India'}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`font-black px-1.5 py-0.5 rounded text-[11px] border ${
+                              getAdminRatingForUser(p) >= 4.0
+                                ? 'text-amber-900 bg-amber-50 border-amber-200'
+                                : 'text-slate-600 bg-slate-100 border-slate-300'
+                            }`}>
+                              ★ {getAdminRatingForUser(p).toFixed(1)}
+                            </span>
+                            <select
+                              value={getAdminRatingForUser(p).toFixed(1)}
+                              onChange={(e) => handleUpdateRating(p.phone || p.id, parseFloat(e.target.value))}
+                              className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-700 cursor-pointer focus:outline-none focus:border-[#0d47a1]"
+                            >
+                              {[5.0, 4.9, 4.8, 4.7, 4.6, 4.5, 4.2, 4.0, 3.8, 3.5, 3.2, 3.0, 2.5, 2.0, 1.5, 1.0].map((num) => (
+                                <option key={num} value={num.toFixed(1)}>
+                                  {num.toFixed(1)} ★ {num >= 4.0 ? '(≥4.0★ Visible)' : '(<4.0★ Hidden)'}
+                                </option>
+                              ))}
+                            </select>
+                            {getAdminRatingForUser(p) >= 4.0 ? (
+                              <span className="text-[9px] text-emerald-700 font-extrabold bg-emerald-50 px-1 rounded border border-emerald-200">
+                                ✓ ≥4.0★
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-rose-700 font-extrabold bg-rose-50 px-1 rounded border border-rose-200">
+                                🚫 &lt;4.0★
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-3">
                           <span
                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -1116,10 +1329,39 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    ))
+                    )}
                   </tbody>
                 </table>
               </div>
+
+              {/* REGISTERED USERS PAGINATION TOOLBAR */}
+              {totalUsersPages > 1 && (
+                <div className="flex items-center justify-between pt-2 pb-1 text-xs font-bold text-slate-700 flex-wrap gap-2">
+                  <span className="text-slate-500 text-[11px]">
+                    Showing {(usersPage - 1) * PAGE_SIZE + 1}–{Math.min(usersPage * PAGE_SIZE, filteredRegisteredUsers.length)} of {filteredRegisteredUsers.length} users
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      disabled={usersPage === 1}
+                      onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
+                      className="px-3 py-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-bold shadow-2xs"
+                    >
+                      ‹ Previous
+                    </button>
+                    <span className="px-2 text-[11px] text-[#0d47a1] font-black">
+                      Page {usersPage} of {totalUsersPages}
+                    </span>
+                    <button
+                      disabled={usersPage >= totalUsersPages}
+                      onClick={() => setUsersPage((p) => Math.min(totalUsersPages, p + 1))}
+                      className="px-3 py-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-xs font-bold shadow-2xs"
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1582,6 +1824,60 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
                     ⚠️ Rejection Note: {selectedUserForProfile.rejectionReason}
                   </p>
                 )}
+              </div>
+
+              {/* Admin-Assigned Rating & Visibility Threshold */}
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-amber-500 font-bold text-base">★</span>
+                    <span className="text-xs font-bold text-amber-950">
+                      Official Admin Rating:{' '}
+                      <span className="font-black text-sm text-amber-900">
+                        {getAdminRatingForUser(selectedUserForProfile).toFixed(1)}
+                      </span>{' '}
+                      / 5.0
+                    </span>
+                  </div>
+                  <div>
+                    {getAdminRatingForUser(selectedUserForProfile) >= 4.0 ? (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <span>✓</span>
+                        <span>Verified Feed Visible (≥4.0★)</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] bg-rose-100 text-rose-800 border border-rose-300 font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <span>🚫</span>
+                        <span>Hidden from Verified Feed (&lt;4.0★)</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-amber-200/60">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {[5.0, 4.8, 4.5, 4.2, 4.0, 3.8, 3.5, 3.2, 3.0, 2.5, 1.0].map((score) => (
+                      <button
+                        key={`modal-rating-btn-${score}`}
+                        type="button"
+                        onClick={() =>
+                          handleUpdateRating(
+                            selectedUserForProfile.phone || selectedUserForProfile.id,
+                            score
+                          )
+                        }
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer active:scale-95 ${
+                          getAdminRatingForUser(selectedUserForProfile) === score
+                            ? score >= 4.0
+                              ? 'bg-amber-500 text-white border-amber-600 shadow-2xs'
+                              : 'bg-slate-700 text-white border-slate-800 shadow-2xs'
+                            : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-100'
+                        }`}
+                      >
+                        {score.toFixed(1)}★
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Address & GPS */}

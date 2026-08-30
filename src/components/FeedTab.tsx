@@ -3,12 +3,18 @@ import { PostItem, UserRole, UserProfile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getPostImageUrl, getPostImagesList } from '../utils/image';
 import { ImageCarousel } from './ImageCarousel';
-import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { Trash2 } from 'lucide-react';
-import { fetchAllUserProfilesFromSupabase, subscribeToSupabaseProfiles, searchProfilesFromSupabase, deduplicateUserProfiles } from '../lib/supabase';
+import {
+  fetchAllUserProfilesFromSupabase,
+  subscribeToSupabaseProfiles,
+  searchProfilesFromSupabase,
+  deduplicateUserProfiles,
+  getAdminRatingForUser,
+  getEffectiveAdminRating,
+} from '../lib/supabase';
 
 interface FeedTabProps {
   posts: PostItem[];
@@ -97,14 +103,41 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       loadProfiles();
     });
 
-    const handleLocalProfileUpdate = () => {
+    const handleLocalProfileUpdate = (e?: Event) => {
+      const customEvt = e as CustomEvent<{ userId?: string; score?: number }>;
+      if (customEvt && customEvt.detail && customEvt.detail.userId && typeof customEvt.detail.score === 'number') {
+        const { userId, score } = customEvt.detail;
+        const cleanId = userId.trim();
+        const digits = cleanId.replace(/\D/g, '');
+        setAllProfiles((prev) =>
+          prev.map((p) => {
+            const pDigits = (p.phone || '').replace(/\D/g, '');
+            const match =
+              p.id === cleanId ||
+              p.phone === cleanId ||
+              (digits && pDigits === digits) ||
+              (p.displayName && p.displayName.toLowerCase() === cleanId.toLowerCase()) ||
+              (p.companyName && p.companyName.toLowerCase() === cleanId.toLowerCase());
+            if (match) {
+              return {
+                ...p,
+                admin_rating: score,
+                adminRating: score,
+              };
+            }
+            return p;
+          })
+        );
+      }
       loadProfiles();
     };
     window.addEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
+    window.addEventListener('dropthan_rating_updated', handleLocalProfileUpdate);
 
     return () => {
       unsubscribe();
       window.removeEventListener('dropthan_profiles_updated', handleLocalProfileUpdate);
+      window.removeEventListener('dropthan_rating_updated', handleLocalProfileUpdate);
     };
   }, []);
 
@@ -129,17 +162,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   }>({
     isOpen: false,
     vendorName: '',
-  });
-
-  const [reviewModalState, setReviewModalState] = useState<{
-    isOpen: boolean;
-    targetId: string;
-    targetName: string;
-    targetRole?: string;
-  }>({
-    isOpen: false,
-    targetId: '',
-    targetName: '',
   });
 
   const categories: { id: string; label: string }[] = [
@@ -227,10 +249,28 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return roleClean === catId || catClean.includes(catId);
   };
 
-  // Compile full list of suppliers/businesses from live Supabase profiles + current user
+  // STRICT ADMIN CONTROL & RATING FILTER:
+  // A supplier/creator profile appears in the "Verified Suppliers & Creators" list ONLY IF:
+  // 1. Explicitly approved and toggled 'Active' / 'is_gst_approved' by the admin.
+  // 2. The admin-assigned rating is strictly greater than or equal to 4.0 (>= 4.0, e.g. 4.0, 4.2, 4.5, 4.8, 5.0).
+  // Profiles with a rating below 4.0 (< 4.0, e.g. 3.2, 3.5, 3.8) or without an assigned rating are automatically excluded.
+  const isExplicitlyVerifiedAndHighRated = (prof: UserProfile): boolean => {
+    if (!prof) return false;
+    const status = (prof.status || '').toLowerCase().trim();
+    if (!status || status === 'rejected' || status === 'pending') return false;
+    const isApproved = prof.is_gst_approved === true || prof.isGstApproved === true || status === 'active';
+    if (!isApproved) return false;
+
+    // Check admin-assigned rating (must be >= 4.0)
+    const adminRating = getEffectiveAdminRating(prof);
+    return typeof adminRating === 'number' && adminRating >= 4.0;
+  };
+
+  // Compile strictly verified suppliers/businesses from live Supabase profiles + current user with rating >= 4.0
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
     const list = currentUser ? [currentUser, ...allProfiles] : allProfiles;
-    return deduplicateUserProfiles(list);
+    const deduped = deduplicateUserProfiles(list);
+    return deduped.filter(isExplicitlyVerifiedAndHighRated);
   }, [allProfiles, currentUser]);
 
   // Profile lookup map for dynamic enrichment of post author details & avatars
@@ -877,6 +917,9 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                           <h4 className="text-xs font-bold text-slate-900 group-hover:text-[#0d47a1] transition truncate">
                             {cleanName}
                           </h4>
+                          <span className="text-[9px] bg-amber-50 text-amber-900 border border-amber-200 font-bold px-1.5 py-0.2 rounded-md flex items-center gap-0.5">
+                            ★ {getAdminRatingForUser(supplier).toFixed(1)}
+                          </span>
                           <span className="text-[9px] bg-blue-50 text-[#0d47a1] border border-blue-200 font-bold px-1.5 py-0.2 rounded-md uppercase">
                             {supplier.role}
                           </span>
@@ -983,6 +1026,21 @@ export const FeedTab: React.FC<FeedTabProps> = ({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* EMPTY STATE FOR VERIFIED SUPPLIERS TAB */}
+      {searchTab === 'suppliers' && matchingProfiles.length === 0 && (
+        <div className="bg-white border border-blue-100 rounded-2xl p-6 text-center text-slate-500 text-xs shadow-sm space-y-2.5">
+          <span className="text-3xl block">🏢</span>
+          <p className="font-bold text-slate-800 text-sm">
+            {searchQuery ? `No verified suppliers matching "${searchQuery}"` : 'No Admin-Verified Suppliers Yet'}
+          </p>
+          <p className="text-[11px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+            {searchQuery
+              ? 'Try searching with different terms or check the Products & Offers tab.'
+              : 'Suppliers and creators will appear here once explicitly reviewed and verified by platform administrators.'}
+          </p>
         </div>
       )}
 
@@ -1175,21 +1233,15 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                         <span>{post.isSaved ? '🔖 Saved' : '🔖 Save'}</span>
                       </button>
 
-                      {/* RATE & REVIEW BUTTON */}
+                      {/* ADMIN-VERIFIED RATING SCORE */}
                       <button
-                        onClick={() =>
-                          setReviewModalState({
-                            isOpen: true,
-                            targetId: post.author,
-                            targetName: post.author,
-                            targetRole: post.role,
-                          })
-                        }
-                        className="flex items-center space-x-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer"
-                        title="Rate & Review Wholesaler"
+                        type="button"
+                        onClick={() => openPublicProfile(post)}
+                        className="flex items-center space-x-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-2 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                        title="Admin-Verified Supplier Rating"
                       >
-                        <span>⭐</span>
-                        <span>Review</span>
+                        <span className="text-amber-500 font-black">★</span>
+                        <span>{getAdminRatingForUser(post.phone || post.author || post.user_id).toFixed(1)}</span>
                       </button>
                     </div>
 
@@ -1392,16 +1444,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           onToggleSave={onToggleSave}
         />
       )}
-
-      {/* RATING & REVIEW MODAL */}
-      <ReviewModal
-        isOpen={reviewModalState.isOpen}
-        onClose={() => setReviewModalState({ isOpen: false, targetId: '', targetName: '' })}
-        targetId={reviewModalState.targetId}
-        targetName={reviewModalState.targetName}
-        targetRole={reviewModalState.targetRole}
-        currentUser={currentUser || null}
-      />
 
       {/* GOOGLE MAPS LOCATION MODAL */}
       <LocationMapModal

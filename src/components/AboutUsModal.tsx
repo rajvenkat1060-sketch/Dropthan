@@ -42,32 +42,15 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({ isOpen, onClose }) =
 
         {/* MODAL SCROLLABLE BODY */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-slate-700 text-xs sm:text-sm">
-          {/* FOUNDER & LEADERSHIP CARD */}
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200/80 rounded-2xl p-3.5 space-y-2.5 shadow-xs">
-            <div className="flex items-center space-x-2 text-amber-900 font-black text-xs uppercase tracking-wider">
-              <Award className="w-4 h-4 text-amber-600" />
-              <span>Founder &amp; Executive Leadership</span>
+          {/* PLATFORM MISSION & VISION CARD */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50/60 border border-blue-200/80 rounded-2xl p-4 space-y-2.5 shadow-2xs">
+            <div className="flex items-center space-x-2 text-[#0d47a1] font-black text-xs uppercase tracking-wider">
+              <Award className="w-4 h-4 text-[#0d47a1]" />
+              <span>Platform Mission &amp; Governance</span>
             </div>
 
-            <div className="flex items-center space-x-3 bg-white p-3 rounded-xl border border-amber-200/60 shadow-2xs">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-700 to-indigo-900 text-white font-black text-base flex items-center justify-center shrink-0 shadow-sm border-2 border-amber-300">
-                VR
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <h3 className="text-sm font-black text-slate-900">Mr. Venkatraj</h3>
-                  <span className="text-[10px] bg-blue-100 text-[#0d47a1] font-bold px-2 py-0.5 rounded-full">
-                    Founder &amp; CEO
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 font-medium">
-                  Dropthan B2B Marketplace &amp; Ecosystem
-                </p>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-amber-950/80 leading-relaxed font-normal">
-              Dropthan was founded by <strong>Mr. Venkatraj</strong> to eliminate middlemen and enable direct, transparent business connectivity between Indian manufacturers, bulk wholesalers, exporters, and dropshippers worldwide.
+            <p className="text-[12px] text-slate-700 leading-relaxed font-normal">
+              Dropthan is India&apos;s premier dedicated B2B ecosystem designed to eliminate middlemen and enable direct, transparent business connectivity between verified manufacturers, bulk wholesalers, exporters, and dropshippers globally.
             </p>
           </div>
 

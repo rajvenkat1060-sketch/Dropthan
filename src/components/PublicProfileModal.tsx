@@ -3,7 +3,6 @@ import { PostItem, UserProfile, RatingSummary, ReviewItem, UserRole } from '../t
 import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
 import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor } from '../lib/supabase';
-import { ReviewModal } from './ReviewModal';
 import { LocationMapModal } from './LocationMapModal';
 import { ImageCarousel } from './ImageCarousel';
 import { Instagram } from 'lucide-react';
@@ -52,7 +51,6 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
     count: 0,
     reviews: [],
   });
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
@@ -633,11 +631,14 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => setIsReviewModalOpen(true)}
+                onClick={() => {
+                  setActiveTab('reviews');
+                  setSelectedPostDetail(null);
+                }}
                 className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold py-2.5 px-3 rounded-xl transition cursor-pointer shadow-2xs flex items-center justify-center gap-1.5 active:scale-95"
               >
-                <span>⭐</span>
-                <span>Rate & Review</span>
+                <span className="text-amber-500 font-black">★</span>
+                <span>{ratingSummary.average > 0 ? ratingSummary.average.toFixed(1) : '5.0'} Rating</span>
               </button>
             </div>
           </div>
@@ -849,83 +850,82 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: COMMUNITY RATINGS & REVIEWS */}
+          {/* TAB 3: OFFICIAL DROPTHAN TRUST SCORE & ADMIN RATING */}
           {activeTab === 'reviews' && (
             <div className="p-4 space-y-4">
               {/* SUMMARY HEADER */}
-              <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 flex items-center justify-between">
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-2xl font-black text-amber-900">
-                      {ratingSummary.count > 0 ? ratingSummary.average.toFixed(1) : '0.0'}
+                    <span className="text-3xl font-black text-amber-900">
+                      {ratingSummary.average > 0 ? ratingSummary.average.toFixed(1) : '5.0'}
                     </span>
-                    <div className="flex text-amber-500 text-sm">
-                      {'★'.repeat(Math.round(ratingSummary.average || 0))}
-                      {'☆'.repeat(5 - Math.round(ratingSummary.average || 0))}
+                    <div className="flex text-amber-500 text-lg">
+                      {'★'.repeat(Math.round(ratingSummary.average || 5))}
+                      {'☆'.repeat(5 - Math.round(ratingSummary.average || 5))}
                     </div>
                   </div>
-                  <p className="text-xs text-amber-800 font-semibold">
-                    {ratingSummary.count > 0
-                      ? `Based on ${ratingSummary.count} verified B2B buyer review${ratingSummary.count === 1 ? '' : 's'}`
-                      : 'No buyer reviews yet'}
+                  <p className="text-xs text-amber-900 font-bold mt-0.5">
+                    Official Admin-Verified Platform Trust Score
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    Audited by Dropthan Quality &amp; Compliance Team
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsReviewModalOpen(true)}
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-2xs transition active:scale-95"
-                >
-                  ⭐ Write Review
-                </button>
+                <div className="bg-amber-100/80 border border-amber-300 px-3 py-1.5 rounded-xl text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+                  <span>🛡️</span>
+                  <span>Admin Verified</span>
+                </div>
               </div>
 
-              {/* REVIEWS LIST */}
-              <div className="space-y-3">
-                {ratingSummary.reviews && ratingSummary.reviews.length > 0 ? (
-                  ratingSummary.reviews.map((rev, rIdx) => (
-                    <div
-                      key={`public-review-${rev.id || rIdx}`}
-                      className="bg-white border border-slate-200 rounded-2xl p-3.5 space-y-1.5 shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900">{rev.reviewer_name || rev.reviewerName || 'Verified Trader'}</span>
-                        <div className="flex text-amber-500 text-xs">
-                          {'★'.repeat(Math.min(5, Math.max(1, rev.rating_score || rev.ratingScore || 5)))}
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-700 leading-relaxed">{rev.review_text || rev.reviewText || 'No comment provided.'}</p>
-                      <span className="text-[10px] text-slate-400 block pt-0.5">
-                        {rev.created_at || rev.createdAt
-                          ? new Date(rev.created_at || rev.createdAt!).toLocaleDateString(undefined, {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })
-                          : 'Recent'}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-6 text-center text-slate-500 text-xs">
-                    No reviews yet. Be the first to rate this vendor!
+              {/* ADMIN COMPLIANCE AUDIT BADGES */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                    <span className="text-emerald-600">✓</span>
+                    <span>GST Verification</span>
                   </div>
-                )}
+                  <p className="text-[11px] text-slate-500">
+                    {gstin ? `Verified: ${gstin}` : 'Verified Vendor Entity'}
+                  </p>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                    <span className="text-blue-600">🛡️</span>
+                    <span>Direct Wholesaler</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Zero middleman direct supply
+                  </p>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                    <span className="text-amber-500">⭐</span>
+                    <span>Admin Score</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {ratingSummary.average > 0 ? ratingSummary.average.toFixed(1) : '5.0'} / 5.0 Rating
+                  </p>
+                </div>
+              </div>
+
+              {/* OFFICIAL TRANSPARENCY NOTICE */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 space-y-1.5">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <span>ℹ️</span>
+                  <span>Admin-Controlled Rating Policy</span>
+                </div>
+                <p className="leading-relaxed text-[11px]">
+                  To eliminate fake reviews and maintain strict credibility across the B2B network, all vendor ratings on Dropthan are assigned and managed directly by the platform administration based on physical business verification, supply reliability, and GST validation.
+                </p>
               </div>
             </div>
           )}
         </div>
       </div>
-
-      {/* RATING & REVIEW MODAL */}
-      <ReviewModal
-        isOpen={isReviewModalOpen}
-        onClose={() => setIsReviewModalOpen(false)}
-        targetId={cleanVendorName}
-        targetName={companyName}
-        targetRole={role}
-        currentUser={currentUser || null}
-      />
 
       {/* GOOGLE MAPS LOCATION MODAL */}
       <LocationMapModal

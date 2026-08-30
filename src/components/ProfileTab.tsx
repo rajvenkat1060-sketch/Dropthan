@@ -901,7 +901,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         </div>
       </div>
 
-      {/* ABOUT DROPTHAN & LEADERSHIP CARD */}
+      {/* ABOUT DROPTHAN CARD */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
@@ -931,17 +931,17 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           </button>
         </div>
 
-        <div className="bg-amber-50/80 border border-amber-200/70 rounded-xl p-2.5 flex items-center justify-between gap-2">
+        <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-700 to-indigo-900 text-white font-black text-xs flex items-center justify-center shrink-0 shadow-2xs border border-amber-300">
-              VR
+            <div className="w-7 h-7 rounded-full bg-[#0d47a1] text-white font-black text-xs flex items-center justify-center shrink-0 shadow-2xs">
+              ⚡
             </div>
             <div>
-              <p className="text-[11px] font-black text-slate-900">
-                Founder: <span className="text-amber-950 font-bold">Mr. Venkatraj</span>
+              <p className="text-[11px] font-bold text-slate-900">
+                Zero Middleman B2B Direct Connectivity
               </p>
               <p className="text-[9px] text-slate-500 font-medium">
-                Zero Middleman B2B Direct Connectivity
+                Direct WhatsApp chats, verified GSTIN suppliers, and cloud billing tools
               </p>
             </div>
           </div>
@@ -949,7 +949,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           <button
             type="button"
             onClick={() => setIsAboutModalOpen(true)}
-            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] rounded-lg shadow-2xs transition cursor-pointer"
+            className="px-2.5 py-1 bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] rounded-lg shadow-2xs transition cursor-pointer"
           >
             View Details
           </button>

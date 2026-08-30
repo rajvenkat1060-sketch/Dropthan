@@ -1,26 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <defs>
-    <linearGradient id="dptnGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0d47a1" />
-      <stop offset="100%" stop-color="#1565c0" />
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.25"/>
-    </filter>
-  </defs>
-  <!-- Background with safe-zone margin for circular/squircle mask clipping -->
-  <rect width="512" height="512" rx="112" fill="url(#dptnGrad)" />
-  <!-- Inner contrast container -->
-  <rect x="56" y="140" width="400" height="232" rx="48" fill="#ffffff" filter="url(#shadow)" />
-  <!-- Crisp dptn brand mark -->
-  <text x="256" y="295" 
-        font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
-        font-size="120" 
-        font-weight="900" 
-        font-style="italic" 
-        letter-spacing="-6px" 
-        fill="#0d47a1" 
-        text-anchor="middle">
-    dptn
-  </text>
+  <!-- Solid Blue Circle Background matching Dropthan brand -->
+  <circle cx="256" cy="256" r="256" fill="#0d47a1" />
+
+  <g transform="translate(0, 0)">
+    <!-- Stylized "dptn" brand mark in white -->
+    <text x="256" y="270" 
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" 
+          font-size="140" 
+          font-weight="900" 
+          font-style="italic" 
+          letter-spacing="-7px" 
+          fill="#ffffff" 
+          text-anchor="middle"
+          dominant-baseline="middle">
+      dptn
+    </text>
+    <!-- "B2B BUSINESS" subtitle perfectly centered below -->
+    <text x="256" y="360" 
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Plus Jakarta Sans', sans-serif" 
+          font-size="34" 
+          font-weight="800" 
+          letter-spacing="5px" 
+          fill="#ffffff" 
+          text-anchor="middle">
+      B2B BUSINESS
+    </text>
+  </g>
 </svg>

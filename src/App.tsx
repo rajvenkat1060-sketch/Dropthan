@@ -583,16 +583,12 @@ export default function App() {
           </div>
 
           <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 font-medium flex-wrap">
-            <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
-              Founder: Mr. Venkatraj
-            </span>
-            <span>•</span>
             <button
               type="button"
               onClick={() => setIsAboutModalOpen(true)}
               className="text-[#0d47a1] font-bold hover:underline cursor-pointer"
             >
-              About Us &amp; Leadership
+              About Dropthan
             </button>
             <span>•</span>
             <a
@@ -601,7 +597,7 @@ export default function App() {
               rel="noopener noreferrer"
               className="text-emerald-700 font-bold hover:underline"
             >
-              Support
+              WhatsApp Support
             </a>
           </div>
 
