@@ -167,34 +167,69 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     };
   }, [isOpen, isPinAuthenticated, isAuthorizedPhone, onStatusChanged]);
 
-  if (!isOpen) return null;
+  const PAGE_SIZE = 20;
 
-  // IF PHONE IS NOT 8838533014: STRICT ACCESS DENIED SCREEN
-  if (!isAuthorizedPhone) {
-    return (
-      <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-4">
-          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mx-auto font-black shadow-inner">
-            🚫
-          </div>
-          <h3 className="text-lg font-black text-slate-900">Admin Access Restricted</h3>
-          <p className="text-xs text-slate-600 font-medium leading-relaxed">
-            The System Administrator Panel is strictly restricted to user account phone number <span className="font-bold text-slate-900">8838533014</span>.
-          </p>
-          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-left space-y-1">
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Current Logged-in Phone</p>
-            <p className="text-xs font-mono font-bold text-slate-800">{currentUser?.phone || 'No phone number linked'}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs py-3 rounded-xl transition cursor-pointer shadow-md active:scale-95"
-          >
-            Close & Exit
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // COUNTERS & FILTERS (MEMOIZED - UNCONDITIONAL HOOKS AT TOP LEVEL)
+  const pendingCount = useMemo(
+    () => profiles.filter((p) => !p.status || p.status.toLowerCase() === 'pending').length,
+    [profiles]
+  );
+  const activeCount = useMemo(
+    () => profiles.filter((p) => p.status?.toLowerCase() === 'active').length,
+    [profiles]
+  );
+  const rejectedCount = useMemo(
+    () => profiles.filter((p) => p.status?.toLowerCase() === 'rejected').length,
+    [profiles]
+  );
+
+  const filteredProfiles = useMemo(() => {
+    return profiles.filter((p) => {
+      const status = (p.status || 'Pending').toLowerCase();
+      if (approvalFilter === 'pending' && status !== 'pending') return false;
+      if (approvalFilter === 'active' && status !== 'active') return false;
+      if (approvalFilter === 'rejected' && status !== 'rejected') return false;
+
+      if (searchTerm.trim()) {
+        const q = searchTerm.toLowerCase();
+        const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
+        const matchGstin = (p.gstin || '').toLowerCase().includes(q);
+        const matchPhone = (p.phone || '').toLowerCase().includes(q);
+        const matchRole = (p.role || '').toLowerCase().includes(q);
+        return matchName || matchGstin || matchPhone || matchRole;
+      }
+      return true;
+    });
+  }, [profiles, approvalFilter, searchTerm]);
+
+  const totalApprovalsPages = Math.max(1, Math.ceil(filteredProfiles.length / PAGE_SIZE));
+  const paginatedApprovalProfiles = useMemo(() => {
+    const start = (approvalsPage - 1) * PAGE_SIZE;
+    return filteredProfiles.slice(start, start + PAGE_SIZE);
+  }, [filteredProfiles, approvalsPage]);
+
+  // Registered Users Filter and Pagination
+  const filteredRegisteredUsers = useMemo(() => {
+    if (!usersSearchTerm.trim()) return profiles;
+    const q = usersSearchTerm.toLowerCase();
+    return profiles.filter((p) => {
+      const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
+      const matchGstin = (p.gstin || '').toLowerCase().includes(q);
+      const matchPhone = (p.phone || '').toLowerCase().includes(q);
+      const matchRole = (p.role || '').toLowerCase().includes(q);
+      return matchName || matchGstin || matchPhone || matchRole;
+    });
+  }, [profiles, usersSearchTerm]);
+
+  const totalUsersPages = Math.max(1, Math.ceil(filteredRegisteredUsers.length / PAGE_SIZE));
+  const paginatedRegisteredUsers = useMemo(() => {
+    const start = (usersPage - 1) * PAGE_SIZE;
+    return filteredRegisteredUsers.slice(start, start + PAGE_SIZE);
+  }, [filteredRegisteredUsers, usersPage]);
+
+  // Calculate Product analytics metrics
+  const totalPosts = posts.length;
+  const totalLikes = useMemo(() => posts.reduce((acc, p) => acc + (p.likeCount || 0), 0), [posts]);
 
   // 4-DIGIT PIN SECURITY PROMPT (DEFAULT '1234')
   const handlePinSubmit = (pinToTest = pinInput) => {
@@ -245,104 +280,6 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     setIsPinAuthenticated(true);
     loadData();
   };
-
-  if (!isPinAuthenticated && !isAuthorizedPhone) {
-    return (
-      <div className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-5 shadow-2xl border border-blue-100 text-center">
-          {/* HEADER BADGE */}
-          <div className="space-y-1.5">
-            <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-sm border border-amber-200">
-              🔒
-            </div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">Admin Security Gatekeeper</h2>
-            <p className="text-[11px] text-slate-500 font-medium">
-              Enter 4-Digit Security PIN to unlock the Admin Dashboard
-            </p>
-            <div className="inline-block bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold px-3 py-1 rounded-full">
-              🔑 Default PIN: <span className="font-mono font-black text-amber-700">1234</span>
-            </div>
-          </div>
-
-          {/* 4-DIGIT DISPLAY */}
-          <div className="flex justify-center gap-3 py-1">
-            {[0, 1, 2, 3].map((idx) => {
-              const char = pinInput[idx];
-              return (
-                <div
-                  key={idx}
-                  className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center font-mono text-xl font-bold transition-all ${
-                    char
-                      ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1] shadow-xs'
-                      : 'border-slate-200 bg-slate-50 text-slate-300'
-                  }`}
-                >
-                  {char ? '•' : ''}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* ERROR MESSAGE */}
-          {pinError && (
-            <p className="text-xs font-bold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200 animate-bounce">
-              {pinError}
-            </p>
-          )}
-
-          {/* NUMERIC KEYPAD */}
-          <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
-              <button
-                key={num}
-                onClick={() => handleKeypadPress(num)}
-                className="h-11 bg-slate-100 hover:bg-slate-200 active:bg-blue-600 active:text-white font-bold text-base text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shadow-2xs"
-              >
-                {num}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                setPinInput('');
-                setPinError('');
-              }}
-              className="h-11 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center"
-            >
-              Clear
-            </button>
-            <button
-              onClick={() => handleKeypadPress('0')}
-              className="h-11 bg-slate-100 hover:bg-slate-200 active:bg-blue-600 active:text-white font-bold text-base text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shadow-2xs"
-            >
-              0
-            </button>
-            <button
-              onClick={handleKeypadBackspace}
-              className="h-11 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center"
-            >
-              ⌫
-            </button>
-          </div>
-
-          {/* QUICK ACTIONS */}
-          <div className="pt-2 border-t border-slate-100 space-y-2">
-            <button
-              onClick={handleSetAdminPhone}
-              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black py-2.5 rounded-xl text-xs transition shadow cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
-            >
-              <span>⚡ Authenticate Admin Phone (+91 8838533014)</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="w-full text-slate-500 hover:text-slate-800 text-xs font-bold py-1 transition cursor-pointer"
-            >
-              Cancel & Exit
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // 3. FULL MONITORING DASHBOARD (WHEN AUTHENTICATED)
   const handleApprove = async (phone: string) => {
@@ -538,69 +475,134 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     }
   };
 
-  const PAGE_SIZE = 20;
+  // CONDITIONAL RENDERS (AFTER ALL HOOKS ARE CALLED)
+  if (!isOpen) return null;
 
-  // COUNTERS & FILTERS (MEMOIZED)
-  const pendingCount = useMemo(
-    () => profiles.filter((p) => !p.status || p.status.toLowerCase() === 'pending').length,
-    [profiles]
-  );
-  const activeCount = useMemo(
-    () => profiles.filter((p) => p.status?.toLowerCase() === 'active').length,
-    [profiles]
-  );
-  const rejectedCount = useMemo(
-    () => profiles.filter((p) => p.status?.toLowerCase() === 'rejected').length,
-    [profiles]
-  );
+  // IF PHONE IS NOT 8838533014: STRICT ACCESS DENIED SCREEN
+  if (!isAuthorizedPhone) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-red-100 text-center space-y-4">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mx-auto font-black shadow-inner">
+            🚫
+          </div>
+          <h3 className="text-lg font-black text-slate-900">Admin Access Restricted</h3>
+          <p className="text-xs text-slate-600 font-medium leading-relaxed">
+            The System Administrator Panel is strictly restricted to user account phone number <span className="font-bold text-slate-900">8838533014</span>.
+          </p>
+          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-left space-y-1">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Current Logged-in Phone</p>
+            <p className="text-xs font-mono font-bold text-slate-800">{currentUser?.phone || 'No phone number linked'}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs py-3 rounded-xl transition cursor-pointer shadow-md active:scale-95"
+          >
+            Close & Exit
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const filteredProfiles = useMemo(() => {
-    return profiles.filter((p) => {
-      const status = (p.status || 'Pending').toLowerCase();
-      if (approvalFilter === 'pending' && status !== 'pending') return false;
-      if (approvalFilter === 'active' && status !== 'active') return false;
-      if (approvalFilter === 'rejected' && status !== 'rejected') return false;
+  // IF PIN NOT AUTHENTICATED: SHOW PIN GATEKEEPER
+  if (!isPinAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-5 shadow-2xl border border-blue-100 text-center">
+          {/* HEADER BADGE */}
+          <div className="space-y-1.5">
+            <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-sm border border-amber-200">
+              🔒
+            </div>
+            <h2 className="text-base font-black text-slate-900 tracking-tight">Admin Security Gatekeeper</h2>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Enter 4-Digit Security PIN to unlock the Admin Dashboard
+            </p>
+            <div className="inline-block bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold px-3 py-1 rounded-full">
+              🔑 Default PIN: <span className="font-mono font-black text-amber-700">1234</span>
+            </div>
+          </div>
 
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
-        const matchGstin = (p.gstin || '').toLowerCase().includes(q);
-        const matchPhone = (p.phone || '').toLowerCase().includes(q);
-        const matchRole = (p.role || '').toLowerCase().includes(q);
-        return matchName || matchGstin || matchPhone || matchRole;
-      }
-      return true;
-    });
-  }, [profiles, approvalFilter, searchTerm]);
+          {/* 4-DIGIT DISPLAY */}
+          <div className="flex justify-center gap-3 py-1">
+            {[0, 1, 2, 3].map((idx) => {
+              const char = pinInput[idx];
+              return (
+                <div
+                  key={idx}
+                  className={`w-12 h-12 rounded-2xl border-2 flex items-center justify-center font-mono text-xl font-bold transition-all ${
+                    char
+                      ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1] shadow-xs'
+                      : 'border-slate-200 bg-slate-50 text-slate-300'
+                  }`}
+                >
+                  {char ? '•' : ''}
+                </div>
+              );
+            })}
+          </div>
 
-  const totalApprovalsPages = Math.max(1, Math.ceil(filteredProfiles.length / PAGE_SIZE));
-  const paginatedApprovalProfiles = useMemo(() => {
-    const start = (approvalsPage - 1) * PAGE_SIZE;
-    return filteredProfiles.slice(start, start + PAGE_SIZE);
-  }, [filteredProfiles, approvalsPage]);
+          {/* ERROR MESSAGE */}
+          {pinError && (
+            <p className="text-xs font-bold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200 animate-bounce">
+              {pinError}
+            </p>
+          )}
 
-  // Registered Users Filter and Pagination
-  const filteredRegisteredUsers = useMemo(() => {
-    if (!usersSearchTerm.trim()) return profiles;
-    const q = usersSearchTerm.toLowerCase();
-    return profiles.filter((p) => {
-      const matchName = (p.companyName || p.displayName || p.fullName || '').toLowerCase().includes(q);
-      const matchGstin = (p.gstin || '').toLowerCase().includes(q);
-      const matchPhone = (p.phone || '').toLowerCase().includes(q);
-      const matchRole = (p.role || '').toLowerCase().includes(q);
-      return matchName || matchGstin || matchPhone || matchRole;
-    });
-  }, [profiles, usersSearchTerm]);
+          {/* NUMERIC KEYPAD */}
+          <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
+              <button
+                key={num}
+                onClick={() => handleKeypadPress(num)}
+                className="h-11 bg-slate-100 hover:bg-slate-200 active:bg-blue-600 active:text-white font-bold text-base text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shadow-2xs"
+              >
+                {num}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setPinInput('');
+                setPinError('');
+              }}
+              className="h-11 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => handleKeypadPress('0')}
+              className="h-11 bg-slate-100 hover:bg-slate-200 active:bg-blue-600 active:text-white font-bold text-base text-slate-800 rounded-xl transition cursor-pointer flex items-center justify-center shadow-2xs"
+            >
+              0
+            </button>
+            <button
+              onClick={handleKeypadBackspace}
+              className="h-11 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center"
+            >
+              ⌫
+            </button>
+          </div>
 
-  const totalUsersPages = Math.max(1, Math.ceil(filteredRegisteredUsers.length / PAGE_SIZE));
-  const paginatedRegisteredUsers = useMemo(() => {
-    const start = (usersPage - 1) * PAGE_SIZE;
-    return filteredRegisteredUsers.slice(start, start + PAGE_SIZE);
-  }, [filteredRegisteredUsers, usersPage]);
-
-  // Calculate Product analytics metrics
-  const totalPosts = posts.length;
-  const totalLikes = useMemo(() => posts.reduce((acc, p) => acc + (p.likeCount || 0), 0), [posts]);
+          {/* QUICK ACTIONS */}
+          <div className="pt-2 border-t border-slate-100 space-y-2">
+            <button
+              onClick={handleSetAdminPhone}
+              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black py-2.5 rounded-xl text-xs transition shadow cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+            >
+              <span>⚡ Authenticate Admin Phone (+91 8838533014)</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full text-slate-500 hover:text-slate-800 text-xs font-bold py-1 transition cursor-pointer"
+            >
+              Cancel & Exit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
