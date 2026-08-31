@@ -2715,7 +2715,7 @@ export const fetchFullUserProfileByPhone = async (phone: string): Promise<UserPr
   const cleanDigits = cleanPhone.replace(/\D/g, '');
 
   try {
-    // 1. Exact phone match
+    // 1. Exact phone match in Supabase
     const { data: exactData } = await supabase
       .from('profiles')
       .select('*')
@@ -2750,7 +2750,18 @@ export const fetchFullUserProfileByPhone = async (phone: string): Promise<UserPr
     console.warn('Notice querying full profile from Supabase:', err);
   }
 
-  // 3. Fallback to local cached profiles
+  // 3. Server API fallback
+  try {
+    const resp = await fetch(`/api/profiles/by-identifier?identifier=${encodeURIComponent(cleanPhone)}`);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json.success && json.profile) {
+        return parseProfileFromSupabase(json.profile);
+      }
+    }
+  } catch (e) {}
+
+  // 4. Fallback to local cached profiles
   try {
     const profiles = await fetchAllUserProfilesFromSupabase();
     const found = profiles.find((p) => {
@@ -2769,31 +2780,48 @@ export const fetchFullUserProfileByPhone = async (phone: string): Promise<UserPr
   return null;
 };
 
-const parseProfileFromSupabase = (data: any): UserProfile => {
+export const parseProfileFromSupabase = (data: any): UserProfile => {
+  const cleanPhone = (data.phone || data.mobile || '').trim();
+  const compName = data.company_name || data.companyName || data.business_name || undefined;
+  const flName = data.full_name || data.fullName || data.name || undefined;
+  const dispName = data.display_name || data.displayName || compName || flName || (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+  const bioVal = data.bio || data.description || data.about || undefined;
+  const webVal = data.website || data.website_url || data.websiteUrl || undefined;
+  const instaVal = data.instagram || data.instagram_handle || data.instagramHandle || undefined;
+
   return {
-    id: data.id || `usr_${(data.phone || '').replace(/\D/g, '')}`,
+    id: data.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
     role: data.role || 'wholesaler',
-    phone: data.phone,
+    phone: cleanPhone,
     password: data.password || undefined,
     country: data.country || 'India',
     location: data.location || '',
-    storeAddress: data.store_address || data.location || undefined,
-    lat: data.lat ? Number(data.lat) : undefined,
-    lng: data.lng ? Number(data.lng) : undefined,
-    companyName: data.company_name || undefined,
-    fullName: data.full_name || undefined,
-    displayName: data.display_name || data.company_name || data.full_name || 'Member',
-    bio: data.bio || data.description || undefined,
-    description: data.description || data.bio || undefined,
-    gstin: data.gstin || undefined,
-    iecCode: data.iec_code || undefined,
-    website: data.website || data.website_url || undefined,
-    websiteUrl: data.website || data.website_url || undefined,
-    instagram: data.instagram || data.instagram_handle || undefined,
-    instagramHandle: data.instagram || data.instagram_handle || undefined,
+    storeAddress: data.store_address || data.storeAddress || data.address || data.location || undefined,
+    lat: data.lat !== undefined && data.lat !== null ? Number(data.lat) : undefined,
+    lng: data.lng !== undefined && data.lng !== null ? Number(data.lng) : undefined,
+    companyName: compName,
+    fullName: flName,
+    displayName: dispName,
+    bio: bioVal,
+    description: bioVal,
+    gstin: data.gstin ? String(data.gstin).trim().toUpperCase() : undefined,
+    iecCode: data.iec_code || data.iecCode ? String(data.iec_code || data.iecCode).trim().toUpperCase() : undefined,
+    businessRegNumber: data.business_reg_number || data.businessRegNumber || undefined,
+    productName: data.product_name || data.productName || undefined,
+    materialDetails: data.material_details || data.materialDetails || undefined,
+    promotionDetails: data.promotion_details || data.promotionDetails || undefined,
+    exportProducts: data.export_products || data.exportProducts || undefined,
+    packagingMaterials: data.packaging_materials || data.packagingMaterials || undefined,
+    serviceDetails: data.service_details || data.serviceDetails || undefined,
+    website: webVal,
+    websiteUrl: webVal,
+    instagram: instaVal,
+    instagramHandle: instaVal,
     avatarUrl: data.avatar_url || data.avatarUrl || undefined,
-    createdAt: data.created_at || new Date().toISOString(),
-    status: (data.status as UserStatus) || 'Active',
+    createdAt: data.created_at || data.createdAt || new Date().toISOString(),
+    status: (data.status as UserStatus) || (data.is_gst_approved ? 'Active' : 'Active'),
+    is_gst_approved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : true,
+    isGstApproved: data.is_gst_approved !== undefined ? Boolean(data.is_gst_approved) : true,
     rejectionReason: data.rejection_reason || undefined,
     admin_rating: data.admin_rating !== undefined ? Number(data.admin_rating) : (data.rating !== undefined ? Number(data.rating) : undefined),
     adminRating: data.admin_rating !== undefined ? Number(data.admin_rating) : (data.rating !== undefined ? Number(data.rating) : undefined),
@@ -3129,6 +3157,10 @@ export const preRegisterUserAccount = async (
   // 2. Direct Supabase save fallback
   try {
     const phoneDigits = cleanPhone.replace(/\D/g, '');
+    const bioVal = profileData.bio || profileData.description || undefined;
+    const webVal = profileData.website || profileData.websiteUrl || undefined;
+    const instaVal = profileData.instagram || profileData.instagramHandle || undefined;
+
     const userToSave: UserProfile = {
       id: profileData.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`),
       role: profileData.role || 'wholesaler',
@@ -3140,12 +3172,19 @@ export const preRegisterUserAccount = async (
       companyName: profileData.companyName || undefined,
       fullName: profileData.fullName || undefined,
       displayName: profileData.displayName || profileData.companyName || profileData.fullName || `Wholesaler ${cleanPhone.slice(-4)}`,
+      bio: bioVal,
+      description: bioVal,
       gstin: profileData.gstin || undefined,
       iecCode: profileData.iecCode || undefined,
-      website: profileData.website || undefined,
+      website: webVal,
+      websiteUrl: webVal,
+      instagram: instaVal,
+      instagramHandle: instaVal,
       avatarUrl: profileData.avatarUrl || undefined,
       createdAt: new Date().toISOString(),
       status: (profileData.status as UserStatus) || 'Active',
+      is_gst_approved: true,
+      isGstApproved: true,
     };
 
     const saved = await saveUserProfileToSupabase(userToSave);
@@ -3155,6 +3194,70 @@ export const preRegisterUserAccount = async (
     console.error('Error pre-registering account:', err);
     return { success: false, error: err?.message || 'Failed to pre-register account.' };
   }
+};
+
+/**
+ * Bulk Pre-Register User Accounts (for CSV imports)
+ */
+export const bulkPreRegisterUserAccounts = async (
+  profilesList: Array<Partial<UserProfile> & { phone: string; password?: string }>
+): Promise<{ success: boolean; importedCount: number; profiles?: UserProfile[]; error?: string }> => {
+  if (!Array.isArray(profilesList) || profilesList.length === 0) {
+    return { success: false, importedCount: 0, error: 'No profiles provided' };
+  }
+
+  try {
+    const res = await fetch('/api/admin/bulk-pre-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profiles: profilesList }),
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (res.ok && json?.success) {
+      const parsedProfiles: UserProfile[] = (json.profiles || []).map(parseProfileFromSupabase);
+
+      // Update local storage cache
+      try {
+        const localKey = 'dropthan_all_profiles';
+        const stored = localStorage.getItem(localKey);
+        let list: UserProfile[] = stored ? JSON.parse(stored) : [];
+        parsedProfiles.forEach((p) => {
+          const idx = list.findIndex((ex) => ex.phone === p.phone || (ex.id && ex.id === p.id));
+          if (idx >= 0) list[idx] = p;
+          else list.unshift(p);
+        });
+        localStorage.setItem(localKey, JSON.stringify(list));
+      } catch (e) {}
+
+      window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+      return { success: true, importedCount: json.importedCount || parsedProfiles.length, profiles: parsedProfiles };
+    }
+
+    if (json?.error) {
+      return { success: false, importedCount: 0, error: json.error };
+    }
+  } catch (err: any) {
+    console.warn('Notice during bulk pre-registration API call:', err);
+  }
+
+  // Direct sequential fallback
+  let count = 0;
+  const createdList: UserProfile[] = [];
+  for (const prof of profilesList) {
+    if (!prof.phone) continue;
+    const res = await preRegisterUserAccount({
+      ...prof,
+      password: prof.password || 'Dropthan@2026',
+    });
+    if (res.success && res.profile) {
+      count++;
+      createdList.push(res.profile);
+    }
+  }
+
+  return { success: count > 0, importedCount: count, profiles: createdList };
 };
 
 

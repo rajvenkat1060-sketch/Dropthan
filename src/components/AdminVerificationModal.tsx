@@ -6,6 +6,7 @@ import {
   updateUserAdminRatingInSupabase,
   deleteUserAccount,
   preRegisterUserAccount,
+  bulkPreRegisterUserAccounts,
   fetchAllLikesFromSupabase,
   subscribeToAdminRealtime,
   getEffectiveAdminRating,
@@ -82,6 +83,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     companyName: string;
     fullName: string;
     location: string;
+    storeAddress: string;
+    bio: string;
+    website: string;
+    instagram: string;
     gstin: string;
     isSaving: boolean;
     error: string;
@@ -93,9 +98,28 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     companyName: '',
     fullName: '',
     location: 'Surat, Gujarat',
+    storeAddress: '',
+    bio: '',
+    website: '',
+    instagram: '',
     gstin: '',
     isSaving: false,
     error: '',
+  });
+
+  // Bulk CSV Import Modal State
+  const [bulkCsvModal, setBulkCsvModal] = useState<{
+    isOpen: boolean;
+    csvText: string;
+    isImporting: boolean;
+    error: string;
+    successMessage: string;
+  }>({
+    isOpen: false,
+    csvText: '',
+    isImporting: false,
+    error: '',
+    successMessage: '',
   });
 
   // Admin Notification / Toast State
@@ -416,6 +440,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
       const assignedId = `usr_${phoneDigits || Date.now()}`;
       const resolvedCompany = preRegisterModal.companyName.trim() || 'Wholesale Supplier';
       const resolvedFullName = preRegisterModal.fullName.trim() || resolvedCompany;
+      const bioVal = preRegisterModal.bio.trim() || undefined;
+      const webVal = preRegisterModal.website.trim() || undefined;
+      const instaVal = preRegisterModal.instagram.trim() || undefined;
+      const storeAddrVal = preRegisterModal.storeAddress.trim() || preRegisterModal.location.trim() || undefined;
 
       const profilePayload: Partial<UserProfile> & { phone: string; password: string } = {
         id: assignedId,
@@ -425,9 +453,18 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
         companyName: resolvedCompany,
         displayName: resolvedCompany,
         fullName: resolvedFullName,
-        location: preRegisterModal.location.trim() || 'India',
+        location: preRegisterModal.location.trim() || 'Surat, Gujarat',
+        storeAddress: storeAddrVal,
+        bio: bioVal,
+        description: bioVal,
+        website: webVal,
+        websiteUrl: webVal,
+        instagram: instaVal,
+        instagramHandle: instaVal,
         gstin: preRegisterModal.gstin.trim() ? preRegisterModal.gstin.trim().toUpperCase() : undefined,
         status: 'Active',
+        is_gst_approved: true,
+        isGstApproved: true,
         country: 'India',
         createdAt: new Date().toISOString(),
       };
@@ -446,7 +483,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
 
       setToastMessage({
         type: 'success',
-        text: `✓ User "${resolvedCompany}" (+${cleanPhone}) pre-registered with password "${cleanPassword}". Ready for login!`,
+        text: `✓ User "${resolvedCompany}" (+${cleanPhone}) pre-registered with password "${cleanPassword}". Ready for dynamic dashboard login!`,
       });
       setTimeout(() => setToastMessage(null), 5000);
 
@@ -459,6 +496,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
         companyName: '',
         fullName: '',
         location: 'Surat, Gujarat',
+        storeAddress: '',
+        bio: '',
+        website: '',
+        instagram: '',
         gstin: '',
         isSaving: false,
         error: '',
@@ -471,6 +512,107 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
         ...prev,
         isSaving: false,
         error: err?.message || 'Failed to pre-register account. Please check inputs.',
+      }));
+    }
+  };
+
+  // ADMIN BULK CSV IMPORT HANDLER
+  const handleBulkCsvImport = async () => {
+    if (!bulkCsvModal.csvText.trim()) {
+      setBulkCsvModal((prev) => ({ ...prev, error: 'Please paste CSV content or upload a CSV file.' }));
+      return;
+    }
+
+    setBulkCsvModal((prev) => ({ ...prev, isImporting: true, error: '', successMessage: '' }));
+
+    try {
+      const rawLines = bulkCsvModal.csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (rawLines.length === 0) {
+        throw new Error('CSV is empty.');
+      }
+
+      // Check header line or parse directly
+      const firstLine = rawLines[0].toLowerCase();
+      let hasHeader = firstLine.includes('phone') || firstLine.includes('mobile') || firstLine.includes('company');
+      const dataLines = hasHeader ? rawLines.slice(1) : rawLines;
+
+      const parsedRecords: Array<Partial<UserProfile> & { phone: string; password: string }> = [];
+
+      for (const line of dataLines) {
+        // Support comma or semicolon separated values
+        const cols = line.split(/[,;\t]/).map((c) => c.trim().replace(/^["']|["']$/g, ''));
+        if (cols.length < 1 || !cols[0]) continue;
+
+        // Column mapping:
+        // 0: Phone, 1: Password, 2: CompanyName, 3: ContactPerson, 4: City/Location, 5: StoreAddress, 6: GSTIN, 7: Bio/Description, 8: Website, 9: Instagram
+        const phone = cols[0];
+        if (!phone || phone.replace(/\D/g, '').length < 7) continue;
+
+        const password = cols[1] || 'Dropthan@2026';
+        const companyName = cols[2] || 'Wholesale Supplier';
+        const fullName = cols[3] || companyName;
+        const location = cols[4] || 'Surat, Gujarat';
+        const storeAddress = cols[5] || location;
+        const gstin = cols[6] || undefined;
+        const bio = cols[7] || undefined;
+        const website = cols[8] || undefined;
+        const instagram = cols[9] || undefined;
+
+        parsedRecords.push({
+          phone,
+          password,
+          role: 'wholesaler',
+          companyName,
+          displayName: companyName,
+          fullName,
+          location,
+          storeAddress,
+          gstin: gstin ? gstin.toUpperCase() : undefined,
+          bio,
+          description: bio,
+          website,
+          websiteUrl: website,
+          instagram,
+          instagramHandle: instagram,
+          status: 'Active',
+          is_gst_approved: true,
+          country: 'India',
+        });
+      }
+
+      if (parsedRecords.length === 0) {
+        throw new Error('No valid phone numbers found in CSV data.');
+      }
+
+      const res = await bulkPreRegisterUserAccounts(parsedRecords);
+
+      if (!res.success) {
+        throw new Error(res.error || 'Bulk pre-registration failed.');
+      }
+
+      // Refresh admin data
+      await loadData();
+      if (onStatusChanged) onStatusChanged();
+
+      setBulkCsvModal({
+        isOpen: false,
+        csvText: '',
+        isImporting: false,
+        error: '',
+        successMessage: '',
+      });
+
+      setToastMessage({
+        type: 'success',
+        text: `✓ Successfully pre-registered ${res.importedCount} business profiles into database! All credentials ready for user login.`,
+      });
+      setTimeout(() => setToastMessage(null), 6000);
+    } catch (err: any) {
+      console.error('Bulk CSV import failed:', err);
+      setBulkCsvModal((prev) => ({
+        ...prev,
+        isImporting: false,
+        error: err?.message || 'Failed to process CSV import.',
       }));
     }
   };
@@ -1192,7 +1334,7 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                   <h3 className="text-xs font-black text-[#0d47a1]">Registered User Database Monitor</h3>
                   <p className="text-[11px] text-blue-900">Total {profiles.length} user accounts saved in Supabase `profiles` table.</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() =>
                       setPreRegisterModal({
@@ -1203,6 +1345,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         companyName: '',
                         fullName: '',
                         location: 'Surat, Gujarat',
+                        storeAddress: '',
+                        bio: '',
+                        website: '',
+                        instagram: '',
                         gstin: '',
                         isSaving: false,
                         error: '',
@@ -1210,7 +1356,21 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                     }
                     className="bg-[#0d47a1] hover:bg-blue-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
                   >
-                    <span>➕ Pre-Register Wholesaler</span>
+                    <span>➕ Pre-Register Single</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      setBulkCsvModal({
+                        isOpen: true,
+                        csvText: '',
+                        isImporting: false,
+                        error: '',
+                        successMessage: '',
+                      })
+                    }
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                  >
+                    <span>📁 Bulk CSV Import</span>
                   </button>
                   <button
                     onClick={loadData}
@@ -2174,10 +2334,67 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
                 </div>
               </div>
 
+              {/* STORE ADDRESS */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                  Full Store / Warehouse Address
+                </label>
+                <input
+                  type="text"
+                  value={preRegisterModal.storeAddress}
+                  onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, storeAddress: e.target.value }))}
+                  placeholder="e.g. Shop #104, Millennium Textile Market, Ring Road, Surat"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                />
+              </div>
+
+              {/* BIO / DESCRIPTION */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                  Business Bio / Description
+                </label>
+                <textarea
+                  rows={2}
+                  value={preRegisterModal.bio}
+                  onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, bio: e.target.value }))}
+                  placeholder="e.g. Direct manufacturer and wholesale supplier of pure silk sarees and designer fabrics."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                />
+              </div>
+
+              {/* WEBSITE & INSTAGRAM */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Website URL
+                  </label>
+                  <input
+                    type="url"
+                    value={preRegisterModal.website}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, website: e.target.value }))}
+                    placeholder="e.g. https://apextextiles.com"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                    Instagram Handle
+                  </label>
+                  <input
+                    type="text"
+                    value={preRegisterModal.instagram}
+                    onChange={(e) => setPreRegisterModal((prev) => ({ ...prev, instagram: e.target.value }))}
+                    placeholder="e.g. apex_textiles_surat"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                  />
+                </div>
+              </div>
+
               {/* NOTICE */}
               <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-900 flex items-center gap-2 font-medium">
                 <span>🛡️</span>
-                <span>Pre-registered accounts are set to <strong>Active</strong> (pre-approved) and persist across all logins and logouts.</span>
+                <span>Pre-registered accounts are set to <strong>Active</strong> with full details and persist across all logins and logouts.</span>
               </div>
 
               {/* ACTION BUTTONS */}
@@ -2207,6 +2424,125 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* BULK CSV IMPORT MODAL */}
+      {bulkCsvModal.isOpen && (
+        <div className="fixed inset-0 z-[140] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl border border-blue-100 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">📁</span>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Bulk CSV Pre-Registration</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Import multiple pre-verified suppliers & creators with credentials, bios, locations, and links.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkCsvModal((prev) => ({ ...prev, isOpen: false, error: '' }))}
+                className="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ERROR BANNER */}
+            {bulkCsvModal.error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-700">
+                ⚠️ {bulkCsvModal.error}
+              </div>
+            )}
+
+            {/* CSV TEMPLATE GUIDE */}
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 space-y-2 text-xs text-blue-950">
+              <div className="flex items-center justify-between">
+                <span className="font-black text-[11px] uppercase tracking-wide text-[#0d47a1]">
+                  Expected CSV Format (Columns):
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = `Phone,Password,CompanyName,ContactPerson,City,StoreAddress,GSTIN,Bio,Website,Instagram\n+91 9876543210,Surat@2026,Surat Silk Hub,Sanjay Patel,Surat,Ring Road Market,24AAAAA0000A1Z5,Direct silk manufacturer,https://suratsilk.com,suratsilkhub\n+91 9822334455,Textile@2026,Royal Cottons,Vikram Shah,Ahmedabad,Kalupur Market,24BBBBB1111B2Z6,Wholesale pure cotton fabrics,https://royalcottons.com,royal_cottons`;
+                    setBulkCsvModal((prev) => ({ ...prev, csvText: sample, error: '' }));
+                  }}
+                  className="bg-white hover:bg-blue-100 text-[#0d47a1] border border-blue-300 font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer"
+                >
+                  📋 Insert Sample CSV
+                </button>
+              </div>
+              <p className="text-[11px] font-mono bg-white p-2 rounded-xl border border-blue-200 overflow-x-auto text-slate-700">
+                Phone, Password, CompanyName, ContactPerson, City, StoreAddress, GSTIN, Bio, Website, Instagram
+              </p>
+            </div>
+
+            {/* FILE UPLOAD & TEXT AREA */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                  Upload .CSV File or Paste Raw CSV Data:
+                </label>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="file"
+                    accept=".csv,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                          const text = evt.target?.result as string;
+                          if (text) {
+                            setBulkCsvModal((prev) => ({ ...prev, csvText: text, error: '' }));
+                          }
+                        };
+                        reader.readAsText(file);
+                      }
+                    }}
+                    className="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#0d47a1] file:text-white hover:file:bg-blue-800 cursor-pointer"
+                  />
+                </div>
+                <textarea
+                  rows={8}
+                  value={bulkCsvModal.csvText}
+                  onChange={(e) => setBulkCsvModal((prev) => ({ ...prev, csvText: e.target.value, error: '' }))}
+                  placeholder={`+91 9876543210,Surat@2026,Surat Silk Hub,Sanjay Patel,Surat,Ring Road Market,24AAAAA0000A1Z5,Silk manufacturer,https://suratsilk.com,suratsilkhub\n+91 9822334455,Textile@2026,Royal Cottons,Vikram Shah,Ahmedabad,Kalupur Market,24BBBBB1111B2Z6,Cotton fabrics,https://royalcottons.com,royal_cottons`}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-900 focus:outline-none focus:border-[#0d47a1]"
+                />
+              </div>
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setBulkCsvModal((prev) => ({ ...prev, isOpen: false, error: '' }))}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkCsvImport}
+                disabled={bulkCsvModal.isImporting || !bulkCsvModal.csvText.trim()}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-2 shadow-md active:scale-95 disabled:opacity-50"
+              >
+                {bulkCsvModal.isImporting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span>Importing & Syncing with Supabase...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🚀 Run Bulk CSV Import</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

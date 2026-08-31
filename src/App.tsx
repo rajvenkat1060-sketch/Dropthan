@@ -257,9 +257,28 @@ export default function App() {
   }, []);
 
   const handleOnboardingComplete = async (userProfile: UserProfile) => {
-    const userWithId = {
-      ...userProfile,
-      id: userProfile.id || `usr_${userProfile.phone ? userProfile.phone.replace(/\D/g, '') : Date.now()}`,
+    // 1. Query full profile from database to ensure zero data loss from pre-registered/admin records
+    let fullProfile = userProfile;
+    if (userProfile.phone) {
+      try {
+        const fetched = await fetchFullUserProfileByPhone(userProfile.phone);
+        if (fetched) {
+          fullProfile = {
+            ...userProfile,
+            ...fetched,
+            password: userProfile.password || fetched.password,
+            status: fetched.status || userProfile.status || 'Active',
+            rejectionReason: fetched.rejectionReason,
+          };
+        }
+      } catch (e) {
+        console.warn('Notice fetching full profile on login:', e);
+      }
+    }
+
+    const userWithId: UserProfile = {
+      ...fullProfile,
+      id: fullProfile.id || `usr_${fullProfile.phone ? fullProfile.phone.replace(/\D/g, '') : Date.now()}`,
     };
     setCurrentUser(userWithId);
     localStorage.setItem('dropthan_user', JSON.stringify(userWithId));
@@ -271,15 +290,8 @@ export default function App() {
       console.warn('Onboarding profile save notice:', e);
     }
 
-    // Global Auth Guard: Verify status directly against Supabase database on login/signup completion
-    if (userWithId.phone) {
-      const latest = await fetchUserProfileStatus(userWithId.phone);
-      if (latest) {
-        const updated = { ...userWithId, status: latest.status, rejectionReason: latest.rejectionReason };
-        localStorage.setItem('dropthan_user', JSON.stringify(updated));
-        setCurrentUser(updated);
-      }
-    }
+    // Synchronize posts from Supabase so user immediately sees all their uploaded posts and media content
+    syncPostsFromSupabase();
 
     // Fetch user's existing likes from Supabase
     fetchUserLikesFromSupabase(userWithId.id).then((supabaseLikes) => {

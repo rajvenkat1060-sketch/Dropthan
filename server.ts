@@ -498,20 +498,37 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
       return;
     }
 
-    // Try finding profile by phone, id, display_name, or company_name
+    const cleanDigits = identifier.replace(/\D/g, '');
     let profileData: any = null;
 
-    if (/^\+?\d{8,15}$/.test(identifier.replace(/\s+/g, ""))) {
+    // 1. Try finding profile by phone
+    if (/^\+?\d{7,15}$/.test(identifier.replace(/\s+/g, ""))) {
       const cleanPhone = identifier.trim();
       const { data } = await supabase.from("profiles").select("*").eq("phone", cleanPhone).maybeSingle();
-      profileData = data;
+      if (data) profileData = data;
     }
 
-    if (!profileData && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier)) {
+    // 2. Format / Digits variation match
+    if (!profileData && cleanDigits && cleanDigits.length >= 7) {
+      const { data: allProfiles } = await supabase.from("profiles").select("*").limit(300);
+      if (allProfiles && allProfiles.length > 0) {
+        profileData = allProfiles.find((p: any) => {
+          const pDigits = (p.phone || '').replace(/\D/g, '');
+          return (
+            pDigits === cleanDigits ||
+            (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10))
+          );
+        });
+      }
+    }
+
+    // 3. Match by ID
+    if (!profileData && (identifier.startsWith("usr_") || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier))) {
       const { data } = await supabase.from("profiles").select("*").eq("id", identifier).maybeSingle();
-      profileData = data;
+      if (data) profileData = data;
     }
 
+    // 4. Match by Company Name / Display Name / Full Name
     if (!profileData) {
       const cleanIdent = identifier.trim().toLowerCase();
       const isGeneric = /^(dropthan member|dropthan b2b member|verified supplier|supplier|member|admin|user|wholesaler|dropshipper)$/i.test(cleanIdent);
@@ -522,41 +539,47 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
           .or(`display_name.eq.${identifier},company_name.eq.${identifier},full_name.eq.${identifier}`)
           .limit(1)
           .maybeSingle();
-        profileData = data;
+        if (data) profileData = data;
       }
     }
 
     // Fetch user's public posts strictly for this specific profile
     let userPosts: any[] = [];
     const searchUserId = profileData?.id;
-    const rawPhone = profileData?.phone || (/^\+?\d{8,15}$/.test(identifier) ? identifier : null);
+    const rawPhone = profileData?.phone || (/^\+?\d{7,15}$/.test(identifier) ? identifier : null);
     const searchPhone = rawPhone && !rawPhone.includes("9876543210") ? rawPhone : null;
+    const phoneDigits = searchPhone ? searchPhone.replace(/\D/g, '') : cleanDigits;
     const rawAuthor = profileData?.company_name || profileData?.display_name || (!/^\+?\d+$/.test(identifier) ? identifier : null);
     const isGenericAuthor = !rawAuthor || /^(dropthan member|dropthan b2b member|verified supplier|supplier|member|admin|user|wholesaler)$/i.test(rawAuthor.trim());
     const searchAuthor = !isGenericAuthor ? rawAuthor.trim() : null;
 
+    // Collect query criteria
+    const postPromises: PromiseLike<any>[] = [];
     if (searchUserId) {
-      const { data: postsById } = await supabase.from("posts").select("*").eq("user_id", searchUserId);
-      if (postsById && postsById.length > 0) {
-        userPosts = postsById;
+      postPromises.push(supabase.from("posts").select("*").eq("user_id", searchUserId));
+    }
+    if (searchPhone) {
+      postPromises.push(supabase.from("posts").select("*").eq("phone", searchPhone));
+      if (phoneDigits && phoneDigits.length >= 7) {
+        postPromises.push(supabase.from("posts").select("*").eq("phone", `+${phoneDigits}`));
+        postPromises.push(supabase.from("posts").select("*").eq("phone", phoneDigits));
       }
     }
-
-    if (userPosts.length === 0 && searchPhone) {
-      const { data: postsByPhone } = await supabase.from("posts").select("*").eq("phone", searchPhone);
-      if (postsByPhone && postsByPhone.length > 0) {
-        userPosts = postsByPhone;
-      }
+    if (searchAuthor) {
+      postPromises.push(supabase.from("posts").select("*").eq("author", searchAuthor));
     }
 
-    if (userPosts.length === 0 && searchAuthor) {
-      const { data: postsByAuthor } = await supabase
-        .from("posts")
-        .select("*")
-        .eq("author", searchAuthor);
-      if (postsByAuthor && postsByAuthor.length > 0) {
-        userPosts = postsByAuthor;
-      }
+    if (postPromises.length > 0) {
+      const results = await Promise.all(postPromises as Promise<any>[]);
+      const postMap = new Map<string, any>();
+      results.forEach((r) => {
+        if (!r.error && Array.isArray(r.data)) {
+          r.data.forEach((p: any) => {
+            if (p.id) postMap.set(String(p.id), p);
+          });
+        }
+      });
+      userPosts = Array.from(postMap.values());
     }
 
     res.json({
@@ -1258,7 +1281,17 @@ app.post("/api/admin/pre-register", async (req, res) => {
     if (rawProfile.iec_code || rawProfile.iecCode) payloadToSave.iec_code = rawProfile.iec_code || rawProfile.iecCode;
     if (rawProfile.bio || rawProfile.description) payloadToSave.bio = rawProfile.bio || rawProfile.description;
     if (rawProfile.website || rawProfile.websiteUrl) payloadToSave.website = rawProfile.website || rawProfile.websiteUrl;
+    if (rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle) {
+      payloadToSave.instagram = rawProfile.instagram || rawProfile.instagramHandle || rawProfile.instagram_handle;
+    }
     if (rawProfile.avatar_url || rawProfile.avatarUrl) payloadToSave.avatar_url = rawProfile.avatar_url || rawProfile.avatarUrl;
+    if (rawProfile.product_name || rawProfile.productName) payloadToSave.product_name = rawProfile.product_name || rawProfile.productName;
+    if (rawProfile.material_details || rawProfile.materialDetails) payloadToSave.material_details = rawProfile.material_details || rawProfile.materialDetails;
+    if (rawProfile.export_products || rawProfile.exportProducts) payloadToSave.export_products = rawProfile.export_products || rawProfile.exportProducts;
+    if (rawProfile.packaging_materials || rawProfile.packagingMaterials) payloadToSave.packaging_materials = rawProfile.packaging_materials || rawProfile.packagingMaterials;
+    if (rawProfile.service_details || rawProfile.serviceDetails) payloadToSave.service_details = rawProfile.service_details || rawProfile.serviceDetails;
+    if (rawProfile.lat !== undefined && rawProfile.lat !== null) payloadToSave.lat = Number(rawProfile.lat);
+    if (rawProfile.lng !== undefined && rawProfile.lng !== null) payloadToSave.lng = Number(rawProfile.lng);
 
     let savedData: any = null;
     let savedError: any = null;
@@ -1313,6 +1346,92 @@ app.post("/api/admin/pre-register", async (req, res) => {
   } catch (err: any) {
     console.error("[Server Admin Pre-Register] Exception:", err);
     res.status(500).json({ error: err?.message || "Internal server error during pre-registration" });
+  }
+});
+
+// Server-Side Bulk Pre-Registration / CSV Import Endpoint
+app.post("/api/admin/bulk-pre-register", async (req, res) => {
+  try {
+    const { profiles: rawList } = req.body || {};
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+      res.status(400).json({ error: "An array of profiles is required for bulk import" });
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      res.status(500).json({ error: "Database client unavailable on server" });
+      return;
+    }
+
+    const createdProfiles: any[] = [];
+    const errors: string[] = [];
+
+    for (const raw of rawList) {
+      try {
+        const phone = (raw.phone || "").trim();
+        const password = (raw.password || "Dropthan@2026").trim();
+        const cleanDigits = phone.replace(/\D/g, "");
+
+        if (!phone || cleanDigits.length < 7) {
+          continue;
+        }
+
+        const compName = raw.company_name || raw.companyName || raw.business_name || "";
+        const flName = raw.full_name || raw.fullName || raw.name || "";
+        const dispName = raw.display_name || raw.displayName || compName || flName || `Member ${cleanDigits.slice(-4)}`;
+        const targetId = raw.id || `usr_${cleanDigits}`;
+
+        saveCredential(phone, password, targetId);
+
+        const payload: Record<string, any> = {
+          id: targetId,
+          phone,
+          password,
+          role: raw.role || "wholesaler",
+          display_name: dispName,
+          company_name: compName || dispName,
+          location: raw.location || "India",
+          store_address: raw.store_address || raw.storeAddress || raw.address || raw.location || null,
+          country: raw.country || "India",
+          status: raw.status || "Active",
+          is_gst_approved: true,
+          bio: raw.bio || raw.description || raw.about || null,
+          website: raw.website || raw.websiteUrl || raw.website_url || null,
+          instagram: raw.instagram || raw.instagramHandle || raw.instagram_handle || null,
+          gstin: raw.gstin ? raw.gstin.trim().toUpperCase() : null,
+          iec_code: raw.iec_code || raw.iecCode || null,
+          created_at: raw.created_at || new Date().toISOString(),
+        };
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .upsert(payload, { onConflict: "phone" })
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          delete payload.is_gst_approved;
+          const retry = await supabase.from("profiles").upsert(payload, { onConflict: "phone" }).select().maybeSingle();
+          if (retry.data) createdProfiles.push(retry.data);
+          else errors.push(`${phone}: ${error.message}`);
+        } else {
+          createdProfiles.push(data || payload);
+        }
+      } catch (err: any) {
+        errors.push(err?.message || "Unknown error");
+      }
+    }
+
+    res.json({
+      success: true,
+      importedCount: createdProfiles.length,
+      profiles: createdProfiles,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err: any) {
+    console.error("[Server Bulk Pre-Register] Exception:", err);
+    res.status(500).json({ error: err?.message || "Internal server error during bulk import" });
   }
 });
 

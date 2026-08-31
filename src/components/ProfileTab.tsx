@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, PostItem, RatingSummary, ReviewItem } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
-import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase } from '../lib/supabase';
+import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase, fetchPostsByVendor } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { AboutUsModal } from './AboutUsModal';
@@ -229,9 +229,38 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const cleanPhone = user ? user.phone.replace(/\D/g, '') : '';
   const isAdminUser = cleanPhone.endsWith('8838533014') || cleanPhone === '8838533014';
 
+  const [directUserPosts, setDirectUserPosts] = useState<PostItem[]>([]);
+
+  useEffect(() => {
+    if (user) {
+      fetchPostsByVendor(user).then((fetched) => {
+        if (fetched && fetched.length > 0) {
+          setDirectUserPosts(fetched);
+        }
+      }).catch(() => {});
+    }
+  }, [user?.id, user?.phone, user?.displayName, user?.companyName]);
+
+  const allEffectiveUserPosts = useMemo(() => {
+    const map = new Map<string, PostItem>();
+    userPosts.forEach((p) => {
+      if (p.id) map.set(String(p.id), p);
+    });
+    directUserPosts.forEach((p) => {
+      if (p.id && !map.has(String(p.id))) {
+        map.set(String(p.id), p);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [userPosts, directUserPosts]);
+
   const visibleUserPosts = useMemo(() => {
-    return userPosts.slice(0, visiblePostsCount);
-  }, [userPosts, visiblePostsCount]);
+    return allEffectiveUserPosts.slice(0, visiblePostsCount);
+  }, [allEffectiveUserPosts, visiblePostsCount]);
 
   const visibleSavedPosts = useMemo(() => {
     return savedPosts.slice(0, visibleSavedCount);
@@ -617,9 +646,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
         {/* COMPACT STATS ROW */}
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-center">
-
           <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80">
-            <span className="block text-sm font-black text-[#0d47a1]">{userPosts.length}</span>
+            <span className="block text-sm font-black text-[#0d47a1]">{allEffectiveUserPosts.length}</span>
             <span className="text-[10px] text-slate-500 font-medium">Posts</span>
           </div>
           <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80">
@@ -671,7 +699,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             }`}
           >
             <span>📦</span>
-            <span>Posts ({userPosts.length})</span>
+            <span>Posts ({allEffectiveUserPosts.length})</span>
           </button>
 
           <button
@@ -692,7 +720,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           {/* TAB 1: MY POSTS */}
           {activeProfileTab === 'myPosts' && (
             <div>
-              {userPosts.length === 0 ? (
+              {allEffectiveUserPosts.length === 0 ? (
                 <div className="py-8 text-center space-y-3">
                   <span className="text-3xl block">📸</span>
                   <p className="text-xs font-bold text-slate-700">No posts published yet</p>
