@@ -251,24 +251,26 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     return roleClean === catId || catClean.includes(catId);
   };
 
-  // STRICT ADMIN CONTROL & RATING FILTER:
-  // A supplier/creator profile appears in the "Verified Suppliers & Creators" list ONLY IF:
-  // 1. Explicitly approved and toggled 'Active' / 'is_gst_approved' by the admin.
-  // 2. The admin-assigned rating is strictly greater than or equal to 4.0 (>= 4.0, e.g. 4.0, 4.2, 4.5, 4.8, 5.0).
-  // Profiles with a rating below 4.0 (< 4.0, e.g. 3.2, 3.5, 3.8) or without an assigned rating are automatically excluded.
+  // PUBLIC VERIFIED SUPPLIERS & CREATORS VISIBILITY LOGIC:
+  // Approved, active, and verified suppliers/creators are globally visible to all visitors.
+  // Profiles that are explicitly rejected or pending remain hidden from the public feed.
+  // Profiles with admin-assigned ratings >= 4.0 or default verified ratings are included.
   const isExplicitlyVerifiedAndHighRated = (prof: UserProfile): boolean => {
     if (!prof) return false;
     const status = (prof.status || '').toLowerCase().trim();
-    if (!status || status === 'rejected' || status === 'pending') return false;
+    if (status === 'rejected' || status === 'pending') return false;
     const isApproved = prof.is_gst_approved === true || prof.isGstApproved === true || status === 'active';
     if (!isApproved) return false;
 
-    // Check admin-assigned rating (must be >= 4.0)
+    // Check admin-assigned rating (must be >= 4.0 if explicitly set, or defaults to 5.0 for approved vendors)
     const adminRating = getEffectiveAdminRating(prof);
-    return typeof adminRating === 'number' && adminRating >= 4.0;
+    if (typeof adminRating === 'number' && !isNaN(adminRating)) {
+      return adminRating >= 4.0;
+    }
+    return true;
   };
 
-  // Compile strictly verified suppliers/businesses from live Supabase profiles + current user with rating >= 4.0
+  // Compile strictly verified suppliers/businesses from live Supabase profiles + current user
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
     const list = currentUser ? [currentUser, ...allProfiles] : allProfiles;
     const deduped = deduplicateUserProfiles(list);
@@ -343,10 +345,34 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     const rawQuery = searchQuery.trim().toLowerCase();
     const categoryFilteredPosts = enrichedPosts.filter((p) => matchCategory(p, activeCategory));
 
+    // Category filtered supplier profiles
+    const categoryFilteredProfiles = activeCategory === 'all'
+      ? combinedSuppliers
+      : combinedSuppliers.filter((p) => {
+          const roleClean = (p.role || '').toLowerCase();
+          const pCatClean = ((p as any).category || '').toLowerCase();
+          if (activeCategory === 'wholesaler') {
+            return roleClean === 'wholesaler' || roleClean === 'dropshipper' || pCatClean.includes('textile') || pCatClean.includes('wholesale');
+          }
+          if (activeCategory === 'reseller') {
+            return roleClean === 'reseller' || roleClean === 'dropshipper';
+          }
+          if (activeCategory === 'organic_wholesaler') {
+            return roleClean === 'organic_wholesaler' || pCatClean.includes('organic') || pCatClean.includes('spice');
+          }
+          if (activeCategory === 'printing') {
+            return roleClean === 'printing' || pCatClean.includes('packaging') || pCatClean.includes('print');
+          }
+          if (activeCategory === 'influencer') {
+            return roleClean === 'influencer' || pCatClean.includes('influencer') || pCatClean.includes('creator');
+          }
+          return roleClean === activeCategory || pCatClean.includes(activeCategory);
+        });
+
     if (!rawQuery) {
       return {
         matchingPosts: categoryFilteredPosts,
-        matchingProfiles: combinedSuppliers,
+        matchingProfiles: categoryFilteredProfiles.length > 0 ? categoryFilteredProfiles : combinedSuppliers,
       };
     }
 

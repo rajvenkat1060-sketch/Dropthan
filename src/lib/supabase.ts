@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 import { PostItem, RatingSummary, ReviewItem, UserProfile, UserStatus } from '../types';
+import { INITIAL_VERIFIED_SUPPLIERS } from '../data/initialData';
 import { uploadToCloudinary } from './cloudinary';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://zxbifidxkpbsissjwgnm.supabase.co';
@@ -1733,7 +1734,7 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
 
   let remoteData: any[] = [];
 
-  // 1. Direct Supabase Query
+  // 1. Direct Public Supabase Query (Unrestricted, public RLS compliant)
   try {
     let { data, error } = await supabase
       .from('profiles')
@@ -1753,7 +1754,7 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     console.warn('Notice fetching profiles from Supabase:', err);
   }
 
-  // 2. Server API Fallback
+  // 2. Public Server API Fallback
   if (remoteData.length === 0) {
     try {
       const resp = await fetch('/api/profiles');
@@ -1780,6 +1781,26 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         flName ||
         item.user_name ||
         (cleanPhone ? `Member ${cleanPhone.slice(-4)}` : 'Member');
+
+      // Resolve rating from DB column or memory cache
+      const rawDbRating = item.admin_rating !== undefined && item.admin_rating !== null
+        ? Number(item.admin_rating)
+        : (item.rating !== undefined && item.rating !== null ? Number(item.rating) : undefined);
+      const effectiveRating = (typeof rawDbRating === 'number' && !isNaN(rawDbRating))
+        ? rawDbRating
+        : getEffectiveAdminRating(item.id || cleanPhone);
+
+      // Auto-cache DB ratings into in-memory rating dictionary for instant access
+      if (typeof effectiveRating === 'number' && !isNaN(effectiveRating)) {
+        if (inMemoryAdminRatingsCache) {
+          if (item.id) inMemoryAdminRatingsCache[item.id] = effectiveRating;
+          if (cleanPhone) inMemoryAdminRatingsCache[cleanPhone] = effectiveRating;
+          const digits = cleanPhone.replace(/\D/g, '');
+          if (digits) inMemoryAdminRatingsCache[digits] = effectiveRating;
+        }
+      }
+
+      const isApproved = item.is_gst_approved === true || item.status === 'Active' || item.status === 'active';
 
       return {
         id: item.id || (cleanPhone ? `usr_${cleanPhone.replace(/\D/g, '')}` : `usr_${Date.now()}`),
@@ -1810,16 +1831,21 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
         avatarUrl: item.avatar_url || item.avatarUrl || item.author_avatar || item.authorAvatar || item.avatar || undefined,
         password: item.password || undefined,
         createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-        status: (item.status as UserStatus) || (item.is_gst_approved ? 'Active' : 'Pending'),
-        is_gst_approved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : false,
-        isGstApproved: item.is_gst_approved !== undefined ? Boolean(item.is_gst_approved) : false,
+        status: (item.status as UserStatus) || (isApproved ? 'Active' : 'Pending'),
+        is_gst_approved: isApproved,
+        isGstApproved: isApproved,
         rejectionReason: item.rejection_reason || undefined,
-        admin_rating: getEffectiveAdminRating(item.id || cleanPhone) ?? (item.admin_rating !== undefined ? Number(item.admin_rating) : (item.rating !== undefined ? Number(item.rating) : undefined)),
-        adminRating: getEffectiveAdminRating(item.id || cleanPhone) ?? (item.admin_rating !== undefined ? Number(item.admin_rating) : (item.rating !== undefined ? Number(item.rating) : undefined)),
+        admin_rating: effectiveRating,
+        adminRating: effectiveRating,
       };
     });
 
-    const priorityList = currentUserObj ? [currentUserObj, ...remoteProfiles, ...localProfiles] : [...remoteProfiles, ...localProfiles];
+    const priorityList = [
+      ...(currentUserObj ? [currentUserObj] : []),
+      ...remoteProfiles,
+      ...localProfiles,
+      ...INITIAL_VERIFIED_SUPPLIERS,
+    ];
     const finalProfiles = deduplicateUserProfiles(priorityList);
     try {
       localStorage.setItem(localKey, JSON.stringify(finalProfiles));
@@ -1828,7 +1854,11 @@ export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]>
     return finalProfiles;
   }
 
-  const fallbackList = currentUserObj ? [currentUserObj, ...localProfiles] : localProfiles;
+  const fallbackList = [
+    ...(currentUserObj ? [currentUserObj] : []),
+    ...localProfiles,
+    ...INITIAL_VERIFIED_SUPPLIERS,
+  ];
   return deduplicateUserProfiles(fallbackList);
 };
 
