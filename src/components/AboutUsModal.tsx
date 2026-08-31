@@ -23,8 +23,13 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({ isOpen, onClose }) =
           </button>
 
           <div className="flex items-center space-x-3">
-            <div className="bg-white text-[#0d47a1] font-black text-sm px-2.5 py-1 rounded-xl italic tracking-tighter shadow-md border border-blue-200/50 flex items-center justify-center shrink-0 select-none">
-              dptn
+            <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-md flex items-center justify-center shrink-0 select-none">
+              <img
+                src="/dropthan-logo.png"
+                alt="dptn B2B BUSINESS"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -114,7 +119,7 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({ isOpen, onClose }) =
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>Business Growth Services:</strong> Access high-ROI Meta Ads management and GST Cloud Billing software natively.</span>
+                <span><strong>Dropthan Digital Services:</strong> Access high-ROI Meta Ads, Website/App Creation, Leads Generation, Video Production, and GST Cloud Billing software natively.</span>
               </li>
             </ul>
           </div>

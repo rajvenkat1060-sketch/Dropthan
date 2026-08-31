@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Briefcase, User } from 'lucide-react';
+import { Home, Sparkles, User } from 'lucide-react';
 
 interface BottomNavProps {
   activeTab: string;
@@ -10,7 +10,7 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab }) => {
   const navItems = [
     { id: 'feed', icon: <Home className="w-5 h-5" />, label: 'Home' },
-    { id: 'services', icon: <Briefcase className="w-5 h-5" />, label: 'Services' },
+    { id: 'services', icon: <Sparkles className="w-5 h-5 text-amber-500" />, label: 'Services' },
     { id: 'profile', icon: <User className="w-5 h-5" />, label: 'Profile' },
   ];
 

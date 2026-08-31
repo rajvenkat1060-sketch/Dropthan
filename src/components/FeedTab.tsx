@@ -664,8 +664,13 @@ export const FeedTab: React.FC<FeedTabProps> = ({
       {!searchQuery && (
         <div id="dropthan-ecosystem-banner" className="bg-gradient-to-r from-blue-900 via-[#0d47a1] to-indigo-900 text-white rounded-2xl p-3 shadow-sm border border-blue-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="bg-white text-[#0d47a1] font-black text-sm px-2.5 py-1 rounded-xl italic tracking-tighter shadow-md border border-blue-200/50 flex items-center justify-center shrink-0 select-none">
-              dptn
+            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-md flex items-center justify-center shrink-0 select-none">
+              <img
+                src="/dropthan-logo.png"
+                alt="dptn B2B BUSINESS"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -675,7 +680,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                 </span>
               </div>
               <p className="text-[10px] text-blue-100/90 font-medium">
-                Dropshippers, Wholesalers &amp; Exporters Network • Direct WhatsApp • Meta Ads &amp; Billing Apps
+                Dropshippers, Wholesalers &amp; Exporters Network • Direct WhatsApp • Dropthan Digital Services &amp; Billing Apps
               </p>
             </div>
           </div>

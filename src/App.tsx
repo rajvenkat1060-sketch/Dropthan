@@ -27,12 +27,63 @@ import {
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const savedUserStr = localStorage.getItem('dropthan_user');
+      if (savedUserStr) {
+        const parsedUser: UserProfile = JSON.parse(savedUserStr);
+        if (!parsedUser.id) {
+          parsedUser.id = parsedUser.phone
+            ? `usr_${parsedUser.phone.replace(/\D/g, '')}`
+            : `usr_${parsedUser.displayName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+        }
+        return parsedUser;
+      }
+    } catch (err) {
+      console.error('Failed to parse saved user:', err);
+    }
+    return null;
+  });
+
   const [activeTab, setActiveTab] = useState<string>('feed');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [posts, setPosts] = useState<PostItem[]>(INITIAL_POSTS);
-  const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
-  const [savedPostIds, setSavedPostIds] = useState<string[]>([]);
+  const [posts, setPosts] = useState<PostItem[]>(() => {
+    try {
+      const savedPostsStr = localStorage.getItem('dropthan_custom_posts');
+      if (savedPostsStr) {
+        const parsedCustomPosts: PostItem[] = JSON.parse(savedPostsStr);
+        if (Array.isArray(parsedCustomPosts) && parsedCustomPosts.length > 0) {
+          return [...parsedCustomPosts, ...INITIAL_POSTS];
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse saved custom posts:', err);
+    }
+    return INITIAL_POSTS;
+  });
+
+  const [likedPostIds, setLikedPostIds] = useState<string[]>(() => {
+    try {
+      const likedIdsStr = localStorage.getItem('dropthan_liked_ids');
+      if (likedIdsStr) {
+        const parsed = JSON.parse(likedIdsStr);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  const [savedPostIds, setSavedPostIds] = useState<string[]>(() => {
+    try {
+      const savedIdsStr = localStorage.getItem('dropthan_saved_ids');
+      if (savedIdsStr) {
+        const parsed = JSON.parse(savedIdsStr);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
   const [likeCountsMap, setLikeCountsMap] = useState<Record<string, number>>({});
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
@@ -52,92 +103,44 @@ export default function App() {
     return `usr_${user.displayName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
   };
 
-  // Load user profile, saved posts, liked posts, and sync with Supabase permanent posts
+  // Background non-blocking sync with Supabase for user profile, likes & posts
   useEffect(() => {
-    let resolvedUser: UserProfile | null = null;
-    const savedUserStr = localStorage.getItem('dropthan_user');
-    if (savedUserStr) {
-      try {
-        const parsedUser: UserProfile = JSON.parse(savedUserStr);
-        if (!parsedUser.id) {
-          parsedUser.id = parsedUser.phone
-            ? `usr_${parsedUser.phone.replace(/\D/g, '')}`
-            : `usr_${parsedUser.displayName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    // 1. Silent profile verification in background
+    if (currentUser?.phone) {
+      fetchFullUserProfileByPhone(currentUser.phone).then((latestProfile) => {
+        if (latestProfile) {
+          const updated = {
+            ...currentUser,
+            ...latestProfile,
+            status: latestProfile.status || currentUser.status,
+            rejectionReason: latestProfile.rejectionReason || currentUser.rejectionReason,
+          };
+          localStorage.setItem('dropthan_user', JSON.stringify(updated));
+          setCurrentUser(updated);
         }
-        resolvedUser = parsedUser;
-        setCurrentUser(parsedUser);
-
-        // Verify and refresh latest full profile from Supabase
-        if (parsedUser.phone) {
-          fetchFullUserProfileByPhone(parsedUser.phone).then((latestProfile) => {
-            if (latestProfile) {
-              const updated = {
-                ...parsedUser,
-                ...latestProfile,
-                status: latestProfile.status || parsedUser.status,
-                rejectionReason: latestProfile.rejectionReason || parsedUser.rejectionReason,
-              };
-              localStorage.setItem('dropthan_user', JSON.stringify(updated));
-              setCurrentUser(updated);
-            }
-          }).catch(() => {});
-        }
-      } catch (err) {
-        console.error('Failed to parse saved user:', err);
-      }
+      }).catch(() => {});
     }
 
-    const savedPostsStr = localStorage.getItem('dropthan_custom_posts');
-    let localCustomPosts: PostItem[] = [];
-    if (savedPostsStr) {
-      try {
-        const parsedCustomPosts: PostItem[] = JSON.parse(savedPostsStr);
-        if (Array.isArray(parsedCustomPosts)) {
-          localCustomPosts = parsedCustomPosts;
-        }
-      } catch (err) {
-        console.error('Failed to parse saved custom posts:', err);
-      }
-    }
-
-    // Combine local & initial posts
-    const initialCombined = [...localCustomPosts, ...INITIAL_POSTS];
-    setPosts(initialCombined);
-
-    // Fetch real likes counts map from Supabase
+    // 2. Silent likes counts fetch from Supabase
     fetchAllLikesCountsFromSupabase().then((countsMap) => {
       if (countsMap && Object.keys(countsMap).length > 0) {
         setLikeCountsMap(countsMap);
       }
-    });
+    }).catch(() => {});
 
-    // Load local liked IDs as initial state
-    const likedIdsStr = localStorage.getItem('dropthan_liked_ids');
-    if (likedIdsStr) {
-      try {
-        setLikedPostIds(JSON.parse(likedIdsStr));
-      } catch (e) {}
-    }
-
-    // Fetch authentic user likes from Supabase if user is logged in & ensure user profile is synced to database
-    if (resolvedUser) {
-      const uid = getUserId(resolvedUser);
+    // 3. Silent user likes fetch from Supabase
+    if (currentUser) {
+      const uid = getUserId(currentUser);
       fetchUserLikesFromSupabase(uid).then((supabaseLikes) => {
         if (supabaseLikes && supabaseLikes.length > 0) {
           setLikedPostIds((prev) => Array.from(new Set([...prev, ...supabaseLikes])));
         }
-      });
-      // Guarantee registered user profile exists in live Supabase database
-      saveUserProfileToSupabase(resolvedUser).catch((err) => {
-        console.warn('Initial profile sync to Supabase notice:', err);
-      });
-    }
+      }).catch(() => {});
 
-    const savedIdsStr = localStorage.getItem('dropthan_saved_ids');
-    if (savedIdsStr) {
-      try {
-        setSavedPostIds(JSON.parse(savedIdsStr));
-      } catch (e) {}
+      // Guarantee registered user profile exists in live Supabase database
+      saveUserProfileToSupabase(currentUser).catch((err) => {
+        console.warn('Initial profile sync notice:', err);
+      });
     }
   }, []);
 

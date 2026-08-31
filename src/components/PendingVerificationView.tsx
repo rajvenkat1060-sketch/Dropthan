@@ -50,12 +50,21 @@ export const PendingVerificationView: React.FC<PendingVerificationViewProps> = (
   return (
     <div className="min-h-screen bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-lg rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl border border-blue-100 text-slate-800 my-auto">
-        {/* HEADER ICON */}
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-amber-100 text-amber-600 text-3xl shadow-inner relative">
+        {/* BRAND LOGO & HEADER ICON */}
+        <div className="text-center space-y-3 flex flex-col items-center">
+          <div className="w-20 h-20 rounded-2xl overflow-hidden shadow-md flex items-center justify-center select-none bg-[#0d47a1] p-1.5">
+            <img
+              src="/dropthan-logo.png"
+              alt="dptn B2B BUSINESS"
+              className="w-full h-full object-contain"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 text-2xl shadow-inner relative">
             {isPending ? '🛡️' : '❌'}
             {isPending && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full animate-ping"></span>
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full animate-ping"></span>
             )}
           </div>
 

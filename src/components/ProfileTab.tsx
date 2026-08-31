@@ -909,8 +909,13 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            <div className="bg-gradient-to-r from-blue-900 via-[#0d47a1] to-indigo-900 text-white font-black text-xs px-2.5 py-1 rounded-xl italic tracking-tighter shadow-sm">
-              dptn
+            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm flex items-center justify-center shrink-0 select-none">
+              <img
+                src="/dropthan-logo.png"
+                alt="dptn B2B BUSINESS"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h3 className="text-xs font-black text-slate-900 flex items-center gap-1.5">

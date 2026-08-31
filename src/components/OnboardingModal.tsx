@@ -236,18 +236,25 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
         </div>
 
         {/* HERO BANNER */}
-        <div className="text-center space-y-2 bg-[#0d47a1] text-white p-5 sm:p-6 rounded-3xl shadow-md">
-          <div className="inline-block bg-white text-[#0d47a1] font-black text-3xl px-5 py-2 rounded-2xl tracking-tighter italic shadow-sm">
-            dptn
+        <div className="text-center space-y-3 bg-[#0d47a1] text-white p-5 sm:p-6 rounded-3xl shadow-md flex flex-col items-center">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl overflow-hidden shadow-lg flex items-center justify-center select-none">
+            <img
+              src="/dropthan-logo.png"
+              alt="dptn B2B BUSINESS"
+              className="w-full h-full object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
-          <h2 className="text-2xl font-extrabold text-white">
-            {isEditingExisting ? 'Edit Profile' : 'Sign In / Register'}
-          </h2>
-          <p className="text-xs text-blue-100">
-            {isEditingExisting
-              ? 'Update your business information & settings'
-              : 'Direct wholesale & dropshipping platform. Sign in or create a new account.'}
-          </p>
+          <div>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+              {isEditingExisting ? 'Edit Profile' : 'Sign In / Register'}
+            </h2>
+            <p className="text-xs text-blue-100 mt-1">
+              {isEditingExisting
+                ? 'Update your business information & settings'
+                : 'Direct wholesale & dropshipping platform. Sign in or create a new account.'}
+            </p>
+          </div>
         </div>
 
         {/* INLINE AUTH ERROR MESSAGE */}
