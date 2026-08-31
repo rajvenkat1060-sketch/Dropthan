@@ -271,10 +271,21 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   };
 
   // Compile strictly verified suppliers/businesses from live Supabase profiles + current user
+  // Universally accessible for all guests, visitors, and logged-in users with 5-star / top ratings prioritized
   const combinedSuppliers = useMemo<UserProfile[]>(() => {
     const list = currentUser ? [currentUser, ...allProfiles] : allProfiles;
     const deduped = deduplicateUserProfiles(list);
-    return deduped.filter(isExplicitlyVerifiedAndHighRated);
+    const verifiedList = deduped.filter(isExplicitlyVerifiedAndHighRated);
+
+    // Prioritize 5-star admin verified suppliers and creators at the top
+    return verifiedList.sort((a, b) => {
+      const ratingA = getEffectiveAdminRating(a) ?? (a.is_gst_approved || a.isGstApproved ? 5.0 : 4.5);
+      const ratingB = getEffectiveAdminRating(b) ?? (b.is_gst_approved || b.isGstApproved ? 5.0 : 4.5);
+      if (ratingB !== ratingA) return ratingB - ratingA;
+      const nameA = a.companyName || a.displayName || '';
+      const nameB = b.companyName || b.displayName || '';
+      return nameA.localeCompare(nameB);
+    });
   }, [allProfiles, currentUser]);
 
   // Profile lookup map for dynamic enrichment of post author details & avatars
@@ -792,7 +803,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           </div>
 
           {/* FEATURED VERIFIED SUPPLIERS & CREATORS STORY CAROUSEL */}
-          {searchTab === 'all' && matchingProfiles.length > 0 && (
+          {searchTab === 'all' && (matchingProfiles.length > 0 || combinedSuppliers.length > 0) && (
             <div className="bg-white border border-blue-100 rounded-2xl p-3 shadow-2xs space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold text-slate-900 flex items-center gap-1">
@@ -803,12 +814,12 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                   onClick={() => setSearchTab('suppliers')}
                   className="text-[10px] font-bold text-[#0d47a1] hover:underline cursor-pointer"
                 >
-                  View All ({matchingProfiles.length}) ↗
+                  View All ({matchingProfiles.length > 0 ? matchingProfiles.length : combinedSuppliers.length}) ↗
                 </button>
               </div>
 
               <div className="flex items-center space-x-3 overflow-x-auto pb-1 scrollbar-none pt-1">
-                {matchingProfiles.slice(0, 15).map((supplier, sIdx) => {
+                {(matchingProfiles.length > 0 ? matchingProfiles : combinedSuppliers).slice(0, 20).map((supplier, sIdx) => {
                   const avatar = getAvatarUrl(supplier.avatarUrl, supplier.role);
                   const cleanName = supplier.companyName || supplier.displayName || 'Vendor';
                   return (

@@ -48,18 +48,31 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('feed');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [posts, setPosts] = useState<PostItem[]>(() => {
+    let deletedIds = new Set<string>();
+    try {
+      const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+      if (delStr) {
+        const arr = JSON.parse(delStr);
+        if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+      }
+    } catch (e) {}
+
     try {
       const savedPostsStr = localStorage.getItem('dropthan_custom_posts');
       if (savedPostsStr) {
         const parsedCustomPosts: PostItem[] = JSON.parse(savedPostsStr);
         if (Array.isArray(parsedCustomPosts) && parsedCustomPosts.length > 0) {
-          return [...parsedCustomPosts, ...INITIAL_POSTS];
+          return [...parsedCustomPosts, ...INITIAL_POSTS].filter(
+            (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+          );
         }
       }
     } catch (err) {
       console.error('Failed to parse saved custom posts:', err);
     }
-    return INITIAL_POSTS;
+    return INITIAL_POSTS.filter(
+      (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+    );
   });
 
   const [likedPostIds, setLikedPostIds] = useState<string[]>(() => {

@@ -1699,14 +1699,14 @@ CREATE INDEX IF NOT EXISTS idx_profiles_company_name ON public.profiles(company_
 CREATE INDEX IF NOT EXISTS idx_profiles_display_name ON public.profiles(display_name);
 CREATE INDEX IF NOT EXISTS idx_profiles_full_name ON public.profiles(full_name);
 
--- Open RLS policies for profiles
+-- Open RLS policies for profiles (100% public read for all visitors and authenticated users)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public can view all profiles" ON public.profiles;
-CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT TO public, anon, authenticated USING (true);
 DROP POLICY IF EXISTS "Anyone can insert profiles" ON public.profiles;
-CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT TO public, anon, authenticated WITH CHECK (true);
 DROP POLICY IF EXISTS "Anyone can update profiles" ON public.profiles;
-CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);
+CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO public, anon, authenticated USING (true);
 
 -- 2. POSTS TABLE (Streamlined Schema: user_id, title, product_name, description, img, is_active, created_at)
 CREATE TABLE IF NOT EXISTS public.posts (
@@ -1838,9 +1838,10 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Active
 
 -- Open RLS policies so all registered users are searchable by everyone
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
-CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE USING (true);`}</pre>
+DROP POLICY IF EXISTS "Public can view all profiles" ON public.profiles;
+CREATE POLICY "Public can view all profiles" ON public.profiles FOR SELECT TO public, anon, authenticated USING (true);
+CREATE POLICY "Anyone can insert profiles" ON public.profiles FOR INSERT TO public, anon, authenticated WITH CHECK (true);
+CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO public, anon, authenticated USING (true);`}</pre>
               </div>
             </div>
           )}

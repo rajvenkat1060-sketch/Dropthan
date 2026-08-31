@@ -232,22 +232,97 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [directUserPosts, setDirectUserPosts] = useState<PostItem[]>([]);
 
   useEffect(() => {
+    let isCancelled = false;
     if (user) {
       fetchPostsByVendor(user).then((fetched) => {
-        if (fetched && fetched.length > 0) {
-          setDirectUserPosts(fetched);
+        if (!isCancelled && fetched && fetched.length > 0) {
+          let deletedIds = new Set<string>();
+          try {
+            const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+            if (delStr) {
+              const arr = JSON.parse(delStr);
+              if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+            }
+          } catch (e) {}
+          setDirectUserPosts(
+            fetched.filter(
+              (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+            )
+          );
         }
       }).catch(() => {});
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [user?.id, user?.phone, user?.displayName, user?.companyName]);
 
+  // Real-time listener for deleted posts
+  useEffect(() => {
+    const handlePostsUpdated = () => {
+      let deletedIds = new Set<string>();
+      try {
+        const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+        if (delStr) {
+          const arr = JSON.parse(delStr);
+          if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+        }
+      } catch (e) {}
+
+      setDirectUserPosts((prev) =>
+        prev.filter(
+          (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+        )
+      );
+    };
+
+    const handleSingleDeleted = (e: Event) => {
+      const customEvt = e as CustomEvent<{ postId?: string }>;
+      const targetId = customEvt.detail?.postId;
+      if (targetId) {
+        setDirectUserPosts((prev) => prev.filter((p) => String(p.id) !== String(targetId)));
+      }
+    };
+
+    window.addEventListener('dropthan_posts_updated', handlePostsUpdated);
+    window.addEventListener('dropthan_post_deleted', handleSingleDeleted);
+    return () => {
+      window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
+      window.removeEventListener('dropthan_post_deleted', handleSingleDeleted);
+    };
+  }, []);
+
   const allEffectiveUserPosts = useMemo(() => {
+    let deletedIds = new Set<string>();
+    try {
+      const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+      if (delStr) {
+        const arr = JSON.parse(delStr);
+        if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+      }
+    } catch (e) {}
+
     const map = new Map<string, PostItem>();
     userPosts.forEach((p) => {
-      if (p.id) map.set(String(p.id), p);
+      if (
+        p.id &&
+        !deletedIds.has(String(p.id)) &&
+        !p.is_deleted &&
+        p.is_active !== false &&
+        p.status !== 'deleted'
+      ) {
+        map.set(String(p.id), p);
+      }
     });
     directUserPosts.forEach((p) => {
-      if (p.id && !map.has(String(p.id))) {
+      if (
+        p.id &&
+        !deletedIds.has(String(p.id)) &&
+        !p.is_deleted &&
+        p.is_active !== false &&
+        p.status !== 'deleted' &&
+        !map.has(String(p.id))
+      ) {
         map.set(String(p.id), p);
       }
     });
@@ -1311,6 +1386,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         post={postToDelete}
         onClose={() => setPostToDelete(null)}
         onConfirm={async (postId) => {
+          setDirectUserPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
           if (onDeletePost) {
             await onDeletePost(postId);
           }

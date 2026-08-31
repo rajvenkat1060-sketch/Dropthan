@@ -263,7 +263,19 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
 
       fetchPostsByVendor(postsTargetIdentifier).then((posts) => {
         if (!isCancelled) {
-          setFetchedVendorPosts(posts || []);
+          let deletedIds = new Set<string>();
+          try {
+            const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+            if (delStr) {
+              const arr = JSON.parse(delStr);
+              if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+            }
+          } catch (e) {}
+
+          const filtered = (posts || []).filter(
+            (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+          );
+          setFetchedVendorPosts(filtered);
         }
       });
     };
@@ -288,11 +300,22 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
         loadPostsForVendor(vendorProfile);
       }
     };
+
+    const handleSingleDeleted = (e: Event) => {
+      const customEvt = e as CustomEvent<{ postId?: string }>;
+      const targetId = customEvt.detail?.postId;
+      if (targetId && !isCancelled) {
+        setFetchedVendorPosts((prev) => prev.filter((p) => String(p.id) !== String(targetId)));
+      }
+    };
+
     window.addEventListener('dropthan_posts_updated', handlePostsUpdated);
+    window.addEventListener('dropthan_post_deleted', handleSingleDeleted);
 
     return () => {
       isCancelled = true;
       window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
+      window.removeEventListener('dropthan_post_deleted', handleSingleDeleted);
     };
   }, [isOpen, cleanVendorName, vendorPost?.id, (vendorPost as any)?.user_id, (vendorPost as any)?.userId, vendorPost?.phone, currentUser]);
 

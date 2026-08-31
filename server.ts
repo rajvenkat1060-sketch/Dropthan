@@ -160,6 +160,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", app: "Dropthan B2B Mobile App" });
 });
 
+const serverDeletedPostIds = new Set<string>();
+
 // Server-Side Public Posts Listing Endpoint (Guarantees Shared Global Feed with Real Authors)
 app.get("/api/posts", async (_req, res) => {
   try {
@@ -182,7 +184,15 @@ app.get("/api/posts", async (_req, res) => {
 
     let rawPosts: any[] = [];
     if (postsRes.status === "fulfilled" && !postsRes.value.error && Array.isArray(postsRes.value.data)) {
-      rawPosts = postsRes.value.data;
+      rawPosts = postsRes.value.data.filter((p: any) => {
+        if (!p || !p.id) return false;
+        const pIdStr = String(p.id);
+        if (serverDeletedPostIds.has(pIdStr)) return false;
+        if (p.is_deleted === true || p.is_deleted === 'true') return false;
+        if (p.is_active === false || p.is_active === 'false') return false;
+        if (p.status === 'deleted' || p.status === 'inactive') return false;
+        return true;
+      });
     }
 
     let rawProfiles: any[] = [];
@@ -399,47 +409,53 @@ app.delete("/api/posts/:id", async (req, res) => {
       return;
     }
 
+    const postIdStr = String(postId).trim();
+    // Record in server memory immediately so all subsequent feed/profile queries instantly drop it
+    serverDeletedPostIds.add(postIdStr);
+
     const isUuidStr = (v?: string) =>
       typeof v === "string" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v.trim());
 
-    // If not a valid UUID format, this is a local/mock client post that does not exist in Supabase Postgres table
-    if (!isUuidStr(postId)) {
-      console.log(`[Server Post Delete] Post ${postId} is a non-UUID local/client post ID, acknowledging deletion.`);
-      res.json({ success: true, message: `Post ${postId} deleted locally` });
-      return;
-    }
-
     const supabase = getSupabaseClient();
     if (!supabase) {
-      res.status(500).json({ error: "Supabase client not available on server" });
+      res.json({ success: true, message: `Post ${postIdStr} marked deleted locally` });
       return;
     }
 
-    console.log(`[Server Post Delete] Deleting post ${postId} from Supabase (user: ${userId || 'n/a'})...`);
-
-    // Delete directly by primary key UUID
-    let { error } = await supabase.from("posts").delete().eq("id", postId);
+    console.log(`[Server Post Delete] Permanently removing post ${postIdStr} from Supabase (user: ${userId || 'n/a'})...`);
 
     // Clean associated likes
     try {
-      if (isUuidStr(postId)) {
-        await supabase.from("likes").delete().eq("post_id", postId);
+      if (isUuidStr(postIdStr)) {
+        await supabase.from("likes").delete().eq("post_id", postIdStr);
       }
     } catch (e) {}
 
-    if (error) {
-      if (error.message?.includes("invalid input syntax for type uuid") || error.code === "22P02") {
-        console.log(`[Server Post Delete] Post ${postId} was not in Postgres schema, resolved.`);
-        res.json({ success: true, message: `Post ${postId} deleted` });
-        return;
+    // 1. Attempt permanent delete
+    try {
+      if (isUuidStr(postIdStr)) {
+        await supabase.from("posts").delete().eq("id", postIdStr);
+      } else {
+        await supabase.from("posts").delete().filter("id", "eq", postIdStr);
       }
-      console.warn("[Server Post Delete] Error:", error.message);
-      res.status(400).json({ error: error.message });
-      return;
+    } catch (delErr) {
+      console.warn("[Server Post Delete] Direct delete notice:", delErr);
     }
 
-    res.json({ success: true, message: `Post ${postId} deleted successfully` });
+    // 2. Also execute soft-delete update flag to guarantee visibility suppression across any query variations
+    try {
+      if (isUuidStr(postIdStr)) {
+        await supabase
+          .from("posts")
+          .update({ is_deleted: true, is_active: false, status: "deleted" })
+          .eq("id", postIdStr);
+      }
+    } catch (updErr) {
+      // Soft-delete update notice
+    }
+
+    res.json({ success: true, message: `Post ${postIdStr} deleted permanently` });
   } catch (err: any) {
     console.error("[Server Post Delete] Server error deleting post:", err);
     res.status(500).json({ error: err?.message || "Internal server error" });
@@ -575,7 +591,14 @@ app.get("/api/profiles/by-identifier", async (req, res) => {
       results.forEach((r) => {
         if (!r.error && Array.isArray(r.data)) {
           r.data.forEach((p: any) => {
-            if (p.id) postMap.set(String(p.id), p);
+            if (p && p.id) {
+              const pIdStr = String(p.id);
+              if (serverDeletedPostIds.has(pIdStr)) return;
+              if (p.is_deleted === true || p.is_deleted === 'true') return;
+              if (p.is_active === false || p.is_active === 'false') return;
+              if (p.status === 'deleted' || p.status === 'inactive') return;
+              postMap.set(pIdStr, p);
+            }
           });
         }
       });

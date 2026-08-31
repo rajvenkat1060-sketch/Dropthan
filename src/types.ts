@@ -66,6 +66,8 @@ export interface PostItem {
   images?: string[];
   media_url?: string;
   is_active?: boolean;
+  is_deleted?: boolean;
+  status?: string;
   phone: string;
   country?: string;
   location?: string;
