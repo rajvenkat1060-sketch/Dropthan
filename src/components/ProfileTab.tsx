@@ -233,31 +233,39 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
   useEffect(() => {
     let isCancelled = false;
+    // Always start with a clean state so no prior user's posts bleed into this session
+    setDirectUserPosts([]);
+
     if (user) {
-      fetchPostsByVendor(user).then((fetched) => {
-        if (!isCancelled && fetched && fetched.length > 0) {
-          let deletedIds = new Set<string>();
-          try {
-            const delStr = localStorage.getItem('dropthan_deleted_post_ids');
-            if (delStr) {
-              const arr = JSON.parse(delStr);
-              if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
-            }
-          } catch (e) {}
-          setDirectUserPosts(
-            fetched.filter(
+      fetchPostsByVendor(user)
+        .then((fetched) => {
+          if (!isCancelled) {
+            let deletedIds = new Set<string>();
+            try {
+              const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+              if (delStr) {
+                const arr = JSON.parse(delStr);
+                if (Array.isArray(arr)) arr.forEach((id) => deletedIds.add(String(id)));
+              }
+            } catch (e) {}
+
+            const activePosts = (fetched || []).filter(
               (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
-            )
-          );
-        }
-      }).catch(() => {});
+            );
+            setDirectUserPosts(activePosts);
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) setDirectUserPosts([]);
+        });
     }
+
     return () => {
       isCancelled = true;
     };
   }, [user?.id, user?.phone, user?.displayName, user?.companyName]);
 
-  // Real-time listener for deleted posts
+  // Real-time listener for deleted posts and hard session clearance
   useEffect(() => {
     const handlePostsUpdated = () => {
       let deletedIds = new Set<string>();
@@ -284,11 +292,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       }
     };
 
+    const handleSessionCleared = () => {
+      setDirectUserPosts([]);
+      setIsEditingWebsiteModal(false);
+      setIsEditProfileModalOpen(false);
+      setPostToDelete(null);
+    };
+
     window.addEventListener('dropthan_posts_updated', handlePostsUpdated);
     window.addEventListener('dropthan_post_deleted', handleSingleDeleted);
+    window.addEventListener('dropthan_session_cleared', handleSessionCleared);
     return () => {
       window.removeEventListener('dropthan_posts_updated', handlePostsUpdated);
       window.removeEventListener('dropthan_post_deleted', handleSingleDeleted);
+      window.removeEventListener('dropthan_session_cleared', handleSessionCleared);
     };
   }, []);
 

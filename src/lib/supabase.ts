@@ -2925,6 +2925,68 @@ export const supabaseSignOut = async () => {
   }
 };
 
+/**
+ * Hard Session Clear on Logout (Instagram-style zero cache residue)
+ * Completely flushes and clears all local storage, session storage,
+ * in-memory user caches, liked/saved IDs, and active Supabase auth sessions.
+ */
+export const hardClearUserSession = async (): Promise<void> => {
+  try {
+    console.log('🔒 [Session Clear] Executing hard session flush on logout...');
+    // 1. Sign out of any Supabase auth session
+    await supabase.auth.signOut().catch(() => {});
+
+    // 2. Remove all user-specific items from localStorage
+    const keysToRemove = [
+      'dropthan_user',
+      'dropthan_liked_ids',
+      'dropthan_saved_ids',
+      'dropthan_custom_posts',
+      'dropthan_like_counts_map',
+      'dropthan_active_tab',
+      'dropthan_cached_supabase_posts',
+      'dropthan_all_profiles',
+    ];
+
+    keysToRemove.forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch (e) {}
+    });
+
+    // Also remove any dynamic user-keyed items in localStorage (e.g. dropthan_ratings_*, dropthan_user_*, dropthan_profile_*)
+    try {
+      const allKeys = Object.keys(localStorage);
+      allKeys.forEach((k) => {
+        if (
+          k.startsWith('dropthan_user_') ||
+          k.startsWith('dropthan_profile_') ||
+          k.startsWith('dropthan_session_') ||
+          k.startsWith('dropthan_ratings_')
+        ) {
+          localStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+
+    // 3. Clear session storage completely
+    try {
+      sessionStorage.clear();
+    } catch (e) {}
+
+    // 4. Dispatch session cleared events across windows & components
+    try {
+      window.dispatchEvent(new CustomEvent('dropthan_session_cleared'));
+      window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
+      window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
+    } catch (e) {}
+
+    console.log('✅ [Session Clear] Session flushed with zero data residue.');
+  } catch (err) {
+    console.warn('Session clear notice:', err);
+  }
+};
+
 export const getSupabaseUser = async () => {
   try {
     const { data: { user }, error } = await supabase.auth.getUser();
@@ -3046,33 +3108,12 @@ export const authenticateOrRegisterUser = async (
 
     if (res.ok && json?.success && json?.profile) {
       const p = json.profile;
-      const parsedProfile: UserProfile = {
-        id: p.id || `usr_${cleanPhone.replace(/\D/g, '')}`,
-        role: p.role || profileData.role || 'wholesaler',
-        phone: p.phone || cleanPhone,
-        password: p.password || cleanPass,
-        country: p.country || profileData.country || 'India',
-        location: p.location || profileData.location || '',
-        storeAddress: p.store_address || p.storeAddress || profileData.storeAddress || p.location || undefined,
-        lat: p.lat ? Number(p.lat) : profileData.lat,
-        lng: p.lng ? Number(p.lng) : profileData.lng,
-        companyName: p.company_name || p.companyName || profileData.companyName || undefined,
-        fullName: p.full_name || p.fullName || profileData.fullName || undefined,
-        displayName: p.display_name || p.displayName || p.full_name || p.company_name || profileData.displayName || profileData.fullName || profileData.companyName || (cleanPhone ? `Member (${cleanPhone.slice(-4)})` : 'Verified Member'),
-        bio: p.bio || p.description || profileData.bio || undefined,
-        description: p.description || p.bio || profileData.description || undefined,
-        gstin: p.gstin || profileData.gstin || undefined,
-        iecCode: p.iec_code || p.iecCode || profileData.iecCode || undefined,
-        businessRegNumber: p.business_reg_number || p.businessRegNumber || profileData.businessRegNumber || undefined,
-        website: p.website || p.website_url || profileData.website || undefined,
-        websiteUrl: p.website || p.website_url || profileData.websiteUrl || undefined,
-        instagram: p.instagram || p.instagram_handle || profileData.instagram || undefined,
-        instagramHandle: p.instagram || p.instagram_handle || profileData.instagramHandle || undefined,
-        avatarUrl: p.avatar_url || p.avatarUrl || profileData.avatarUrl || undefined,
-        createdAt: p.created_at || p.createdAt || new Date().toISOString(),
-        status: (p.status as UserStatus) || 'Active',
-      };
-      return { success: true, profile: parsedProfile, isNewUser: Boolean(json.isNewUser) };
+      const isNew = Boolean(json.isNewUser);
+      // For existing users, parseProfileFromSupabase guarantees 100% fidelity with the live database record
+      const parsedProfile = parseProfileFromSupabase(p);
+      if (p.password) parsedProfile.password = p.password;
+      else if (cleanPass) parsedProfile.password = cleanPass;
+      return { success: true, profile: parsedProfile, isNewUser: isNew };
     }
 
     if (res.status === 401 || json?.error === 'Password not correct') {

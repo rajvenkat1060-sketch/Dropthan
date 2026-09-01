@@ -12,6 +12,8 @@ import {
   getEffectiveAdminRating,
   getAdminRatingForUser,
 } from '../lib/supabase';
+import { AdminBulkCsvImporter } from './AdminBulkCsvImporter';
+import { AdminMediaManagerModal } from './AdminMediaManagerModal';
 
 interface AdminVerificationModalProps {
   isOpen: boolean;
@@ -121,6 +123,9 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     error: '',
     successMessage: '',
   });
+
+  const [isBulkCsvImporterOpen, setIsBulkCsvImporterOpen] = useState(false);
+  const [mediaManagerUser, setMediaManagerUser] = useState<UserProfile | null>(null);
 
   // Admin Notification / Toast State
   const [toastMessage, setToastMessage] = useState<{
@@ -1359,18 +1364,10 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                     <span>➕ Pre-Register Single</span>
                   </button>
                   <button
-                    onClick={() =>
-                      setBulkCsvModal({
-                        isOpen: true,
-                        csvText: '',
-                        isImporting: false,
-                        error: '',
-                        successMessage: '',
-                      })
-                    }
+                    onClick={() => setIsBulkCsvImporterOpen(true)}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
                   >
-                    <span>📁 Bulk CSV Import</span>
+                    <span>📁 Bulk CSV Import (50 Wholesalers)</span>
                   </button>
                   <button
                     onClick={loadData}
@@ -1475,6 +1472,13 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setMediaManagerUser(p)}
+                              className="bg-purple-50 hover:bg-purple-100 text-purple-800 font-bold text-[10px] px-2.5 py-1 rounded-lg border border-purple-200 transition cursor-pointer active:scale-95 whitespace-nowrap flex items-center gap-1"
+                              title="Upload avatar or product posts via Cloudinary pipeline"
+                            >
+                              <span>🎨 Media & Posts</span>
+                            </button>
                             <button
                               onClick={() => setSelectedUserForProfile(p)}
                               className="bg-[#0d47a1] hover:bg-blue-800 text-white font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap"
@@ -2073,6 +2077,16 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO publ
                   Close Profile
                 </button>
                 <button
+                  onClick={() => {
+                    const targetUser = selectedUserForProfile;
+                    setSelectedUserForProfile(null);
+                    setMediaManagerUser(targetUser);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer shadow-sm flex items-center gap-1.5 active:scale-95"
+                >
+                  <span>🎨 Cloudinary Media & Posts</span>
+                </button>
+                <button
                   onClick={() => handleOpenDelete(selectedUserForProfile)}
                   className="bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer border border-red-200 flex items-center gap-1 active:scale-95"
                   title="Permanently remove user from Supabase database"
@@ -2582,6 +2596,31 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO publ
           </div>
         </div>
       )}
+      {/* ADVANCED ADMIN BULK CSV IMPORTER & PASSWORD GENERATOR */}
+      <AdminBulkCsvImporter
+        isOpen={isBulkCsvImporterOpen}
+        onClose={() => setIsBulkCsvImporterOpen(false)}
+        onImportComplete={() => {
+          loadData();
+          if (onStatusChanged) onStatusChanged();
+        }}
+      />
+
+      {/* CLOUDINARY MEDIA & PRODUCT POST PIPELINE */}
+      <AdminMediaManagerModal
+        isOpen={!!mediaManagerUser}
+        user={mediaManagerUser}
+        onClose={() => setMediaManagerUser(null)}
+        onUserUpdated={(updated) => {
+          setProfiles((prev) =>
+            prev.map((p) => (p.id === updated.id || p.phone === updated.phone ? updated : p))
+          );
+          if (selectedUserForProfile?.id === updated.id) {
+            setSelectedUserForProfile(updated);
+          }
+          if (onStatusChanged) onStatusChanged();
+        }}
+      />
     </div>
   );
 };

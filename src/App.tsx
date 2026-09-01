@@ -22,6 +22,7 @@ import {
   fetchFullUserProfileByPhone,
   subscribeToSupabasePosts,
   saveUserProfileToSupabase,
+  hardClearUserSession,
 } from './lib/supabase';
 
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
@@ -269,19 +270,20 @@ export default function App() {
     });
   }, []);
 
-  const handleOnboardingComplete = async (userProfile: UserProfile) => {
-    // 1. Query full profile from database to ensure zero data loss from pre-registered/admin records
-    let fullProfile = userProfile;
+  const handleOnboardingComplete = async (userProfile: UserProfile, isNewRegistration = false) => {
+    // 1. Reset user interaction caches to ensure zero bleed from any prior session
+    setLikedPostIds([]);
+    setSavedPostIds([]);
+
+    // 2. Query full authentic profile from database to ensure zero data loss from pre-registered/admin records
+    let fullProfile: UserProfile = userProfile;
     if (userProfile.phone) {
       try {
         const fetched = await fetchFullUserProfileByPhone(userProfile.phone);
         if (fetched) {
           fullProfile = {
-            ...userProfile,
             ...fetched,
             password: userProfile.password || fetched.password,
-            status: fetched.status || userProfile.status || 'Active',
-            rejectionReason: fetched.rejectionReason,
           };
         }
       } catch (e) {
@@ -293,30 +295,50 @@ export default function App() {
       ...fullProfile,
       id: fullProfile.id || `usr_${fullProfile.phone ? fullProfile.phone.replace(/\D/g, '') : Date.now()}`,
     };
+
     setCurrentUser(userWithId);
     localStorage.setItem('dropthan_user', JSON.stringify(userWithId));
 
-    // Force sync to Supabase live profiles table
-    try {
-      await saveUserProfileToSupabase(userWithId);
-    } catch (e) {
-      console.warn('Onboarding profile save notice:', e);
+    // 3. Only save back to database if this was explicitly a brand new registration (never overwrite existing database profile on login)
+    if (isNewRegistration) {
+      try {
+        await saveUserProfileToSupabase(userWithId);
+      } catch (e) {
+        console.warn('Onboarding profile save notice:', e);
+      }
     }
 
-    // Synchronize posts from Supabase so user immediately sees all their uploaded posts and media content
-    syncPostsFromSupabase();
-
-    // Fetch user's existing likes from Supabase
+    // 4. Fetch the authenticated user's specific likes from Supabase
     fetchUserLikesFromSupabase(userWithId.id).then((supabaseLikes) => {
       if (supabaseLikes && supabaseLikes.length > 0) {
-        setLikedPostIds((prev) => Array.from(new Set([...prev, ...supabaseLikes])));
+        setLikedPostIds(supabaseLikes);
+        localStorage.setItem('dropthan_liked_ids', JSON.stringify(supabaseLikes));
       }
     });
+
+    // 5. Synchronize public posts from Supabase so user immediately sees live feed
+    syncPostsFromSupabase();
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('dropthan_user');
+  const handleLogout = async () => {
+    // 1. Hard clear all storage, cache, session tokens and active Supabase auth sessions
+    await hardClearUserSession();
+
+    // 2. Reset all React state variables to pristine guest view
     setCurrentUser(null);
+    setLikedPostIds([]);
+    setSavedPostIds([]);
+    setLikeCountsMap({});
+    setSearchQuery('');
+    setActiveTab('feed');
+    setIsAdminModalOpen(false);
+    setIsCreateModalOpen(false);
+    setIsAboutModalOpen(false);
+
+    // 3. Re-sync public posts from Supabase for clean guest experience
+    syncPostsFromSupabase();
+
+    showToast('👋 You have been logged out successfully.');
   };
 
   const handleUpdateAvatar = async (newAvatarUrl: string) => {

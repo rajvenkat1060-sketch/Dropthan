@@ -9,7 +9,7 @@ import { GoogleLocationInput } from './GoogleLocationInput';
 import { Instagram, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 
 interface OnboardingModalProps {
-  onComplete: (user: UserProfile) => void;
+  onComplete: (user: UserProfile, isNewUser?: boolean) => void;
   onCancel?: () => void;
   currentUser?: UserProfile | null;
 }
@@ -186,7 +186,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
       setTimeout(() => {
         setIsSubmitting(false);
-        onComplete(authenticatedUser);
+        onComplete(authenticatedUser, Boolean(result.isNewUser));
       }, 400);
     } catch (err: any) {
       console.error('Authentication error:', err);
