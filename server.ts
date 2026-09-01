@@ -1447,8 +1447,13 @@ app.post("/api/admin/bulk-pre-register", async (req, res) => {
       ).trim();
 
       if (!password || password.length < 4) {
-        // Generate secure pattern or randomized password
-        password = `Dropthan@${cleanDigits.slice(-4) || `${1000 + i}`}`;
+        // Generate secure randomized password (Drop@XXXXXX)
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789";
+        let randSuffix = "";
+        for (let k = 0; k < 6; k++) {
+          randSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        password = `Drop@${randSuffix}`;
       }
 
       // Dynamic field mapping for Company Name
@@ -1502,6 +1507,7 @@ app.post("/api/admin/bulk-pre-register", async (req, res) => {
       const bio = String(
         raw.bio ||
         raw.description ||
+        raw.desc ||
         raw.about ||
         raw.about_us ||
         raw.aboutus ||

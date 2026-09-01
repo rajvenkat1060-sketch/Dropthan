@@ -3,6 +3,7 @@ import { generate50WholesalersCsvText } from '../data/wholesalers50Data';
 import {
   parseBulkSupplierData,
   ParsedWholesalerRow,
+  generateDropAtRandomPassword,
   generateSecureRandomPassword,
   generatePatternPassword,
 } from '../utils/bulkDataParser';
@@ -37,7 +38,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
   onImportComplete,
 }) => {
   const [csvText, setCsvText] = useState<string>('');
-  const [passwordStrategy, setPasswordStrategy] = useState<'random' | 'pattern' | 'custom_prefix'>('random');
+  const [passwordStrategy, setPasswordStrategy] = useState<'drop_random' | 'random' | 'pattern' | 'custom_prefix'>('drop_random');
   const [customPrefix, setCustomPrefix] = useState<string>('Dropthan');
   const [parsedRows, setParsedRows] = useState<ParsedWholesalerRow[]>([]);
   const [detectedFormat, setDetectedFormat] = useState<string>('');
@@ -57,7 +58,9 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
 
   // Generate Auto-Password based on strategy
   const generatePassword = (phone: string, index: number): string => {
-    if (passwordStrategy === 'random') {
+    if (passwordStrategy === 'drop_random') {
+      return generateDropAtRandomPassword();
+    } else if (passwordStrategy === 'random') {
       return generateSecureRandomPassword(10);
     } else if (passwordStrategy === 'custom_prefix') {
       const pfx = customPrefix.trim() || 'Dropthan';
@@ -304,6 +307,20 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  setPasswordStrategy('drop_random');
+                  if (csvText) handleParseContent(csvText);
+                }}
+                className={`text-[11px] font-bold px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                  passwordStrategy === 'drop_random'
+                    ? 'bg-[#0d47a1] text-white shadow-2xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                <span>⚡ Drop@ (Drop@XXXXXX)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   setPasswordStrategy('random');
                   if (csvText) handleParseContent(csvText);
                 }}
@@ -313,7 +330,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
                     : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
                 }`}
               >
-                <span>⚡ Secure Randomized (10-char)</span>
+                <span>Alphanumeric 10-char</span>
               </button>
               <button
                 type="button"

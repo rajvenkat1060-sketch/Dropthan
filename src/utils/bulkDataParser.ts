@@ -28,6 +28,19 @@ export interface ParseBulkResult {
 }
 
 /**
+ * Generates a cryptographically strong, randomized alphanumeric password with 'Drop@' prefix.
+ * Format: 'Drop@' + 6 random alphanumeric characters (total 11 chars).
+ */
+export function generateDropAtRandomPassword(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$';
+  let password = 'Drop@';
+  for (let i = 0; i < 6; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
+
+/**
  * Generates a cryptographically strong, randomized alphanumeric password.
  * Format: 10-12 characters with uppercase, lowercase, numbers, and allowed safe special symbols.
  */
@@ -168,8 +181,9 @@ const FIELD_ALIASES: Record<string, RegExp[]> = {
     /gst/i,
   ],
   description: [
-    /^(description|bio|about|about_us|aboutus|details|company_details|notes|summary|overview|products_description|catalog_details|category)$/i,
+    /^(description|desc|bio|about|about_us|aboutus|details|company_details|notes|summary|overview|products_description|catalog_details|category)$/i,
     /description/i,
+    /desc/i,
     /bio/i,
     /about/i,
   ],
@@ -179,7 +193,7 @@ const FIELD_ALIASES: Record<string, RegExp[]> = {
     /web_?url/i,
   ],
   instagram: [
-    /^(instagram|instagram_id|instagramid|instagram_handle|instagramhandle|insta|insta_id|instaid|ig|ig_handle|social|social_media)$/i,
+    /^(instagram|insta|instagram_id|instagramid|instagram_handle|instagramhandle|insta_id|instaid|ig|ig_handle|social|social_media)$/i,
     /instagram/i,
     /insta/i,
     /ig/i,
