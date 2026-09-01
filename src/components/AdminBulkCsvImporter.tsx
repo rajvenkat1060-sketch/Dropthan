@@ -1,5 +1,11 @@
-import React, { useState } from 'react';
-import { WHOLESALERS_50_DATASET, WholesalerSeedData, generate50WholesalersCsvText } from '../data/wholesalers50Data';
+import React, { useState, useRef } from 'react';
+import { generate50WholesalersCsvText } from '../data/wholesalers50Data';
+import {
+  parseBulkSupplierData,
+  ParsedWholesalerRow,
+  generateSecureRandomPassword,
+  generatePatternPassword,
+} from '../utils/bulkDataParser';
 import {
   Upload,
   FileSpreadsheet,
@@ -12,11 +18,11 @@ import {
   RefreshCw,
   X,
   Sparkles,
-  ShieldCheck,
-  Building2,
-  Phone,
   Eye,
   EyeOff,
+  FileType,
+  Database,
+  Layers,
 } from 'lucide-react';
 
 interface AdminBulkCsvImporterProps {
@@ -25,141 +31,107 @@ interface AdminBulkCsvImporterProps {
   onImportComplete?: () => void;
 }
 
-interface ParsedRecord extends WholesalerSeedData {
-  id?: string;
-  status?: string;
-}
-
 export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
   isOpen,
   onClose,
   onImportComplete,
 }) => {
   const [csvText, setCsvText] = useState<string>('');
-  const [passwordStrategy, setPasswordStrategy] = useState<'pattern' | 'random' | 'custom_prefix'>('pattern');
+  const [passwordStrategy, setPasswordStrategy] = useState<'random' | 'pattern' | 'custom_prefix'>('random');
   const [customPrefix, setCustomPrefix] = useState<string>('Dropthan');
-  const [parsedRows, setParsedRows] = useState<ParsedRecord[]>([]);
+  const [parsedRows, setParsedRows] = useState<ParsedWholesalerRow[]>([]);
+  const [detectedFormat, setDetectedFormat] = useState<string>('');
+  const [detectedMappings, setDetectedMappings] = useState<Record<string, string>>({});
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [importedCredentials, setImportedCredentials] = useState<{ phone: string; password: string; companyName: string }[] | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
   const [showPasswords, setShowPasswords] = useState<boolean>(true);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string>('');
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
   // Generate Auto-Password based on strategy
   const generatePassword = (phone: string, index: number): string => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const last4 = cleanPhone.slice(-4) || `${1000 + index}`;
-    
-    if (passwordStrategy === 'pattern') {
-      return `Dropthan@${last4}`;
+    if (passwordStrategy === 'random') {
+      return generateSecureRandomPassword(10);
     } else if (passwordStrategy === 'custom_prefix') {
       const pfx = customPrefix.trim() || 'Dropthan';
-      return `${pfx}@${last4}`;
+      return generatePatternPassword(phone, pfx);
     } else {
-      // Cryptographic alphanumeric random password
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
-      let pass = '';
-      for (let i = 0; i < 10; i++) {
-        pass += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      return pass;
+      return generatePatternPassword(phone, 'Dropthan');
     }
   };
 
-  // Parse CSV text into records
-  const handleParseCsv = (rawText: string) => {
+  // Robust parsing using PapaParse + fallback multi-format engine
+  const handleParseContent = (rawContent: string, fileName?: string) => {
     setError('');
     setSuccessMessage('');
-    if (!rawText.trim()) {
+    if (fileName) setUploadedFileName(fileName);
+
+    if (!rawContent.trim()) {
       setParsedRows([]);
+      setDetectedFormat('');
+      setDetectedMappings({});
       return;
     }
 
     try {
-      const lines = rawText.split(/\r?\n/).filter((l) => l.trim().length > 0);
-      if (lines.length === 0) {
+      const result = parseBulkSupplierData(rawContent, (phone, idx) => generatePassword(phone, idx));
+
+      if (result.error) {
+        setError(result.error);
         setParsedRows([]);
+        setDetectedMappings({});
         return;
       }
 
-      // Check if header exists
-      const firstLine = lines[0].toLowerCase();
-      const hasHeader =
-        firstLine.includes('phone') ||
-        firstLine.includes('company') ||
-        firstLine.includes('contact') ||
-        firstLine.includes('city') ||
-        firstLine.includes('name');
+      setParsedRows(result.rows);
+      setDetectedFormat(result.formatDetected);
+      setDetectedMappings(result.detectedMappings || {});
 
-      const dataLines = hasHeader ? lines.slice(1) : lines;
-      const parsed: ParsedRecord[] = [];
-
-      dataLines.forEach((line, idx) => {
-        // Robust CSV splitting respecting quotes
-        const match = line.match(/(".*?"|[^",\t]+)(?=\s*[,|\t]|\s*$)/g);
-        let cols = match ? match.map((val) => val.replace(/^"|"$/g, '').trim()) : line.split(/[,|\t]/).map((s) => s.trim());
-
-        if (cols.length < 1 || !cols[0]) return;
-
-        const phone = cols[0];
-        let password = cols[1] && cols[1].length >= 4 ? cols[1] : generatePassword(phone, idx);
-        
-        // If 2nd column looks like a name instead of password, adjust mapping
-        let colShift = 0;
-        if (cols[1] && !cols[1].includes('@') && cols[1].length > 15) {
-          password = generatePassword(phone, idx);
-          colShift = -1; // 2nd column was actually company name
-        }
-
-        const companyName = cols[2 + colShift] || cols[1 + colShift] || `Wholesaler ${idx + 1}`;
-        const fullName = cols[3 + colShift] || 'Manager';
-        const location = cols[4 + colShift] || 'India';
-        const storeAddress = cols[5 + colShift] || `${location}, India`;
-        const gstin = cols[6 + colShift] || '';
-        const bio = cols[7 + colShift] || `Verified direct manufacturer and bulk wholesaler of ${companyName}.`;
-        const website = cols[8 + colShift] || '';
-        const instagram = cols[9 + colShift] || '';
-
-        parsed.push({
-          phone,
-          password,
-          companyName,
-          fullName,
-          location,
-          storeAddress,
-          gstin,
-          bio,
-          website,
-          instagram,
-          role: 'wholesaler',
-        });
-      });
-
-      setParsedRows(parsed);
-      if (parsed.length === 0) {
-        setError('No valid rows found in CSV text.');
+      if (result.rows.length === 0) {
+        setError('No valid supplier rows with phone numbers could be extracted from the file.');
       }
     } catch (e: any) {
-      console.error('CSV parse error:', e);
-      setError(`Failed to parse CSV: ${e?.message || 'Invalid format'}`);
+      console.error('Data parse error:', e);
+      setError(`Failed to parse file: ${e?.message || 'Invalid format'}`);
     }
+  };
+
+  // Read file from input or drag-drop
+  const handleReadFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string;
+      if (content) {
+        setCsvText(content);
+        handleParseContent(content, file.name);
+      }
+    };
+    reader.onerror = () => {
+      setError(`Failed to read file "${file.name}". Please ensure it is a valid text, CSV, or TSV document.`);
+    };
+    reader.readAsText(file);
   };
 
   // Load the 50 Indian Wholesalers Dataset
   const handleLoad50Wholesalers = () => {
     const formattedCsv = generate50WholesalersCsvText(`${customPrefix.trim() || 'Dropthan'}@2026`);
     setCsvText(formattedCsv);
-    handleParseCsv(formattedCsv);
+    setUploadedFileName('50_Indian_Wholesalers_Dataset.csv');
+    handleParseContent(formattedCsv, '50_Indian_Wholesalers_Dataset.csv');
     setSuccessMessage(`✓ Loaded 50 verified wholesaler profiles across Indian manufacturing hubs!`);
   };
 
-  // Run Bulk Import to Supabase via server API / direct payload
+  // Run Bulk Import to Supabase
   const handleExecuteImport = async () => {
     if (parsedRows.length === 0) {
-      setError('Please provide or load CSV data before importing.');
+      setError('Please provide or load data before importing.');
       return;
     }
 
@@ -171,19 +143,30 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
       console.log(`🚀 [Admin Bulk Import] Submitting ${parsedRows.length} pre-registered wholesaler records...`);
 
       const payload = {
-        users: parsedRows.map((r, i) => ({
+        profiles: parsedRows.map((r, i) => ({
           phone: r.phone,
           password: r.password || generatePassword(r.phone, i),
           companyName: r.companyName,
+          company_name: r.companyName,
           fullName: r.fullName,
+          full_name: r.fullName,
+          displayName: r.displayName || r.companyName,
+          display_name: r.displayName || r.companyName,
           location: r.location,
           storeAddress: r.storeAddress,
+          store_address: r.storeAddress,
           gstin: r.gstin,
-          bio: r.bio,
+          bio: r.bio || r.description,
+          description: r.description || r.bio,
           website: r.website,
+          websiteUrl: r.website,
+          website_url: r.website,
           instagram: r.instagram,
+          instagramHandle: r.instagram,
+          instagram_handle: r.instagram,
           role: 'wholesaler',
-          status: 'active',
+          status: 'Active',
+          is_gst_approved: true,
           isVerified: true,
           rating: 5.0,
         })),
@@ -202,8 +185,8 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
       }
 
       console.log('✅ [Admin Bulk Import Success]:', json);
-      const savedCount = json.registeredCount || parsedRows.length;
-      setSuccessMessage(`🎉 Successfully imported and pre-registered ${savedCount} wholesaler accounts in Supabase database!`);
+      const savedCount = json.registeredCount || json.importedCount || parsedRows.length;
+      setSuccessMessage(`🎉 Successfully imported and pre-registered ${savedCount} wholesaler accounts in Supabase database! (Zero schema alterations executed)`);
 
       // Store credentials list for admin copy/export
       const creds = parsedRows.map((r, i) => ({
@@ -256,7 +239,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `dropthan_50_wholesalers_credentials_${Date.now()}.csv`);
+    link.setAttribute('download', `dropthan_wholesalers_credentials_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -268,15 +251,20 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-blue-100 text-[#0d47a1] flex items-center justify-center text-2xl font-black">
+            <div className="w-11 h-11 rounded-2xl bg-blue-100 text-[#0d47a1] flex items-center justify-center text-2xl font-black shadow-2xs">
               📁
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900">
-                Isolated Admin CSV Bulk Importer & Password Generator
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  Bulk CSV / TSV / TXT Importer & Auto-Password Pipeline
+                </h3>
+                <span className="bg-blue-50 text-[#0d47a1] text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-blue-200">
+                  Zero Schema Alteration
+                </span>
+              </div>
               <p className="text-xs text-slate-500 font-medium">
-                Import 50 Indian wholesaler profiles, auto-generate secure login passwords, and persist directly into Supabase.
+                Automated data-mapping for company names, Instagram handles, and descriptions with cryptographic default password generation.
               </p>
             </div>
           </div>
@@ -303,23 +291,37 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
           </div>
         )}
 
-        {/* AUTO-PASSWORD GENERATOR SETTINGS */}
+        {/* AUTO-PASSWORD GENERATOR SETTINGS & FILE ACTION BAR */}
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 sm:p-4 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-[#0d47a1]" />
               <span className="font-extrabold text-slate-900 text-xs uppercase tracking-wide">
-                Auto-Password Generation Strategy:
+                Auto-Password Strategy:
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordStrategy('random');
+                  if (csvText) handleParseContent(csvText);
+                }}
+                className={`text-[11px] font-bold px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                  passwordStrategy === 'random'
+                    ? 'bg-[#0d47a1] text-white shadow-2xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                <span>⚡ Secure Randomized (10-char)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   setPasswordStrategy('pattern');
-                  if (csvText) handleParseCsv(csvText);
+                  if (csvText) handleParseContent(csvText);
                 }}
-                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                className={`text-[11px] font-bold px-3 py-1 rounded-lg transition cursor-pointer ${
                   passwordStrategy === 'pattern'
                     ? 'bg-[#0d47a1] text-white shadow-2xs'
                     : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
@@ -330,19 +332,36 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setPasswordStrategy('random');
-                  if (csvText) handleParseCsv(csvText);
+                  setPasswordStrategy('custom_prefix');
+                  if (csvText) handleParseContent(csvText);
                 }}
-                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                  passwordStrategy === 'random'
+                className={`text-[11px] font-bold px-3 py-1 rounded-lg transition cursor-pointer ${
+                  passwordStrategy === 'custom_prefix'
                     ? 'bg-[#0d47a1] text-white shadow-2xs'
                     : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
                 }`}
               >
-                Cryptographic Random
+                Custom Prefix
               </button>
             </div>
           </div>
+
+          {passwordStrategy === 'custom_prefix' && (
+            <div className="flex items-center gap-2 pt-1">
+              <span className="text-xs font-medium text-slate-600">Prefix:</span>
+              <input
+                type="text"
+                value={customPrefix}
+                onChange={(e) => {
+                  setCustomPrefix(e.target.value);
+                  if (csvText) handleParseContent(csvText);
+                }}
+                placeholder="Dropthan"
+                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 w-32 focus:outline-none focus:border-[#0d47a1]"
+              />
+              <span className="text-xs text-slate-400 font-mono">Example: {customPrefix || 'Dropthan'}@9825</span>
+            </div>
+          )}
 
           <div className="flex items-center gap-2 pt-1 border-t border-slate-200/60 flex-wrap">
             <button
@@ -354,50 +373,109 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
               <span>Load 50 Pre-Configured Wholesalers Dataset</span>
             </button>
 
-            <div className="text-slate-400 text-xs">or upload custom CSV:</div>
+            <div className="text-slate-400 text-xs">or upload file:</div>
 
-            <label className="bg-white hover:bg-blue-50 text-[#0d47a1] border border-blue-200 font-bold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5">
+            {/* RELAXED MULTI-FORMAT FILE INPUT */}
+            <label className="bg-white hover:bg-blue-50 text-[#0d47a1] border border-blue-200 font-bold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-2xs">
               <Upload className="w-3.5 h-3.5" />
-              <span>Select .CSV File</span>
+              <span>Choose File (.csv, .txt, .tsv, .json)</span>
               <input
+                ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt"
+                accept=".csv, text/csv, application/vnd.ms-excel, text/plain, .tsv, application/json, .json"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (evt) => {
-                      const text = evt.target?.result as string;
-                      if (text) {
-                        setCsvText(text);
-                        handleParseCsv(text);
-                      }
-                    };
-                    reader.readAsText(file);
+                    handleReadFile(file);
                   }
                 }}
                 className="hidden"
               />
             </label>
           </div>
+
+          {/* DRAG & DROP ZONE */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) {
+                handleReadFile(file);
+              }
+            }}
+            className={`border-2 border-dashed rounded-xl p-3 text-center transition ${
+              isDragging
+                ? 'border-[#0d47a1] bg-blue-50'
+                : 'border-slate-300 bg-white/60 hover:bg-slate-100/70'
+            }`}
+          >
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-600">
+              <FileType className="w-4 h-4 text-[#0d47a1]" />
+              <span>
+                Drag and drop <strong>.CSV, .TSV, .TXT, or Excel Export</strong> here, or paste raw text below.
+              </span>
+              {uploadedFileName && (
+                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-[#0d47a1]">
+                  📄 {uploadedFileName}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* CSV DATA INPUT */}
+        {/* DYNAMIC FIELD MAPPING STATUS */}
+        {Object.keys(detectedMappings).length > 0 && (
+          <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-2.5 sm:p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-[#0d47a1] mb-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              <span>Dynamic Field Mapping Applied ({Object.keys(detectedMappings).length} fields mapped to Supabase):</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(detectedMappings).map(([orig, target]) => (
+                <span
+                  key={orig}
+                  className="bg-white border border-blue-200 text-slate-700 font-mono text-[11px] px-2 py-0.5 rounded-md flex items-center gap-1"
+                >
+                  <span className="text-slate-500 font-semibold">{orig}</span>
+                  <span className="text-blue-500">→</span>
+                  <span className="text-blue-900 font-bold">{target}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DATA INPUT & FORMAT NOTICE */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs font-bold text-slate-800">
-            <span>Raw CSV Content:</span>
-            {parsedRows.length > 0 && (
-              <span className="text-[#0d47a1] font-mono">{parsedRows.length} records parsed</span>
-            )}
+            <span>Raw File / Pasted Content:</span>
+            <div className="flex items-center gap-2">
+              {detectedFormat && (
+                <span className="text-slate-500 font-mono text-[11px]">
+                  Format: <span className="text-[#0d47a1] font-semibold">{detectedFormat}</span>
+                </span>
+              )}
+              {parsedRows.length > 0 && (
+                <span className="text-emerald-700 font-mono font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  {parsedRows.length} supplier accounts parsed
+                </span>
+              )}
+            </div>
           </div>
           <textarea
             rows={4}
             value={csvText}
             onChange={(e) => {
               setCsvText(e.target.value);
-              handleParseCsv(e.target.value);
+              handleParseContent(e.target.value);
             }}
-            placeholder={`Phone, Password (Optional), CompanyName, ContactPerson, City, StoreAddress, GSTIN, Bio, Website, Instagram\n+91 9825101001, Surat Silk Hub, Sanjay Patel, Surat, Ring Road Market, 24AAACS1234A1Z5, Pure silk sarees manufacturer, https://suratsilkhub.com, suratsilkhub_official`}
+            placeholder={`Phone, CompanyName, ContactPerson, City, StoreAddress, GSTIN, Description, Website, Instagram\n+91 9825101001, Surat Silk Hub, Sanjay Patel, Surat, Ring Road Market, 24AAACS1234A1Z5, Pure silk sarees manufacturer, https://suratsilkhub.com, suratsilkhub_official`}
             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs font-mono text-slate-800 focus:outline-none focus:border-[#0d47a1] custom-scrollbar"
           />
         </div>
@@ -406,8 +484,9 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
         {parsedRows.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <h4 className="font-extrabold text-slate-900 text-xs">
-                Parsed Profiles Preview ({parsedRows.length} Accounts Ready to Insert):
+              <h4 className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-[#0d47a1]" />
+                <span>Parsed Profiles Preview ({parsedRows.length} Accounts Ready for Safe Batch Insert):</span>
               </h4>
               <button
                 type="button"
@@ -419,7 +498,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
               </button>
             </div>
 
-            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-[30vh] overflow-y-auto custom-scrollbar">
+            <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-[28vh] overflow-y-auto custom-scrollbar">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-100 text-slate-700 font-extrabold sticky top-0 border-b border-slate-200">
                   <tr>
@@ -430,11 +509,12 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
                     <th className="p-2.5">Location</th>
                     <th className="p-2.5">GSTIN</th>
                     <th className="p-2.5">Instagram</th>
+                    <th className="p-2.5">Description</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-800">
                   {parsedRows.map((r, i) => (
-                    <tr key={`csv-row-${i}`} className="hover:bg-blue-50/40">
+                    <tr key={`bulk-row-${i}`} className="hover:bg-blue-50/40">
                       <td className="p-2.5 font-mono text-slate-400 text-[11px]">{i + 1}</td>
                       <td className="p-2.5 font-bold">
                         <div className="text-slate-900">{r.companyName}</div>
@@ -448,6 +528,9 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
                       <td className="p-2.5 font-mono text-[11px] text-slate-600">{r.gstin || '—'}</td>
                       <td className="p-2.5 text-[11px] text-purple-700 font-medium">
                         {r.instagram ? `@${r.instagram}` : '—'}
+                      </td>
+                      <td className="p-2.5 text-[11px] text-slate-500 max-w-[180px] truncate">
+                        {r.description || r.bio || '—'}
                       </td>
                     </tr>
                   ))}
@@ -502,12 +585,12 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
             {isImporting ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Importing & Syncing with Supabase...</span>
+                <span>Batch Inserting into Supabase...</span>
               </>
             ) : (
               <>
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>🚀 Execute Safe Supabase Bulk Import ({parsedRows.length})</span>
+                <span>🚀 Execute Safe Batch Insert ({parsedRows.length})</span>
               </>
             )}
           </button>

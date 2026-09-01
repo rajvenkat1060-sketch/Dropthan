@@ -14,6 +14,7 @@ import {
 } from '../lib/supabase';
 import { AdminBulkCsvImporter } from './AdminBulkCsvImporter';
 import { AdminMediaManagerModal } from './AdminMediaManagerModal';
+import { parseBulkSupplierData } from '../utils/bulkDataParser';
 
 interface AdminVerificationModalProps {
   isOpen: boolean;
@@ -531,63 +532,42 @@ export const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({
     setBulkCsvModal((prev) => ({ ...prev, isImporting: true, error: '', successMessage: '' }));
 
     try {
-      const rawLines = bulkCsvModal.csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      if (rawLines.length === 0) {
-        throw new Error('CSV is empty.');
+      const result = parseBulkSupplierData(bulkCsvModal.csvText, (phone, idx) => `Dropthan@${phone.replace(/\D/g, '').slice(-4) || `${1000 + idx}`}`);
+
+      if (result.error) {
+        throw new Error(result.error);
       }
 
-      // Check header line or parse directly
-      const firstLine = rawLines[0].toLowerCase();
-      let hasHeader = firstLine.includes('phone') || firstLine.includes('mobile') || firstLine.includes('company');
-      const dataLines = hasHeader ? rawLines.slice(1) : rawLines;
-
-      const parsedRecords: Array<Partial<UserProfile> & { phone: string; password: string }> = [];
-
-      for (const line of dataLines) {
-        // Support comma or semicolon separated values
-        const cols = line.split(/[,;\t]/).map((c) => c.trim().replace(/^["']|["']$/g, ''));
-        if (cols.length < 1 || !cols[0]) continue;
-
-        // Column mapping:
-        // 0: Phone, 1: Password, 2: CompanyName, 3: ContactPerson, 4: City/Location, 5: StoreAddress, 6: GSTIN, 7: Bio/Description, 8: Website, 9: Instagram
-        const phone = cols[0];
-        if (!phone || phone.replace(/\D/g, '').length < 7) continue;
-
-        const password = cols[1] || 'Dropthan@2026';
-        const companyName = cols[2] || 'Wholesale Supplier';
-        const fullName = cols[3] || companyName;
-        const location = cols[4] || 'Surat, Gujarat';
-        const storeAddress = cols[5] || location;
-        const gstin = cols[6] || undefined;
-        const bio = cols[7] || undefined;
-        const website = cols[8] || undefined;
-        const instagram = cols[9] || undefined;
-
-        parsedRecords.push({
-          phone,
-          password,
-          role: 'wholesaler',
-          companyName,
-          displayName: companyName,
-          fullName,
-          location,
-          storeAddress,
-          gstin: gstin ? gstin.toUpperCase() : undefined,
-          bio,
-          description: bio,
-          website,
-          websiteUrl: website,
-          instagram,
-          instagramHandle: instagram,
-          status: 'Active',
-          is_gst_approved: true,
-          country: 'India',
-        });
+      if (result.rows.length === 0) {
+        throw new Error('No valid supplier rows with phone numbers found in provided data.');
       }
 
-      if (parsedRecords.length === 0) {
-        throw new Error('No valid phone numbers found in CSV data.');
-      }
+      const parsedRecords: Array<Partial<UserProfile> & { phone: string; password: string }> = result.rows.map((r) => ({
+        phone: r.phone,
+        password: r.password || 'Dropthan@2026',
+        role: 'wholesaler',
+        companyName: r.companyName,
+        company_name: r.companyName,
+        displayName: r.displayName || r.companyName,
+        display_name: r.displayName || r.companyName,
+        fullName: r.fullName || r.companyName,
+        full_name: r.fullName || r.companyName,
+        location: r.location || 'India',
+        storeAddress: r.storeAddress || r.location || 'India',
+        store_address: r.storeAddress || r.location || 'India',
+        gstin: r.gstin,
+        bio: r.bio || r.description,
+        description: r.description || r.bio,
+        website: r.website,
+        websiteUrl: r.website,
+        website_url: r.website,
+        instagram: r.instagram,
+        instagramHandle: r.instagram,
+        instagram_handle: r.instagram,
+        status: 'Active',
+        is_gst_approved: true,
+        country: 'India',
+      }));
 
       const res = await bulkPreRegisterUserAccounts(parsedRecords);
 
@@ -2504,7 +2484,7 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO publ
                 <div className="flex items-center gap-2 mb-2">
                   <input
                     type="file"
-                    accept=".csv,.txt"
+                    accept=".csv, text/csv, application/vnd.ms-excel, text/plain, .tsv"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) {

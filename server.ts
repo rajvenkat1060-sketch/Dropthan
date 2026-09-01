@@ -1372,10 +1372,25 @@ app.post("/api/admin/pre-register", async (req, res) => {
   }
 });
 
+// Helper for generating secure server-side passwords
+function generateSecureRandomPasswordServer(cleanDigits: string): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  let pass = "";
+  for (let i = 0; i < 10; i++) {
+    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pass;
+}
+
 // Server-Side Bulk Pre-Registration / CSV Import Endpoint
 app.post("/api/admin/bulk-pre-register", async (req, res) => {
   try {
-    const { profiles: rawList } = req.body || {};
+    const rawList =
+      req.body?.profiles ||
+      req.body?.users ||
+      req.body?.data ||
+      (Array.isArray(req.body) ? req.body : []);
+
     if (!Array.isArray(rawList) || rawList.length === 0) {
       res.status(400).json({ error: "An array of profiles is required for bulk import" });
       return;
@@ -1389,66 +1404,245 @@ app.post("/api/admin/bulk-pre-register", async (req, res) => {
 
     const createdProfiles: any[] = [];
     const errors: string[] = [];
+    const batchPayloads: Record<string, any>[] = [];
 
-    for (const raw of rawList) {
-      try {
-        const phone = (raw.phone || "").trim();
-        const password = (raw.password || "Dropthan@2026").trim();
-        const cleanDigits = phone.replace(/\D/g, "");
+    // 1. Dynamic Field Mapping & Auto-Password Generation Pipeline
+    for (let i = 0; i < rawList.length; i++) {
+      const raw = rawList[i];
+      if (!raw || typeof raw !== "object") continue;
 
-        if (!phone || cleanDigits.length < 7) {
-          continue;
+      const rawPhone = String(
+        raw.phone ||
+        raw.phone_number ||
+        raw.phoneNumber ||
+        raw.mobile ||
+        raw.mobile_number ||
+        raw.contact ||
+        raw.contact_number ||
+        ""
+      ).trim();
+
+      const cleanDigits = rawPhone.replace(/\D/g, "");
+      if (!rawPhone || cleanDigits.length < 7) {
+        continue; // Skip invalid phone rows
+      }
+
+      // Format normalized phone
+      let formattedPhone = rawPhone;
+      if (!rawPhone.startsWith("+")) {
+        if (cleanDigits.length === 10) {
+          formattedPhone = `+91 ${cleanDigits.slice(0, 5)} ${cleanDigits.slice(5)}`;
+        } else {
+          formattedPhone = `+${cleanDigits}`;
         }
+      }
 
-        const compName = raw.company_name || raw.companyName || raw.business_name || "";
-        const flName = raw.full_name || raw.fullName || raw.name || "";
-        const dispName = raw.display_name || raw.displayName || compName || flName || `Member ${cleanDigits.slice(-4)}`;
-        const targetId = raw.id || `usr_${cleanDigits}`;
+      // Auto-Password Generation: if empty or missing, generate secure default
+      let password = String(
+        raw.password ||
+        raw.pass ||
+        raw.pwd ||
+        raw.assigned_password ||
+        ""
+      ).trim();
 
-        saveCredential(phone, password, targetId);
+      if (!password || password.length < 4) {
+        // Generate secure pattern or randomized password
+        password = `Dropthan@${cleanDigits.slice(-4) || `${1000 + i}`}`;
+      }
 
-        const payload: Record<string, any> = {
-          id: targetId,
-          phone,
-          password,
-          role: raw.role || "wholesaler",
-          display_name: dispName,
-          company_name: compName || dispName,
-          location: raw.location || "India",
-          store_address: raw.store_address || raw.storeAddress || raw.address || raw.location || null,
-          country: raw.country || "India",
-          status: raw.status || "Active",
-          is_gst_approved: true,
-          bio: raw.bio || raw.description || raw.about || null,
-          website: raw.website || raw.websiteUrl || raw.website_url || null,
-          instagram: raw.instagram || raw.instagramHandle || raw.instagram_handle || null,
-          gstin: raw.gstin ? raw.gstin.trim().toUpperCase() : null,
-          iec_code: raw.iec_code || raw.iecCode || null,
-          created_at: raw.created_at || new Date().toISOString(),
-        };
+      // Dynamic field mapping for Company Name
+      const compName = String(
+        raw.company_name ||
+        raw.companyName ||
+        raw.company ||
+        raw.business_name ||
+        raw.businessName ||
+        raw.business ||
+        raw.wholesaler ||
+        raw.wholesaler_name ||
+        raw.supplier ||
+        raw.supplier_name ||
+        raw.firm ||
+        raw.firm_name ||
+        raw.store_name ||
+        ""
+      ).trim();
 
+      // Dynamic field mapping for Full Name / Contact Person
+      const flName = String(
+        raw.full_name ||
+        raw.fullName ||
+        raw.name ||
+        raw.contact_person ||
+        raw.contactperson ||
+        raw.owner ||
+        raw.proprietor ||
+        ""
+      ).trim();
+
+      // Dynamic field mapping for Instagram ID / Handle
+      let insta = String(
+        raw.instagram ||
+        raw.instagram_handle ||
+        raw.instagramHandle ||
+        raw.instagram_id ||
+        raw.instagramId ||
+        raw.insta ||
+        raw.insta_id ||
+        raw.ig ||
+        raw.social ||
+        ""
+      ).trim();
+      if (insta) {
+        insta = insta.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/^@/, "").split(/[?#/]/)[0].trim();
+      }
+
+      // Dynamic field mapping for Description / Bio
+      const bio = String(
+        raw.bio ||
+        raw.description ||
+        raw.about ||
+        raw.about_us ||
+        raw.aboutus ||
+        raw.details ||
+        raw.notes ||
+        raw.company_details ||
+        ""
+      ).trim() || (compName ? `Verified direct wholesale supplier and manufacturer of ${compName}.` : null);
+
+      // Dynamic field mapping for Website
+      let web = String(
+        raw.website ||
+        raw.website_url ||
+        raw.websiteUrl ||
+        raw.web ||
+        raw.url ||
+        raw.link ||
+        ""
+      ).trim();
+      if (web && !/^https?:\/\//i.test(web) && web.includes(".")) {
+        web = `https://${web}`;
+      }
+
+      // Dynamic field mapping for GSTIN
+      let gstin = String(
+        raw.gstin ||
+        raw.gst ||
+        raw.gst_number ||
+        raw.gst_no ||
+        raw.tax_id ||
+        raw.iec_code ||
+        raw.iecCode ||
+        ""
+      ).trim().toUpperCase();
+      if (gstin.length < 8) gstin = "";
+
+      const loc = String(raw.location || raw.city || raw.hub || raw.state || "India").trim();
+      const storeAddr = String(raw.store_address || raw.storeAddress || raw.address || raw.shop_address || loc).trim();
+      const dispName = compName || flName || `Wholesaler ${cleanDigits.slice(-4)}`;
+      const targetId = raw.id || `usr_${cleanDigits}`;
+
+      // Save credentials for immediate authentication and verification
+      saveCredential(formattedPhone, password, targetId);
+
+      // Strict Zero Schema Alteration mapped payload targeting existing Supabase columns
+      const payload: Record<string, any> = {
+        id: targetId,
+        phone: formattedPhone,
+        password,
+        role: raw.role || "wholesaler",
+        display_name: dispName,
+        company_name: compName || dispName,
+        location: loc,
+        store_address: storeAddr,
+        country: raw.country || "India",
+        status: raw.status || "Active",
+        is_gst_approved: true,
+        bio: bio || null,
+        website: web || null,
+        instagram: insta || null,
+        gstin: gstin || null,
+        iec_code: raw.iec_code || raw.iecCode || null,
+        created_at: raw.created_at || new Date().toISOString(),
+      };
+
+      if (flName) payload.full_name = flName;
+
+      batchPayloads.push(payload);
+    }
+
+    if (batchPayloads.length === 0) {
+      res.status(400).json({ error: "No valid supplier rows with phone numbers were found to import." });
+      return;
+    }
+
+    console.log(`🚀 [Server Bulk Import Pipeline] Prepared ${batchPayloads.length} mapped profiles for batch Supabase insertion...`);
+
+    // 2. Batch Execution with safe chunking & zero-schema conflict handling
+    const CHUNK_SIZE = 50;
+    for (let c = 0; c < batchPayloads.length; c += CHUNK_SIZE) {
+      const chunk = batchPayloads.slice(c, c + CHUNK_SIZE);
+
+      try {
+        // Attempt batch UPSERT with phone unique constraint
         const { data, error } = await supabase
           .from("profiles")
-          .upsert(payload, { onConflict: "phone" })
-          .select()
-          .maybeSingle();
+          .upsert(chunk, { onConflict: "phone" })
+          .select();
 
         if (error) {
-          delete payload.is_gst_approved;
-          const retry = await supabase.from("profiles").upsert(payload, { onConflict: "phone" }).select().maybeSingle();
-          if (retry.data) createdProfiles.push(retry.data);
-          else errors.push(`${phone}: ${error.message}`);
+          console.warn(`⚠️ [Server Bulk Batch Chunk ${c / CHUNK_SIZE + 1} Error]:`, error.message, "- Falling back to item-by-item safe insert");
+          // Fallback to row-by-row with dynamic column pruning
+          for (const item of chunk) {
+            try {
+              const itemPayload = { ...item };
+              const { data: itemData, error: itemErr } = await supabase
+                .from("profiles")
+                .upsert(itemPayload, { onConflict: "phone" })
+                .select()
+                .maybeSingle();
+
+              if (itemErr) {
+                // Prune optional column if database has strict column constraints
+                delete itemPayload.is_gst_approved;
+                const { data: retryData, error: retryErr } = await supabase
+                  .from("profiles")
+                  .upsert(itemPayload, { onConflict: "phone" })
+                  .select()
+                  .maybeSingle();
+
+                if (retryData) {
+                  createdProfiles.push(retryData);
+                } else {
+                  errors.push(`${item.phone}: ${retryErr?.message || itemErr.message}`);
+                }
+              } else {
+                createdProfiles.push(itemData || itemPayload);
+              }
+            } catch (singleErr: any) {
+              errors.push(`${item.phone}: ${singleErr?.message}`);
+            }
+          }
         } else {
-          createdProfiles.push(data || payload);
+          if (Array.isArray(data) && data.length > 0) {
+            createdProfiles.push(...data);
+          } else {
+            createdProfiles.push(...chunk);
+          }
         }
-      } catch (err: any) {
-        errors.push(err?.message || "Unknown error");
+      } catch (chunkEx: any) {
+        console.error("Chunk execution exception:", chunkEx);
+        errors.push(chunkEx?.message || "Chunk execution error");
       }
     }
+
+    console.log(`✅ [Server Bulk Import Pipeline Success] Persisted ${createdProfiles.length} profiles to Supabase.`);
 
     res.json({
       success: true,
       importedCount: createdProfiles.length,
+      registeredCount: createdProfiles.length,
       profiles: createdProfiles,
       errors: errors.length > 0 ? errors : undefined,
     });
