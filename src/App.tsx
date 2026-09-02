@@ -20,6 +20,7 @@ import {
   toggleSupabaseLike,
   fetchUserProfileStatus,
   fetchFullUserProfileByPhone,
+  fetchFullUserProfile,
   subscribeToSupabasePosts,
   saveUserProfileToSupabase,
   hardClearUserSession,
@@ -150,6 +151,18 @@ export default function App() {
           setLikedPostIds((prev) => Array.from(new Set([...prev, ...supabaseLikes])));
         }
       }).catch(() => {});
+
+      // 4. Retrieve fresh profile from Supabase to sync manual updates across all devices
+      const phoneOrId = currentUser.phone || currentUser.id;
+      if (phoneOrId) {
+        fetchFullUserProfile(phoneOrId).then((freshProfile) => {
+          if (freshProfile) {
+            const merged = { ...currentUser, ...freshProfile };
+            setCurrentUser(merged);
+            localStorage.setItem('dropthan_user', JSON.stringify(merged));
+          }
+        }).catch(() => {});
+      }
 
       // Guarantee registered user profile exists in live Supabase database
       saveUserProfileToSupabase(currentUser).catch((err) => {

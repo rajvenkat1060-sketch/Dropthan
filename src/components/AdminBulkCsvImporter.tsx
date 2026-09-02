@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { generate50WholesalersCsvText } from '../data/wholesalers50Data';
+import { directSupabaseBulkImportProfiles } from '../lib/supabase';
 import {
   parseBulkSupplierData,
   ParsedWholesalerRow,
@@ -131,7 +132,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
     setSuccessMessage(`✓ Loaded 50 verified wholesaler profiles across Indian manufacturing hubs!`);
   };
 
-  // Run Bulk Import to Supabase
+  // Run Direct Frontend Bulk Import to Supabase (Zero Intermediary Server Routes / No JSON Parse Errors)
   const handleExecuteImport = async () => {
     if (parsedRows.length === 0) {
       setError('Please provide or load data before importing.');
@@ -143,53 +144,44 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
     setSuccessMessage('');
 
     try {
-      console.log(`🚀 [Admin Bulk Import] Submitting ${parsedRows.length} pre-registered wholesaler records...`);
+      console.log(`🚀 [Admin Bulk Import] Executing direct Supabase client batch insert for ${parsedRows.length} vendor records...`);
 
-      const payload = {
-        profiles: parsedRows.map((r, i) => ({
-          phone: r.phone,
-          password: r.password || generatePassword(r.phone, i),
-          companyName: r.companyName,
-          company_name: r.companyName,
-          fullName: r.fullName,
-          full_name: r.fullName,
-          displayName: r.displayName || r.companyName,
-          display_name: r.displayName || r.companyName,
-          location: r.location,
-          storeAddress: r.storeAddress,
-          store_address: r.storeAddress,
-          gstin: r.gstin,
-          bio: r.bio || r.description,
-          description: r.description || r.bio,
-          website: r.website,
-          websiteUrl: r.website,
-          website_url: r.website,
-          instagram: r.instagram,
-          instagramHandle: r.instagram,
-          instagram_handle: r.instagram,
-          role: 'wholesaler',
-          status: 'Active',
-          is_gst_approved: true,
-          isVerified: true,
-          rating: 5.0,
-        })),
-      };
+      const rawPayloads = parsedRows.map((r, i) => ({
+        phone: r.phone,
+        password: r.password || generatePassword(r.phone, i),
+        companyName: r.companyName,
+        company_name: r.companyName,
+        fullName: r.fullName,
+        full_name: r.fullName,
+        displayName: r.displayName || r.companyName,
+        display_name: r.displayName || r.companyName,
+        location: r.location,
+        storeAddress: r.storeAddress,
+        store_address: r.storeAddress,
+        gstin: r.gstin,
+        bio: r.bio || r.description,
+        description: r.description || r.bio,
+        website: r.website,
+        websiteUrl: r.website,
+        website_url: r.website,
+        instagram: r.instagram,
+        instagramHandle: r.instagram,
+        instagram_handle: r.instagram,
+        role: 'wholesaler',
+        status: 'Active',
+        is_gst_approved: true,
+      }));
 
-      const resp = await fetch('/api/admin/bulk-pre-register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      // Call the direct client-side Supabase batch importer
+      const result = await directSupabaseBulkImportProfiles(rawPayloads);
 
-      const json = await resp.json();
-
-      if (!resp.ok || json.error) {
-        throw new Error(json.error || 'Server rejected bulk import.');
+      if (!result.success || result.importedCount === 0) {
+        throw new Error(result.error || 'Direct Supabase import failed. Please verify database permissions.');
       }
 
-      console.log('✅ [Admin Bulk Import Success]:', json);
-      const savedCount = json.registeredCount || json.importedCount || parsedRows.length;
-      setSuccessMessage(`🎉 Successfully imported and pre-registered ${savedCount} wholesaler accounts in Supabase database! (Zero schema alterations executed)`);
+      console.log('✅ [Direct Supabase Bulk Import Success]:', result);
+      const savedCount = result.importedCount || parsedRows.length;
+      setSuccessMessage(`🎉 Successfully imported and registered ${savedCount} wholesaler accounts directly in Supabase! (Zero schema alterations executed)`);
 
       // Store credentials list for admin copy/export
       const creds = parsedRows.map((r, i) => ({
@@ -203,7 +195,7 @@ export const AdminBulkCsvImporter: React.FC<AdminBulkCsvImporterProps> = ({
         onImportComplete();
       }
     } catch (err: any) {
-      console.error('Bulk import error:', err);
+      console.error('Direct Supabase bulk import error:', err);
       setError(err?.message || 'Failed to complete bulk import.');
     } finally {
       setIsImporting(false);

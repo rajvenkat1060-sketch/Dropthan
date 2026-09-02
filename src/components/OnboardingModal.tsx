@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserRole, UserProfile } from '../types';
 import {
   uploadAvatarToSupabase,
   authenticateOrRegisterUser,
+  fetchFullUserProfileByPhone,
 } from '../lib/supabase';
 import { InternationalPhoneInput, isPhoneValid as checkInternationalPhoneValid } from './InternationalPhoneInput';
 import { GoogleLocationInput } from './GoogleLocationInput';
@@ -53,6 +54,52 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
   const [website, setWebsite] = useState(currentUser?.website || currentUser?.websiteUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [detectedProfile, setDetectedProfile] = useState<UserProfile | null>(null);
+  const lookupTimerRef = useRef<any>(null);
+
+  // Background lookup to auto-detect pre-registered profiles when user enters their phone number
+  useEffect(() => {
+    if (isEditingExisting) return;
+    const cleanDigits = phone.replace(/\D/g, '');
+    if (cleanDigits.length < 8) {
+      setDetectedProfile(null);
+      return;
+    }
+
+    if (lookupTimerRef.current) clearTimeout(lookupTimerRef.current);
+    lookupTimerRef.current = setTimeout(async () => {
+      try {
+        const found = await fetchFullUserProfileByPhone(phone);
+        if (found) {
+          setDetectedProfile(found);
+          if (found.role) setSelectedRole(found.role);
+          if (found.companyName) setCompanyName(found.companyName);
+          if (found.fullName) setFullName(found.fullName);
+          if (found.bio || found.description) setBio(found.bio || found.description || '');
+          if (found.location) setLocation(found.location);
+          if (found.storeAddress) setStoreAddress(found.storeAddress);
+          if (found.country) setCountry(found.country);
+          if (found.gstin) setGstin(found.gstin);
+          if (found.iecCode) setIecCode(found.iecCode);
+          if (found.businessRegNumber) setBusinessRegNumber(found.businessRegNumber);
+          if (found.instagram || found.instagramHandle) setInstagram(found.instagram || found.instagramHandle || '');
+          if (found.website || found.websiteUrl) setWebsite(found.website || found.websiteUrl || '');
+          if (found.avatarUrl) setAvatarUrl(found.avatarUrl);
+          if (found.lat !== undefined && found.lng !== undefined) {
+            setCoords({ lat: found.lat, lng: found.lng });
+          }
+        } else {
+          setDetectedProfile(null);
+        }
+      } catch (e) {
+        console.warn('Notice in phone lookup:', e);
+      }
+    }, 350);
+
+    return () => {
+      if (lookupTimerRef.current) clearTimeout(lookupTimerRef.current);
+    };
+  }, [phone, isEditingExisting]);
 
   const isWholesalerRole = selectedRole === 'wholesaler';
 
@@ -112,53 +159,54 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       : undefined;
 
     const phoneDigits = formattedPhone.replace(/\D/g, '');
-    const validId = currentUser?.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`);
+    const validId = currentUser?.id || detectedProfile?.id || (phoneDigits ? `usr_${phoneDigits}` : `usr_${Date.now()}`);
 
     const resolvedDisplayName =
-      (isCompanyRole ? companyName.trim() : fullName.trim()) ||
+      (isCompanyRole ? (companyName.trim() || detectedProfile?.companyName) : (fullName.trim() || detectedProfile?.fullName)) ||
       companyName.trim() ||
       fullName.trim() ||
+      detectedProfile?.displayName ||
       currentUser?.displayName ||
       'Dropthan Member';
 
     const profileData: Partial<UserProfile> & { phone: string; password: string } = {
       id: validId,
-      role: selectedRole || currentUser?.role || 'wholesaler',
+      role: selectedRole || detectedProfile?.role || currentUser?.role || 'wholesaler',
       phone: formattedPhone,
       password: enteredPassword,
-      country: country.trim() || currentUser?.country || 'India',
-      location: location.trim() || currentUser?.location || '',
+      country: country.trim() || detectedProfile?.country || currentUser?.country || 'India',
+      location: location.trim() || detectedProfile?.location || currentUser?.location || '',
       storeAddress: isWholesalerRole
-        ? (storeAddress.trim() || location.trim() || currentUser?.storeAddress)
-        : (location.trim() || undefined),
-      lat: coords.lat ?? currentUser?.lat,
-      lng: coords.lng ?? currentUser?.lng,
-      createdAt: currentUser?.createdAt || new Date().toISOString(),
+        ? (storeAddress.trim() || location.trim() || detectedProfile?.storeAddress || currentUser?.storeAddress)
+        : (location.trim() || detectedProfile?.location || undefined),
+      lat: coords.lat ?? detectedProfile?.lat ?? currentUser?.lat,
+      lng: coords.lng ?? detectedProfile?.lng ?? currentUser?.lng,
+      createdAt: detectedProfile?.createdAt || currentUser?.createdAt || new Date().toISOString(),
       displayName: resolvedDisplayName,
-      fullName: fullName.trim() || currentUser?.fullName || (isCompanyRole && companyName.trim() ? companyName.trim() : undefined),
-      companyName: isCompanyRole ? (companyName.trim() || currentUser?.companyName) : undefined,
-      bio: bio.trim() || currentUser?.bio || undefined,
-      description: bio.trim() || currentUser?.description || undefined,
-      avatarUrl: avatarUrl || currentUser?.avatarUrl || undefined,
-      instagram: cleanInstagram || currentUser?.instagram || undefined,
-      instagramHandle: cleanInstagram || currentUser?.instagramHandle || undefined,
+      fullName: fullName.trim() || detectedProfile?.fullName || currentUser?.fullName || (isCompanyRole && (companyName.trim() || detectedProfile?.companyName) ? (companyName.trim() || detectedProfile?.companyName) : undefined),
+      companyName: isCompanyRole ? (companyName.trim() || detectedProfile?.companyName || currentUser?.companyName) : undefined,
+      bio: bio.trim() || detectedProfile?.bio || detectedProfile?.description || currentUser?.bio || undefined,
+      description: bio.trim() || detectedProfile?.description || detectedProfile?.bio || currentUser?.description || undefined,
+      avatarUrl: avatarUrl || detectedProfile?.avatarUrl || currentUser?.avatarUrl || undefined,
+      instagram: cleanInstagram || detectedProfile?.instagram || detectedProfile?.instagramHandle || currentUser?.instagram || undefined,
+      instagramHandle: cleanInstagram || detectedProfile?.instagramHandle || detectedProfile?.instagram || currentUser?.instagramHandle || undefined,
       website: !isWebsiteHidden && website.trim()
         ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`)
-        : currentUser?.website,
+        : (detectedProfile?.website || detectedProfile?.websiteUrl || currentUser?.website),
       websiteUrl: !isWebsiteHidden && website.trim()
         ? (website.trim().startsWith('http') ? website.trim() : `https://${website.trim()}`)
-        : currentUser?.websiteUrl,
-      status: currentUser?.status || 'Active',
+        : (detectedProfile?.websiteUrl || detectedProfile?.website || currentUser?.websiteUrl),
+      status: detectedProfile?.status || currentUser?.status || 'Active',
     };
 
-    if (!isGstinHidden && formattedGstin) {
-      profileData.gstin = formattedGstin;
+    if (!isGstinHidden && (formattedGstin || detectedProfile?.gstin)) {
+      profileData.gstin = formattedGstin || detectedProfile?.gstin;
     }
-    if (isExporterRole && iecCode.trim()) {
-      profileData.iecCode = iecCode.trim().toUpperCase();
+    if (isExporterRole && (iecCode.trim() || detectedProfile?.iecCode)) {
+      profileData.iecCode = (iecCode.trim() || detectedProfile?.iecCode || '').toUpperCase();
     }
-    if (businessRegNumber.trim()) {
-      profileData.businessRegNumber = businessRegNumber.trim();
+    if (businessRegNumber.trim() || detectedProfile?.businessRegNumber) {
+      profileData.businessRegNumber = businessRegNumber.trim() || detectedProfile?.businessRegNumber;
     }
 
     try {
@@ -444,6 +492,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               defaultCountry="in"
               placeholder="Enter mobile phone number"
             />
+            {detectedProfile && (
+              <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-xs text-emerald-800 flex items-start gap-2 shadow-2xs">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-[11px] text-emerald-900">
+                    Existing Account Found: {detectedProfile.companyName || detectedProfile.displayName || detectedProfile.fullName || 'Registered Supplier'}
+                  </p>
+                  <p className="text-[10px] text-emerald-700 leading-tight mt-0.5">
+                    Your profile data has been automatically loaded. Enter your password to sign in.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ACCOUNT PASSWORD */}
@@ -818,7 +879,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  <span>{isEditingExisting ? 'Save Profile Changes' : 'Continue to Dropthan'}</span> →
+                  <span>
+                    {isEditingExisting
+                      ? 'Save Profile Changes'
+                      : detectedProfile
+                      ? 'Sign In to Your Account'
+                      : 'Continue to Dropthan'}
+                  </span> →
                 </>
               )}
             </button>

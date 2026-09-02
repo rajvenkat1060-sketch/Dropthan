@@ -683,7 +683,23 @@ app.post("/api/profiles/upsert", async (req, res) => {
 
     console.log(`[Server Profile Sync] Attempting Supabase upsert for profile: ${cleanPhone} (${dispName})`);
 
-    // 1. If we have a phone, try to update existing record first (bypasses foreign key check if row already exists)
+    // 1. If we have an authenticated ID, try to update existing record in-place first (Dynamic User ID Association)
+    if (profilePayload.id) {
+      const { data: existingById } = await supabase.from('profiles').select('id').eq('id', profilePayload.id);
+      if (existingById && existingById.length > 0) {
+        const { error: updateByIdErr } = await supabase
+          .from('profiles')
+          .update(profilePayload)
+          .eq('id', profilePayload.id);
+
+        if (!updateByIdErr) {
+          console.log(`[Server Profile Sync] Successfully updated existing profile in Supabase by authenticated ID (${profilePayload.id})!`);
+          return res.json({ success: true, method: "update_by_id" });
+        }
+      }
+    }
+
+    // 2. If we have a phone, try to update existing record by phone (bypasses foreign key check if row already exists)
     if (cleanPhone) {
       const { data: existingCheck } = await supabase.from('profiles').select('id').eq('phone', cleanPhone);
       if (existingCheck && existingCheck.length > 0) {
@@ -819,21 +835,50 @@ app.post("/api/auth/authenticate", async (req, res) => {
 
     const credsMap = getStoredCredentials();
     const fileCred = credsMap[cleanDigits];
+    const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
 
-    // 1. Check if profile already exists by exact phone or phone digits in Supabase
+    // 1. Check if profile already exists by multi-format phone or digits in Supabase
     let existingProfile: any = null;
-    const { data: exactMatch } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("phone", cleanPhone)
-      .maybeSingle();
+    const phoneCandidates = [
+      cleanPhone,
+      `+${cleanDigits}`,
+      cleanDigits,
+      last10,
+      `+91${last10}`,
+      `91${last10}`,
+    ].filter(Boolean);
 
-    if (exactMatch) {
-      existingProfile = exactMatch;
-    } else if (cleanDigits) {
-      const { data: listData } = await supabase.from("profiles").select("*").limit(200);
+    for (const cand of phoneCandidates) {
+      const { data: match } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("phone", cand)
+        .maybeSingle();
+      if (match) {
+        existingProfile = match;
+        break;
+      }
+    }
+
+    if (!existingProfile && last10 && last10.length >= 7) {
+      const { data: ilikeMatch } = await supabase
+        .from("profiles")
+        .select("*")
+        .ilike("phone", `%${last10}%`)
+        .limit(1)
+        .maybeSingle();
+      if (ilikeMatch) {
+        existingProfile = ilikeMatch;
+      }
+    }
+
+    if (!existingProfile && cleanDigits && cleanDigits.length >= 7) {
+      const { data: listData } = await supabase.from("profiles").select("*").limit(300);
       if (listData) {
-        existingProfile = listData.find((p: any) => p.phone && p.phone.replace(/\D/g, '') === cleanDigits);
+        existingProfile = listData.find((p: any) => {
+          const pDigits = (p.phone || p.mobile || "").replace(/\D/g, "");
+          return pDigits === cleanDigits || (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10));
+        });
       }
     }
 
@@ -972,24 +1017,53 @@ app.post("/api/auth/login", async (req, res) => {
 
     const credsMap = getStoredCredentials();
     const fileCred = credsMap[cleanDigits];
+    const last10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
 
-    // 1. Fetch profile by phone from database
+    // 1. Fetch profile by multi-format phone from database
     let profileData: any = null;
-    const { data: exactMatch } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("phone", cleanPhone)
-      .maybeSingle();
+    const phoneCandidates = [
+      cleanPhone,
+      `+${cleanDigits}`,
+      cleanDigits,
+      last10,
+      `+91${last10}`,
+      `91${last10}`,
+    ].filter(Boolean);
 
-    if (exactMatch) {
-      profileData = exactMatch;
-    } else if (cleanDigits) {
+    for (const cand of phoneCandidates) {
+      const { data: match } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("phone", cand)
+        .maybeSingle();
+      if (match) {
+        profileData = match;
+        break;
+      }
+    }
+
+    if (!profileData && last10 && last10.length >= 7) {
+      const { data: ilikeMatch } = await supabase
+        .from("profiles")
+        .select("*")
+        .ilike("phone", `%${last10}%`)
+        .limit(1)
+        .maybeSingle();
+      if (ilikeMatch) {
+        profileData = ilikeMatch;
+      }
+    }
+
+    if (!profileData && cleanDigits && cleanDigits.length >= 7) {
       const { data: listData } = await supabase
         .from("profiles")
         .select("*")
-        .limit(150);
+        .limit(300);
       if (listData) {
-        profileData = listData.find((p: any) => p.phone && p.phone.replace(/\D/g, '') === cleanDigits);
+        profileData = listData.find((p: any) => {
+          const pDigits = (p.phone || p.mobile || "").replace(/\D/g, "");
+          return pDigits === cleanDigits || (pDigits.length >= 10 && cleanDigits.length >= 10 && pDigits.slice(-10) === cleanDigits.slice(-10));
+        });
       }
     }
 
