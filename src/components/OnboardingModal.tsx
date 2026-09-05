@@ -103,14 +103,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
 
   const isWholesalerRole = selectedRole === 'wholesaler';
 
-  // GSTIN Exemption Rule: Hide / Not Required for Influencer, Dropshipper/Reseller, Organic Wholesaler
+  // GSTIN Exemption Rule: Hide / Not Required for Dropshipper/Reseller, Organic Wholesaler
   const isGstinHidden =
     selectedRole === 'organic_wholesaler' ||
     selectedRole === 'reseller' ||
-    selectedRole === 'dropshipper' ||
-    selectedRole === 'influencer';
+    selectedRole === 'dropshipper';
 
-  const isWebsiteHidden = selectedRole === 'influencer' || selectedRole === 'reseller' || selectedRole === 'dropshipper';
+  const isWebsiteHidden = selectedRole === 'reseller' || selectedRole === 'dropshipper';
   const isCompanyRole =
     selectedRole === 'wholesaler' ||
     selectedRole === 'organic_wholesaler' ||
@@ -447,30 +446,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 {selectedRole === 'reseller' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
               </div>
             </div>
-
-            {/* Influencer */}
-            <div
-              id="role-option-influencer"
-              onClick={() => handleRoleSelect('influencer')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'influencer'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">📸</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                    Influencer / Creator <span className="text-[9px] bg-pink-200 text-pink-900 px-1.5 py-0.5 rounded font-extrabold">GST Exempted</span>
-                  </h4>
-                  <p className="text-[10px] text-slate-500">Showcase unboxings & promotional post packages.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'influencer' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
-              </div>
-            </div>
           </div>
 
           {/* INTERNATIONAL PHONE NUMBER */}
@@ -569,7 +544,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 />
               </div>
 
-              {/* DYNAMIC GSTIN FIELD: Hidden for Organic Wholesaler, Dropshipper, Influencer; Visible for others */}
+              {/* DYNAMIC GSTIN FIELD: Hidden for Organic Wholesaler, Dropshipper; Visible for others */}
               {!isGstinHidden ? (
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -601,7 +576,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 <div className="p-2.5 bg-emerald-50/60 border border-emerald-100 rounded-xl flex items-center gap-2">
                   <span className="text-base">🌱</span>
                   <p className="text-[11px] text-emerald-800 font-medium">
-                    GSTIN is not required for {selectedRole === 'organic_wholesaler' ? 'Organic Wholesalers' : selectedRole === 'influencer' ? 'Content Creators' : 'Dropshippers'}.
+                    GSTIN is not required for {selectedRole === 'organic_wholesaler' ? 'Organic Wholesalers' : 'Dropshippers & Resellers'}.
                   </p>
                 </div>
               )}
@@ -671,9 +646,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                 </div>
               ) : (
                 <div className="p-2.5 bg-blue-50/60 border border-blue-100 rounded-xl flex items-center gap-2">
-                  <span className="text-base">{selectedRole === 'influencer' ? '📸' : '🏷️'}</span>
+                  <span className="text-base">🏷️</span>
                   <p className="text-[11px] text-blue-800 font-medium">
-                    GSTIN is not required for {selectedRole === 'influencer' ? 'Content Creators' : 'Dropshippers & Resellers'}.
+                    GSTIN is not required for Dropshippers & Resellers.
                   </p>
                 </div>
               )}

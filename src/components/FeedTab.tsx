@@ -46,9 +46,6 @@ const CATEGORY_SYNONYMS: Record<string, string[]> = {
   export: ['exporter', 'iec', 'international', 'container', 'freight', 'global', 'shipping', 'customs', 'spice', 'cargo', 'fcl', 'lcl', 'commodities', 'rice', 'basmati', 'coir pith'],
   exporter: ['export', 'iec', 'international', 'container', 'freight', 'global', 'shipping', 'customs', 'spice', 'cargo', 'commodities', 'basmati'],
   organic: ['organic_wholesaler', 'agro', 'spice', 'ayurveda', 'coconut', 'herbal', 'natural', 'pure', 'farm', 'honey', 'turmeric', 'cardamom', 'pepper', 'ginger', 'coir', 'copra'],
-  influencer: ['creator', 'social', 'reels', 'promotion', 'collab', 'shoutout', 'ugc', 'model', 'video', 'youtube', 'instagram', 'cosmetics', 'beauty', 'apparel', 'lifestyle'],
-  creator: ['influencer', 'social', 'reels', 'promotion', 'ugc', 'model', 'collab', 'video', 'instagram', 'youtube'],
-  promotion: ['influencer', 'creator', 'social', 'reels', 'shoutout', 'ugc', 'campaign', 'collab', 'cosmetics', 'apparel'],
   printing: ['packaging', 'box', 'boxes', 'label', 'carton', 'cartons', 'corrugated', 'pouch', 'pouches', 'polybag', 'tag', 'print', 'duplex', 'offset', 'mailer', 'tape', 'mono carton'],
   packaging: ['printing', 'box', 'boxes', 'label', 'carton', 'cartons', 'corrugated', 'tape', 'pouch', 'pouches', 'bag', 'mailer box', 'plastic', 'packing', 'mono carton', 'poly mailer'],
   box: ['packaging', 'printing', 'boxes', 'carton', 'corrugated', 'mailer', 'duplex', 'label', '3 ply', '5 ply'],
@@ -171,7 +168,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
     { id: 'wholesaler', label: '📦 Wholesalers' },
     { id: 'exporter', label: '🌐 Exporters' },
     { id: 'organic_wholesaler', label: '🌱 Organic Wholesalers' },
-    { id: 'influencer', label: '⭐ Influencers' },
     { id: 'printing', label: '🖨️ Print & Packaging' },
     { id: 'reseller', label: '🏷️ Resellers' },
   ];
@@ -218,14 +214,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
         roleClean === 'exporter' ||
         catClean.includes('export') ||
         captionClean.includes('export')
-      );
-    }
-
-    if (catId === 'influencer') {
-      return (
-        roleClean === 'influencer' ||
-        catClean.includes('influenc') ||
-        captionClean.includes('influenc')
       );
     }
 
@@ -373,9 +361,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
           }
           if (activeCategory === 'printing') {
             return roleClean === 'printing' || pCatClean.includes('packaging') || pCatClean.includes('print');
-          }
-          if (activeCategory === 'influencer') {
-            return roleClean === 'influencer' || pCatClean.includes('influencer') || pCatClean.includes('creator');
           }
           return roleClean === activeCategory || pCatClean.includes(activeCategory);
         });

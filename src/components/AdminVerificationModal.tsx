@@ -2233,7 +2233,6 @@ CREATE POLICY "Anyone can update profiles" ON public.profiles FOR UPDATE TO publ
                   <option value="exporter">🌐 Exporter</option>
                   <option value="printing">🖨️ Printing & Packaging</option>
                   <option value="reseller">🏷️ Dropshipper / Buyer</option>
-                  <option value="influencer">📸 Influencer / Creator</option>
                 </select>
               </div>
 

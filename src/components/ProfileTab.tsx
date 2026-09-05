@@ -219,12 +219,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const isNonDropshipper = user ? (user.role !== 'reseller' && (user.role as string) !== 'dropshipper') : false;
   const isWholesalerRole = user?.role === 'wholesaler';
   const isGstinHidden = user
-    ? user.role === 'influencer' ||
-      user.role === 'reseller' ||
+    ? user.role === 'reseller' ||
       (user.role as string) === 'dropshipper' ||
       user.role === 'organic_wholesaler'
     : false;
-  const isWebsiteHidden = user ? (user.role === 'influencer' || user.role === 'reseller' || (user.role as string) === 'dropshipper') : false;
+  const isWebsiteHidden = user ? (user.role === 'reseller' || (user.role as string) === 'dropshipper') : false;
 
   const cleanPhone = user ? user.phone.replace(/\D/g, '') : '';
   const isAdminUser = cleanPhone.endsWith('8838533014') || cleanPhone === '8838533014';
@@ -1298,7 +1297,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               )}
 
-              {/* GSTIN NUMBER - HIDDEN FOR INFLUENCER, DROPSHIPPER/RESELLER, AND ORGANIC WHOLESALER */}
+              {/* GSTIN NUMBER - HIDDEN FOR DROPSHIPPER/RESELLER AND ORGANIC WHOLESALER */}
               {!isGstinHidden && (
                 <div>
                   <label className="block text-[11px] font-bold text-slate-800 mb-1">GSTIN Number (Optional)</label>
@@ -1339,7 +1338,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </p>
               </div>
 
-              {/* WEBSITE LINK FIELD - HIDDEN FOR INFLUENCER & DROPSHIPPER/RESELLER */}
+              {/* WEBSITE LINK FIELD - HIDDEN FOR DROPSHIPPER/RESELLER */}
               {!isWebsiteHidden && (
                 <div>
                   <label className="block text-[11px] font-bold text-slate-800 mb-1">
