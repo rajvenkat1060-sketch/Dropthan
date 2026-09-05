@@ -119,7 +119,7 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({ isOpen, onClose }) =
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                <span><strong>Dropthan Digital Services:</strong> Access high-ROI Meta Ads, Website/App Creation, Leads Generation, Video Production, and GST Cloud Billing software natively.</span>
+                <span><strong>Dropthan Digital Services:</strong> Access high-ROI Meta Ads, Website/App Creation, Leads Generation, Video Production, and Billdrops Smart Billing & Invoicing (billdrops.com) software natively.</span>
               </li>
             </ul>
           </div>

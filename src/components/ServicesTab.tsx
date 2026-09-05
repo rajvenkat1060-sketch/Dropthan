@@ -289,15 +289,15 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
   const faqs = [
     {
       q: 'What is included in Dropthan Digital Services?',
-      a: 'Dropthan Digital Services is our full-stack growth agency suite tailored for Indian manufacturers, wholesalers, dropshippers, and B2B brands. We provide Meta Ads management, Cloud Billing Software, custom website development, mobile app creation, and high-converting video production.'
+      a: 'Dropthan Digital Services is our full-stack growth agency suite tailored for Indian manufacturers, wholesalers, dropshippers, and B2B brands. We provide Meta Ads management, Billdrops Smart Billing & Invoicing (billdrops.com), custom website development, mobile app creation, and high-converting video production.'
     },
     {
       q: 'How quickly can my Meta Ads or Website go live?',
       a: 'Meta advertising campaigns are live within 24–48 hours after onboarding. Custom wholesale websites take 3–5 days, and mobile apps take 7–10 days with full testing and store publishing.'
     },
     {
-      q: 'Can the Cloud Billing App print on portable Bluetooth thermal printers?',
-      a: 'Yes! The Billing App supports all 2-inch and 3-inch Bluetooth thermal printers, desktop A4/A5 laser printers, and generates instant GST invoices with WhatsApp shareable PDF links.'
+      q: 'Can Billdrops Smart Billing print on portable Bluetooth thermal printers?',
+      a: 'Yes! Billdrops (billdrops.com) supports all 2-inch and 3-inch Bluetooth thermal printers, desktop A4/A5 laser printers, and generates instant GST invoices with WhatsApp shareable PDF links.'
     },
     {
       q: 'How are customer details and location captured when I inquire?',
@@ -446,122 +446,107 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
             </div>
           </div>
 
-          {/* SERVICE #2: CLOUD BILLING & INVOICING APP (PRIORITY #2 AT TOP AS REQUESTED) */}
+          {/* SERVICE #2: BILLDROPS - SMART BILLING & INVOICING */}
           <div
             id="service-card-billing-app"
-            className="flex flex-col justify-between bg-white rounded-2xl p-4 sm:p-5 border border-emerald-500/80 ring-1 ring-emerald-500/20 shadow-xs hover:shadow-md transition"
+            className="flex flex-col justify-between bg-white rounded-2xl p-4 sm:p-5 border border-blue-500/80 ring-1 ring-blue-500/20 shadow-xs hover:shadow-md transition"
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center space-x-2.5">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 flex items-center justify-center text-white shadow-xs shrink-0">
-                    <Receipt className="w-5 h-5" />
+                  <div className="w-12 h-12 rounded-xl bg-white border border-slate-200/80 p-1 flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
+                    <img
+                      src="/billdrops-logo.jpg"
+                      alt="Billdrops Logo"
+                      className="w-full h-full object-contain"
+                      referrerPolicy="no-referrer"
+                    />
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-slate-900 leading-tight">
-                        Cloud Billing &amp; Invoicing App
+                        Billdrops - Smart Billing &amp; Invoicing
                       </h4>
-                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-800 border-emerald-200">
-                        GST Ready
+                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-900 border-blue-200">
+                        Official Web Tool
                       </span>
                     </div>
                     <p className="text-[11px] font-semibold text-slate-600 mt-0.5">
-                      For Wholesale Suppliers, Distributors &amp; Online Shops
+                      Smart Cloud Billing &amp; POS Inventory System (billdrops.com)
                     </p>
                   </div>
                 </div>
 
-                {/* DURATION PILL */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl shrink-0 text-[10px]">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBillingPlan('monthly')}
-                    className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                      selectedBillingPlan === 'monthly'
-                        ? 'bg-white text-slate-900 shadow-xs'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    ₹299/mo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBillingPlan('yearly')}
-                    className={`px-2 py-1 rounded-lg font-bold transition cursor-pointer ${
-                      selectedBillingPlan === 'yearly'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-500'
-                    }`}
-                  >
-                    Yearly (Save 40%)
-                  </button>
+                {/* PROMOTIONAL PRICE BADGE */}
+                <div className="shrink-0">
+                  <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-emerald-700" />
+                    2 Months Free, then ₹199 / Year
+                  </span>
                 </div>
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                Generate GST compliant invoices, manage catalog inventory, print on 2"/3" thermal printers, and send automated PDF bills with payment links to WhatsApp.
+                Official web software at <strong className="text-blue-900 font-bold">billdrops.com</strong>. Generate GST compliant invoices, manage catalog inventory, print on 2"/3" thermal printers, track customer ledgers, and send instant PDF bills with payment links directly on WhatsApp.
               </p>
 
               {/* HIGHLIGHTS */}
               <div className="grid grid-cols-2 gap-1.5 text-[11px] text-slate-700 font-medium">
                 <div className="flex items-center gap-1.5">
-                  <Smartphone className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span className="truncate">Mobile &amp; PC Sync</span>
+                  <Globe className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span className="truncate">Web App at billdrops.com</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Printer className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <Printer className="w-3 h-3 text-blue-600 shrink-0" />
                   <span className="truncate">2" &amp; 3" Thermal Print</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Receipt className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span className="truncate">Inventory &amp; Barcode</span>
+                  <Receipt className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span className="truncate">GST &amp; Barcode Ready</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span className="truncate">WhatsApp PDF Share</span>
+                  <MessageCircle className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span className="truncate">WhatsApp PDF Sharing</span>
                 </div>
               </div>
 
               <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3 text-slate-400" />
-                  <span>Instant Activation</span>
+                  <span>Instant Cloud Access</span>
                 </span>
-                <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                  {selectedBillingPlan === 'yearly' ? '₹1,999 / Year' : '₹299 / Month'}
+                <span className="font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md text-xs">
+                  ₹199 / Year Only <span className="text-[10px] font-medium text-emerald-700">(2 Months Free Trial)</span>
                 </span>
               </div>
             </div>
 
-            {/* COMPACT ACTIONS */}
+            {/* DIRECT ACTION REDIRECT TO BILLDROPS.COM */}
             <div className="pt-3 mt-3 border-t border-slate-100 flex items-center gap-2">
+              <a
+                id="btn-billdrops-website"
+                href="https://billdrops.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 bg-gradient-to-r from-blue-700 via-[#0d47a1] to-indigo-700 hover:from-blue-800 hover:to-indigo-800 active:scale-[0.99] text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+              >
+                <span>Visit billdrops.com</span>
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              </a>
+
               <button
                 id="btn-billing-app-whatsapp"
                 onClick={() =>
                   handleSendLeadWhatsApp(
-                    'Cloud Billing & Invoicing App',
-                    `Plan: ${selectedBillingPlan.toUpperCase()} (Live Demo Request)`
+                    'Billdrops - Smart Billing & Invoicing',
+                    'Offer: 2 Months Free Trial, then ₹199 / Year (Website Referral: billdrops.com)'
                   )
                 }
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2 px-2.5 rounded-xl font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                title="WhatsApp Inquire"
               >
-                <MessageCircle className="w-3.5 h-3.5 fill-white" />
-                <span>Request Live Demo</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-
-              <button
-                onClick={() =>
-                  handleOpenLeadModal({
-                    title: 'Cloud Billing & Invoicing App',
-                    badge: 'GST Ready',
-                    tagline: 'GST Billing & Inventory System for Wholesalers'
-                  })
-                }
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 py-2 px-2.5 rounded-xl font-bold text-xs transition cursor-pointer"
-              >
-                Quote
+                <MessageCircle className="w-3 h-3 fill-emerald-600" />
+                <span className="hidden sm:inline">WhatsApp</span>
               </button>
 
               <button
