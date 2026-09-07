@@ -11,6 +11,7 @@ import { BottomNav } from './components/BottomNav';
 import { PendingVerificationView } from './components/PendingVerificationView';
 import { AdminVerificationModal } from './components/AdminVerificationModal';
 import { AboutUsModal } from './components/AboutUsModal';
+import { IntroSplashScreen } from './components/IntroSplashScreen';
 import {
   fetchSupabasePosts,
   saveSupabasePost,
@@ -103,6 +104,20 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
+
+  // STRICT FIRST-TIME VISITOR INTRO RULE:
+  // Plays ONLY for brand-new users visiting for the first time.
+  // Returning users with 'hasSeenIntro === true' completely bypass the splash screen.
+  const [showIntro, setShowIntro] = useState<boolean>(() => {
+    try {
+      const hasSeen = localStorage.getItem('hasSeenIntro');
+      const hasSeenLegacy = localStorage.getItem('dropthan_has_seen_intro');
+      return hasSeen !== 'true' && hasSeenLegacy !== 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -568,6 +583,19 @@ export default function App() {
     });
   }, [postsWithInteraction, currentUser]);
 
+  // 1. FIRST-TIME VISITOR INTRO SPLASH SCREEN:
+  // Plays ONLY on first visit. Automatically routes directly to the Login page when video finishes.
+  if (showIntro) {
+    return (
+      <IntroSplashScreen
+        onFinish={() => setShowIntro(false)}
+        videoSrc="/intro.mp4"
+        durationMs={2800}
+      />
+    );
+  }
+
+  // 2. LOGIN / ONBOARDING VIEW FOR USERS NOT LOGGED IN
   if (!currentUser) {
     return (
       <GoogleMapsWrapper>
