@@ -610,7 +610,7 @@ export default function App() {
     return (
       <IntroSplashScreen
         onFinish={() => setShowIntro(false)}
-        durationMs={6200}
+        durationMs={7000}
       />
     );
   }
