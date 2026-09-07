@@ -584,13 +584,12 @@ export default function App() {
   }, [postsWithInteraction, currentUser]);
 
   // 1. FIRST-TIME VISITOR INTRO SPLASH SCREEN:
-  // Plays ONLY on first visit. Automatically routes directly to the Login page when video finishes.
+  // Plays ONLY on first visit. Automatically redirects directly to the Login page when text reveal finishes.
   if (showIntro) {
     return (
       <IntroSplashScreen
         onFinish={() => setShowIntro(false)}
-        videoSrc="/intro.mp4"
-        durationMs={2800}
+        durationMs={3100}
       />
     );
   }
