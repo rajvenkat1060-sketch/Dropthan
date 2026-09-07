@@ -105,38 +105,17 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
 
-  // STRICT FIRST-TIME VISITOR INTRO RULE:
-  // Plays ONLY for brand-new users visiting for the first time.
-  // Returning users with 'hasSeenIntro === true' completely bypass the splash screen.
-  // Supports '?intro=1' or window.resetDropthanIntro() for quick developer testing.
+  // INTRO SPLASH SCREEN LOGIC:
+  // Plays automatically for first-time visitors, then smoothly transitions to Login.
+  // Returning visitors bypass the intro entirely and land directly on the Login page.
   const [showIntro, setShowIntro] = useState<boolean>(() => {
     try {
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('intro') === '1' || urlParams.get('testIntro') === 'true') {
-          return true;
-        }
-      }
       const hasSeen = localStorage.getItem('hasSeenIntro');
       return hasSeen !== 'true';
     } catch (e) {
       return false;
     }
   });
-
-  // Global helper for developer to test/reset intro at any time from DevTools console
-  useEffect(() => {
-    (window as any).resetDropthanIntro = () => {
-      try {
-        localStorage.removeItem('hasSeenIntro');
-        localStorage.removeItem('dropthan_has_seen_intro');
-        console.log('✅ Dropthan intro reset successfully! Reloading...');
-        window.location.reload();
-      } catch (e) {
-        console.error(e);
-      }
-    };
-  }, []);
 
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
