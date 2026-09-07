@@ -108,15 +108,36 @@ export default function App() {
   // STRICT FIRST-TIME VISITOR INTRO RULE:
   // Plays ONLY for brand-new users visiting for the first time.
   // Returning users with 'hasSeenIntro === true' completely bypass the splash screen.
+  // Supports '?intro=1' or window.resetDropthanIntro() for quick developer testing.
   const [showIntro, setShowIntro] = useState<boolean>(() => {
     try {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('intro') === '1' || urlParams.get('testIntro') === 'true') {
+          return true;
+        }
+      }
       const hasSeen = localStorage.getItem('hasSeenIntro');
-      const hasSeenLegacy = localStorage.getItem('dropthan_has_seen_intro');
-      return hasSeen !== 'true' && hasSeenLegacy !== 'true';
+      return hasSeen !== 'true';
     } catch (e) {
       return false;
     }
   });
+
+  // Global helper for developer to test/reset intro at any time from DevTools console
+  useEffect(() => {
+    (window as any).resetDropthanIntro = () => {
+      try {
+        localStorage.removeItem('hasSeenIntro');
+        localStorage.removeItem('dropthan_has_seen_intro');
+        console.log('✅ Dropthan intro reset successfully! Reloading...');
+        window.location.reload();
+      } catch (e) {
+        console.error(e);
+      }
+    };
+  }, []);
+
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -589,7 +610,7 @@ export default function App() {
     return (
       <IntroSplashScreen
         onFinish={() => setShowIntro(false)}
-        durationMs={3100}
+        durationMs={6200}
       />
     );
   }
