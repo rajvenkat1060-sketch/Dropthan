@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { PostItem, UserProfile } from '../types';
 import { uploadToCloudinary } from '../lib/cloudinary';
 import { generateValidUUID, isUuid } from '../lib/supabase';
+import { ImageCropModal, AspectRatioType } from './ImageCropModal';
+import { Crop, ZoomIn, Sparkles, RefreshCw } from 'lucide-react';
 
 interface CreatePostModalProps {
   currentUser: UserProfile | null;
@@ -22,6 +24,9 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   const [selectedPreview, setSelectedPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState('');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioType>('4:3');
 
   const presetImages = [
     'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80',
@@ -34,14 +39,29 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setSelectedFile(file);
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setSelectedPreview(reader.result);
+        setCropImageSrc(reader.result);
+        setIsCropModalOpen(true);
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = (croppedBlob: Blob, croppedDataUrl: string, croppedFile: File) => {
+    setSelectedFile(croppedFile);
+    setSelectedPreview(croppedDataUrl);
+    setImgUrl(''); // Clear manual text URL since file is active
+  };
+
+  const handleOpenCropperForCurrent = () => {
+    const src = selectedPreview || imgUrl.trim();
+    if (src) {
+      setCropImageSrc(src);
+      setIsCropModalOpen(true);
+    }
   };
 
   const handleRemovePhoto = () => {
@@ -262,20 +282,44 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 </div>
 
                 {selectedPreview && (
-                  <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-40 bg-slate-100 flex items-center justify-center">
-                    <img
-                      src={selectedPreview}
-                      alt="Selected preview"
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleRemovePhoto}
-                      className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow cursor-pointer"
-                      title="Remove photo"
-                    >
-                      ✕
-                    </button>
+                  <div className="space-y-2">
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-blue-200 aspect-video max-h-48 bg-slate-100 flex items-center justify-center group shadow-sm">
+                      <img
+                        src={selectedPreview}
+                        alt="Selected preview"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOpenCropperForCurrent}
+                          className="bg-white/95 hover:bg-white text-[#0d47a1] px-3 py-1.5 rounded-xl font-bold text-xs shadow-lg flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+                        >
+                          <Crop className="w-3.5 h-3.5" />
+                          <span>Adjust & Crop</span>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRemovePhoto}
+                        className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow cursor-pointer transition active:scale-90"
+                        title="Remove photo"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handleOpenCropperForCurrent}
+                        className="text-xs font-bold text-[#0d47a1] hover:text-blue-800 flex items-center gap-1.5 cursor-pointer bg-blue-50/80 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition"
+                      >
+                        <Crop className="w-3.5 h-3.5" />
+                        <span>Customize Aspect Ratio & Zoom</span>
+                      </button>
+                      <span className="text-[10px] text-slate-500 font-medium">Square (1:1) • Banner (16:9) • Product (4:3)</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -291,15 +335,37 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                   className="w-full bg-white border border-blue-300 rounded-xl p-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] font-medium"
                 />
                 {imgUrl.trim() && (
-                  <div className="relative rounded-xl overflow-hidden border border-blue-200 aspect-video max-h-36 bg-slate-100 flex items-center justify-center">
-                    <img
-                      src={imgUrl.trim()}
-                      alt="Direct URL Preview"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
+                  <div className="space-y-2">
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-blue-200 aspect-video max-h-40 bg-slate-100 flex items-center justify-center group shadow-sm">
+                      <img
+                        src={imgUrl.trim()}
+                        alt="Direct URL Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOpenCropperForCurrent}
+                          className="bg-white/95 hover:bg-white text-[#0d47a1] px-3 py-1.5 rounded-xl font-bold text-xs shadow-lg flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+                        >
+                          <Crop className="w-3.5 h-3.5" />
+                          <span>Crop & Resize URL Image</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handleOpenCropperForCurrent}
+                        className="text-xs font-bold text-[#0d47a1] hover:text-blue-800 flex items-center gap-1.5 cursor-pointer bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition"
+                      >
+                        <Crop className="w-3.5 h-3.5" />
+                        <span>Customize Aspect Ratio & Zoom</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -314,14 +380,16 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                       type="button"
                       key={idx}
                       onClick={() => {
-                        setImgUrl(url);
-                        setImageMode('url');
+                        setCropImageSrc(url);
+                        setIsCropModalOpen(true);
                       }}
-                      className={`relative rounded-xl overflow-hidden border aspect-square cursor-pointer transition ${
+                      className={`relative rounded-xl overflow-hidden border aspect-square cursor-pointer transition hover:scale-102 ${
                         imgUrl === url ? 'ring-2 ring-[#0d47a1] border-[#0d47a1]' : 'border-slate-200 hover:opacity-90'
                       }`}
+                      title="Select & Crop Sample Image"
                     >
                       <img src={url} alt={`Preset ${idx + 1}`} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-1 right-1 bg-black/60 text-white rounded p-0.5 text-[9px]">✂️</span>
                     </button>
                   ))}
                 </div>
@@ -362,6 +430,23 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* POST IMAGE CROP & ASPECT RATIO CUSTOMIZER */}
+      <ImageCropModal
+        isOpen={isCropModalOpen}
+        imageSrc={cropImageSrc}
+        initialAspectRatio={selectedAspectRatio}
+        allowedAspectRatios={['1:1', '4:3', '16:9', '3:4']}
+        cropShape="square"
+        allowShapeToggle={false}
+        title="Customize Post Image & Aspect Ratio"
+        subtitle="Choose Standard Square (1:1), Product (4:3), Banner (16:9), or Portrait (3:4), and zoom to fit."
+        onCropComplete={handleCropComplete}
+        onClose={() => {
+          setIsCropModalOpen(false);
+          setCropImageSrc('');
+        }}
+      />
     </div>
   );
 };

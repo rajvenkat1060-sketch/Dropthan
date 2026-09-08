@@ -7,6 +7,7 @@ import { GoogleLocationInput } from './GoogleLocationInput';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { AboutUsModal } from './AboutUsModal';
 import { Instagram, Trash2, Award, Info, ShieldCheck, Sparkles, ExternalLink } from 'lucide-react';
+import { ImageCropModal } from './ImageCropModal';
 
 interface ProfileTabProps {
   user: UserProfile | null;
@@ -394,18 +395,35 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
     }, 4000);
   };
 
+  const [isCropModalOpen, setIsCropModalOpen] = useState<boolean>(false);
+  const [cropImageSrc, setCropImageSrc] = useState<string>('');
+
   if (!user) return null;
 
   const currentAvatar = getAvatarUrl(user.avatarUrl, user.role);
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setCropImageSrc(reader.result);
+        setIsCropModalOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    // Reset the input value so the same file can be selected again if needed
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedBlob: Blob, croppedDataUrl: string, croppedFile: File) => {
+    if (!user) return;
     setIsUploading(true);
     try {
       const sectionContext = user.role || 'wholesaler';
-      const newAvatarUrl = await uploadAvatarToSupabase(file, user.displayName || 'user', sectionContext);
+      const newAvatarUrl = await uploadAvatarToSupabase(croppedFile, user.displayName || 'user', sectionContext);
       if (onUpdateAvatar) {
         onUpdateAvatar(newAvatarUrl);
       }
@@ -1413,6 +1431,23 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
       <AboutUsModal
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
+      />
+
+      {/* PROFILE PICTURE CROP & ZOOM CUSTOMIZER MODAL */}
+      <ImageCropModal
+        isOpen={isCropModalOpen}
+        imageSrc={cropImageSrc}
+        initialAspectRatio="1:1"
+        allowedAspectRatios={['1:1']}
+        cropShape="circle"
+        allowShapeToggle={true}
+        title="Customize Profile Picture"
+        subtitle="Adjust zoom, pan to center your face/logo, and toggle circle/square preview."
+        onCropComplete={handleCropComplete}
+        onClose={() => {
+          setIsCropModalOpen(false);
+          setCropImageSrc('');
+        }}
       />
     </div>
   );

@@ -8,6 +8,7 @@ import {
 import { InternationalPhoneInput, isPhoneValid as checkInternationalPhoneValid } from './InternationalPhoneInput';
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { Instagram, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { ImageCropModal } from './ImageCropModal';
 
 interface OnboardingModalProps {
   onComplete: (user: UserProfile, isNewUser?: boolean) => void;
@@ -54,6 +55,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
   const [website, setWebsite] = useState(currentUser?.website || currentUser?.websiteUrl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState('');
   const [detectedProfile, setDetectedProfile] = useState<UserProfile | null>(null);
   const lookupTimerRef = useRef<any>(null);
 
@@ -804,28 +807,18 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
                   type="file"
                   accept="image/*"
                   disabled={isUploadingAvatar}
-                  onChange={async (e) => {
+                  onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      setIsUploadingAvatar(true);
-                      try {
-                        const publicUrl = await uploadAvatarToSupabase(
-                          file,
-                          fullName || companyName || 'user',
-                          selectedRole || 'wholesaler'
-                        );
-                        setAvatarUrl(publicUrl);
-                      } catch (err) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          if (typeof reader.result === 'string') {
-                            setAvatarUrl(reader.result);
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                      } finally {
-                        setIsUploadingAvatar(false);
-                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          setCropImageSrc(reader.result);
+                          setIsCropModalOpen(true);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
                     }
                   }}
                   className="hidden"
@@ -867,6 +860,37 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
           </div>
         </form>
       </div>
+
+      {/* PROFILE PICTURE CROP MODAL */}
+      <ImageCropModal
+        isOpen={isCropModalOpen}
+        imageSrc={cropImageSrc}
+        initialAspectRatio="1:1"
+        allowedAspectRatios={['1:1']}
+        cropShape="circle"
+        allowShapeToggle={true}
+        title="Customize Profile Photo"
+        subtitle="Zoom and frame your profile photo or company logo."
+        onCropComplete={async (croppedBlob, croppedDataUrl, croppedFile) => {
+          setIsUploadingAvatar(true);
+          try {
+            const publicUrl = await uploadAvatarToSupabase(
+              croppedFile,
+              fullName || companyName || 'user',
+              selectedRole || 'wholesaler'
+            );
+            setAvatarUrl(publicUrl);
+          } catch (err) {
+            setAvatarUrl(croppedDataUrl);
+          } finally {
+            setIsUploadingAvatar(false);
+          }
+        }}
+        onClose={() => {
+          setIsCropModalOpen(false);
+          setCropImageSrc('');
+        }}
+      />
     </div>
   );
 };
