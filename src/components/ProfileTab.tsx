@@ -8,6 +8,7 @@ import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { AboutUsModal } from './AboutUsModal';
 import { Instagram, Trash2, Award, Info, ShieldCheck, Sparkles, ExternalLink } from 'lucide-react';
 import { ImageCropModal } from './ImageCropModal';
+import { InternationalPhoneInput } from './InternationalPhoneInput';
 
 interface ProfileTabProps {
   user: UserProfile | null;
@@ -1228,15 +1229,16 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 />
               </div>
 
-              {/* PHONE NUMBER */}
+              {/* PHONE NUMBER WITH GLOBAL COUNTRY CODE DROPDOWN */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-800 mb-1">Phone Number</label>
-                <input
-                  type="text"
+                <label className="block text-[11px] font-bold text-slate-800 mb-1">
+                  Mobile Phone Number
+                </label>
+                <InternationalPhoneInput
                   value={editPhone}
-                  onChange={(e) => setEditPhone(e.target.value)}
-                  placeholder="+91 9876543210"
-                  className="w-full bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
+                  onChange={(val) => setEditPhone(val)}
+                  defaultCountry="IN"
+                  placeholder="Enter mobile phone number"
                 />
               </div>
 

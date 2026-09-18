@@ -30,6 +30,9 @@ const TICKER_HIGHLIGHTS = [
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, onCancel, currentUser }) => {
   const isEditingExisting = Boolean(currentUser);
 
+  // Multi-step state: Step 1 = Category Selection, Step 2 = Business & Account Details
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+
   // Form Fields
   const [selectedRole, setSelectedRole] = useState<UserRole>(currentUser?.role || 'wholesaler');
   const [companyName, setCompanyName] = useState(currentUser?.companyName || '');
@@ -327,129 +330,192 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
         )}
 
         {/* ========================================================================= */}
-        {/* UNIFIED SIGN IN / REGISTER FORM */}
+        {/* STEP 1: BUSINESS CATEGORY SELECTION ONLY */}
         {/* ========================================================================= */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* ROLE SELECTION */}
-          <div className="space-y-2.5">
-            <label className="block text-xs font-bold uppercase tracking-wider text-[#0d47a1]">
-              Select Business Category
-            </label>
+        {currentStep === 1 && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="space-y-1 pb-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-black uppercase tracking-wider text-[#0d47a1]">
+                  Select Business Category
+                </label>
+                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                  Step 1 of 2
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Choose your primary trade category to configure your Dropthan experience.
+              </p>
+            </div>
 
-            {/* Wholesaler */}
-            <div
-              id="role-option-wholesaler"
-              onClick={() => handleRoleSelect('wholesaler')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'wholesaler'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">📦</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Standard Wholesaler</h4>
-                  <p className="text-[10px] text-slate-500">Upload bulk inventory, set MOQ & pricing.</p>
+            {/* Category Radio Cards */}
+            <div className="space-y-2.5">
+              {/* Wholesaler */}
+              <div
+                id="role-option-wholesaler"
+                onClick={() => handleRoleSelect('wholesaler')}
+                className={`border-2 p-3.5 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-xs hover:shadow-sm ${
+                  selectedRole === 'wholesaler'
+                    ? 'border-[#0d47a1] bg-blue-50/70 text-[#0d47a1] ring-2 ring-blue-100'
+                    : 'border-slate-200 bg-white hover:border-blue-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">📦</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900">Standard Wholesaler</h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Upload bulk inventory, set MOQ & pricing.</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedRole === 'wholesaler' ? 'border-[#0d47a1]' : 'border-slate-300'
+                }`}>
+                  {selectedRole === 'wholesaler' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
                 </div>
               </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'wholesaler' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
+
+              {/* Organic Wholesaler */}
+              <div
+                id="role-option-organic-wholesaler"
+                onClick={() => handleRoleSelect('organic_wholesaler')}
+                className={`border-2 p-3.5 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-xs hover:shadow-sm ${
+                  selectedRole === 'organic_wholesaler'
+                    ? 'border-emerald-600 bg-emerald-50/70 text-emerald-900 ring-2 ring-emerald-100'
+                    : 'border-slate-200 bg-white hover:border-emerald-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🌱</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                      Organic Wholesaler <span className="text-[9px] bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-black">GST Exempted</span>
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Agro, coco fiber, cotton, neem & natural goods.</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedRole === 'organic_wholesaler' ? 'border-emerald-600' : 'border-slate-300'
+                }`}>
+                  {selectedRole === 'organic_wholesaler' && <div className="w-2.5 h-2.5 rounded-full bg-emerald-700" />}
+                </div>
+              </div>
+
+              {/* Exporter */}
+              <div
+                id="role-option-exporter"
+                onClick={() => handleRoleSelect('exporter')}
+                className={`border-2 p-3.5 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-xs hover:shadow-sm ${
+                  selectedRole === 'exporter'
+                    ? 'border-[#0d47a1] bg-blue-50/70 text-[#0d47a1] ring-2 ring-blue-100'
+                    : 'border-slate-200 bg-white hover:border-blue-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🌐</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900">Exporter</h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Global cross-border trade, bulk shipping & IEC.</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedRole === 'exporter' ? 'border-[#0d47a1]' : 'border-slate-300'
+                }`}>
+                  {selectedRole === 'exporter' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
+                </div>
+              </div>
+
+              {/* Print & Packaging */}
+              <div
+                id="role-option-printing"
+                onClick={() => handleRoleSelect('printing')}
+                className={`border-2 p-3.5 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-xs hover:shadow-sm ${
+                  selectedRole === 'printing'
+                    ? 'border-[#0d47a1] bg-blue-50/70 text-[#0d47a1] ring-2 ring-blue-100'
+                    : 'border-slate-200 bg-white hover:border-blue-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🖨️</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900">Print & Packaging Company</h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Box printing, sticker labels, cartons & packaging.</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedRole === 'printing' ? 'border-[#0d47a1]' : 'border-slate-300'
+                }`}>
+                  {selectedRole === 'printing' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
+                </div>
+              </div>
+
+              {/* Reseller / Dropshipper */}
+              <div
+                id="role-option-reseller"
+                onClick={() => handleRoleSelect('reseller')}
+                className={`border-2 p-3.5 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-xs hover:shadow-sm ${
+                  selectedRole === 'reseller'
+                    ? 'border-[#0d47a1] bg-blue-50/70 text-[#0d47a1] ring-2 ring-blue-100'
+                    : 'border-slate-200 bg-white hover:border-blue-300 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">🏷️</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                      Dropshipper / Buyer <span className="text-[9px] bg-blue-200 text-blue-900 px-1.5 py-0.5 rounded font-black">GST Exempted</span>
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-medium">Source products with low MOQ & order directly.</p>
+                  </div>
+                </div>
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  selectedRole === 'reseller' ? 'border-[#0d47a1]' : 'border-slate-300'
+                }`}>
+                  {selectedRole === 'reseller' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
+                </div>
               </div>
             </div>
 
-            {/* Organic Wholesaler */}
-            <div
-              id="role-option-organic-wholesaler"
-              onClick={() => handleRoleSelect('organic_wholesaler')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'organic_wholesaler'
-                  ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
-                  : 'border-emerald-100 bg-white hover:border-emerald-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">🌱</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                    Organic Wholesaler <span className="text-[9px] bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-extrabold">GST Exempted</span>
-                  </h4>
-                  <p className="text-[10px] text-slate-500">Agro, coco fiber, cotton, neem & natural goods.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-emerald-400 flex items-center justify-center">
-                {selectedRole === 'organic_wholesaler' && <div className="w-2.5 h-2.5 rounded-full bg-emerald-700" />}
-              </div>
-            </div>
-
-            {/* Exporter */}
-            <div
-              id="role-option-exporter"
-              onClick={() => handleRoleSelect('exporter')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'exporter'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">🌐</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Exporter</h4>
-                  <p className="text-[10px] text-slate-500">Global cross-border trade, bulk shipping.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'exporter' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
-              </div>
-            </div>
-
-            {/* Print & Packaging */}
-            <div
-              id="role-option-printing"
-              onClick={() => handleRoleSelect('printing')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'printing'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">🖨️</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Print & Packaging Company</h4>
-                  <p className="text-[10px] text-slate-500">Box printing, sticker labels, cartons.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'printing' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
-              </div>
-            </div>
-
-            {/* Reseller / Dropshipper */}
-            <div
-              id="role-option-reseller"
-              onClick={() => handleRoleSelect('reseller')}
-              className={`border-2 p-3 rounded-2xl cursor-pointer transition flex items-center justify-between shadow-sm ${
-                selectedRole === 'reseller'
-                  ? 'border-[#0d47a1] bg-blue-50 text-[#0d47a1]'
-                  : 'border-blue-100 bg-white hover:border-blue-300 text-slate-800'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">🏷️</span>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                    Dropshipper / Buyer <span className="text-[9px] bg-blue-200 text-blue-900 px-1.5 py-0.5 rounded font-extrabold">GST Exempted</span>
-                  </h4>
-                  <p className="text-[10px] text-slate-500">Source products with low MOQ & order directly.</p>
-                </div>
-              </div>
-              <div className="w-4 h-4 rounded-full border-2 border-blue-300 flex items-center justify-center">
-                {selectedRole === 'reseller' && <div className="w-2.5 h-2.5 rounded-full bg-[#0d47a1]" />}
-              </div>
+            {/* STEP 1 ACTION BUTTON */}
+            <div className="pt-2">
+              <button
+                type="button"
+                id="btn-step1-continue"
+                onClick={() => setCurrentStep(2)}
+                className="w-full font-black py-3.5 rounded-xl text-sm transition shadow-md flex items-center justify-center gap-2 bg-[#0d47a1] hover:bg-blue-700 active:scale-98 text-white cursor-pointer"
+              >
+                <span>Continue to Account Details</span>
+                <span className="text-base font-extrabold">→</span>
+              </button>
             </div>
           </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* STEP 2: BUSINESS & ACCOUNT DETAILS FORM */}
+        {/* ========================================================================= */}
+        {currentStep === 2 && (
+          <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in duration-200">
+            {/* STEP 2 HEADER WITH BACK NAVIGATION & SELECTED ROLE BADGE */}
+            <div className="flex items-center justify-between gap-2 pb-1 border-b border-slate-100">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="flex items-center gap-1 text-xs font-bold text-[#0d47a1] hover:underline cursor-pointer py-1"
+              >
+                <span>← Change Category</span>
+              </button>
+              <span className="text-[10px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full capitalize">
+                {selectedRole === 'organic_wholesaler'
+                  ? '🌱 Organic Wholesaler'
+                  : selectedRole === 'exporter'
+                  ? '🌐 Exporter'
+                  : selectedRole === 'printing'
+                  ? '🖨️ Printing & Packaging'
+                  : selectedRole === 'reseller' || selectedRole === 'dropshipper'
+                  ? '🏷️ Dropshipper'
+                  : '📦 Standard Wholesaler'}
+              </span>
+            </div>
 
           {/* INTERNATIONAL PHONE NUMBER */}
           <div>
@@ -859,6 +925,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
             </button>
           </div>
         </form>
+        )}
       </div>
 
       {/* PROFILE PICTURE CROP MODAL */}
