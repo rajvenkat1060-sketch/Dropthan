@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
+import { BilldropsLogo } from './BilldropsLogo';
 import {
   Sparkles,
   TrendingUp,
@@ -52,7 +53,6 @@ export interface DigitalServiceItem {
 
 export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
   const [selectedServiceId, setSelectedServiceId] = useState<string>('meta_ads');
-  const [selectedBillingPlan, setSelectedBillingPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
   // Lead Capture Modal & State
@@ -449,25 +449,20 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
           {/* SERVICE #2: BILLDROPS - SMART BILLING & INVOICING */}
           <div
             id="service-card-billing-app"
-            className="flex flex-col justify-between bg-white rounded-2xl p-4 sm:p-5 border border-blue-500/80 ring-1 ring-blue-500/20 shadow-xs hover:shadow-md transition"
+            className="flex flex-col justify-between bg-white rounded-2xl p-4 sm:p-5 border border-emerald-500/80 ring-1 ring-emerald-500/20 shadow-xs hover:shadow-md transition"
           >
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center space-x-2.5">
-                  <div className="w-12 h-12 rounded-xl bg-white border border-slate-200/80 p-1 flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
-                    <img
-                      src="/billdrops-logo.jpg"
-                      alt="Billdrops Logo"
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
+                  <div className="w-12 h-12 rounded-xl bg-slate-50/80 border border-slate-200/90 p-1.5 flex items-center justify-center shadow-xs shrink-0 overflow-hidden group-hover:scale-105 transition">
+                    <BilldropsLogo className="w-full h-full object-contain" />
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="text-sm font-black text-slate-900 leading-tight">
                         Billdrops - Smart Billing &amp; Invoicing
                       </h4>
-                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-900 border-blue-200">
+                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-900 border-emerald-200">
                         Official Web Tool
                       </span>
                     </div>
@@ -477,35 +472,35 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
                   </div>
                 </div>
 
-                {/* PROMOTIONAL PRICE BADGE */}
+                {/* 100% FREE ACCESS BADGE */}
                 <div className="shrink-0">
                   <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-emerald-700" />
-                    2 Months Free, then ₹199 / Year
+                    100% Free Access
                   </span>
                 </div>
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                Official web software at <strong className="text-blue-900 font-bold">billdrops.com</strong>. Generate GST compliant invoices, manage catalog inventory, print on 2"/3" thermal printers, track customer ledgers, and send instant PDF bills with payment links directly on WhatsApp.
+                Official web software at <strong className="text-blue-900 font-bold">billdrops.com</strong>. Generate GST compliant invoices, manage catalog inventory, print on 2"/3" thermal printers, track customer ledgers, and send instant PDF bills with payment links directly on WhatsApp — <strong className="text-emerald-700 font-extrabold">100% Free with Zero Subscription Fees</strong> for all businesses.
               </p>
 
               {/* HIGHLIGHTS */}
               <div className="grid grid-cols-2 gap-1.5 text-[11px] text-slate-700 font-medium">
                 <div className="flex items-center gap-1.5">
-                  <Globe className="w-3 h-3 text-blue-600 shrink-0" />
+                  <Globe className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span className="truncate">Web App at billdrops.com</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Printer className="w-3 h-3 text-blue-600 shrink-0" />
+                  <Printer className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span className="truncate">2" &amp; 3" Thermal Print</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Receipt className="w-3 h-3 text-blue-600 shrink-0" />
+                  <Receipt className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span className="truncate">GST &amp; Barcode Ready</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <MessageCircle className="w-3 h-3 text-blue-600 shrink-0" />
+                  <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
                   <span className="truncate">WhatsApp PDF Sharing</span>
                 </div>
               </div>
@@ -515,8 +510,10 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
                   <Clock className="w-3 h-3 text-slate-400" />
                   <span>Instant Cloud Access</span>
                 </span>
-                <span className="font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md text-xs">
-                  ₹199 / Year Only <span className="text-[10px] font-medium text-emerald-700">(2 Months Free Trial)</span>
+                <span className="font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md text-xs flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>100% Free • Zero Cost</span>
+                  <span className="text-[10px] font-semibold text-emerald-700 hidden sm:inline">(No Payments Required)</span>
                 </span>
               </div>
             </div>
@@ -528,9 +525,9 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
                 href="https://billdrops.com/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 bg-gradient-to-r from-blue-700 via-[#0d47a1] to-indigo-700 hover:from-blue-800 hover:to-indigo-800 active:scale-[0.99] text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+                className="flex-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-[#0d47a1] hover:from-emerald-700 hover:to-blue-800 active:scale-[0.99] text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
               >
-                <span>Visit billdrops.com</span>
+                <span>Launch Free at billdrops.com</span>
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
               </a>
 
@@ -539,7 +536,7 @@ export const ServicesTab: React.FC<ServicesTabProps> = ({ user }) => {
                 onClick={() =>
                   handleSendLeadWhatsApp(
                     'Billdrops - Smart Billing & Invoicing',
-                    'Offer: 2 Months Free Trial, then ₹199 / Year (Website Referral: billdrops.com)'
+                    '100% Free Access (Website Referral: billdrops.com)'
                   )
                 }
                 className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2 px-2.5 rounded-xl font-bold text-xs flex items-center gap-1 transition cursor-pointer"
