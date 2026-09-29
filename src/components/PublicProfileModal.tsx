@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PostItem, UserProfile, RatingSummary, ReviewItem, UserRole } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
 import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../utils/image';
-import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor } from '../lib/supabase';
+import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor, isBannedAccountOrPost } from '../lib/supabase';
 import { LocationMapModal } from './LocationMapModal';
 import { ImageCarousel } from './ImageCarousel';
 import { Instagram } from 'lucide-react';
@@ -73,6 +73,21 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
     (vendorPost?.phone && !vendorPost.phone.includes('9876543210') ? vendorPost.phone : undefined) ||
     (cleanVendorName.match(/^\+?\d[\d\s-]{6,}$/) && !cleanVendorName.includes('9876543210') ? cleanVendorName : undefined) ||
     '';
+
+  const isBanned =
+    isBannedAccountOrPost(cleanVendorName) ||
+    isBannedAccountOrPost(vendorName) ||
+    isBannedAccountOrPost(vendorPost) ||
+    isBannedAccountOrPost(vendorProfile) ||
+    isBannedAccountOrPost(targetPhoneStr);
+
+  useEffect(() => {
+    if (isOpen && isBanned) {
+      onClose();
+    }
+  }, [isOpen, isBanned, onClose]);
+
+  if (isBanned) return null;
 
   // Strictly filter posts created by this specific profile/vendor (No global or other user leakage)
   const vendorPosts = useMemo(() => {

@@ -5,6 +5,7 @@ import { getOptimizedImageUrl, getPostImageUrl, getPostImagesList } from '../uti
 import { uploadAvatarToSupabase, fetchUserRatingsFromSupabase, saveUserRatingToSupabase, updateUserWebsiteInSupabase, saveUserProfileToSupabase, fetchPostsByVendor } from '../lib/supabase';
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
+import { DeleteAllPostsModal } from './DeleteAllPostsModal';
 import { AboutUsModal } from './AboutUsModal';
 import { Instagram, Trash2, Award, Info, ShieldCheck, Sparkles, ExternalLink } from 'lucide-react';
 import { ImageCropModal } from './ImageCropModal';
@@ -24,6 +25,7 @@ interface ProfileTabProps {
   onEditDetails?: () => void;
   onUpdateProfile?: (updatedUser: UserProfile) => void;
   onDeletePost?: (postId: string) => void;
+  onDeleteAllPosts?: () => void;
 }
 
 const ITEMS_PER_PAGE = 6;
@@ -42,6 +44,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   onEditDetails,
   onUpdateProfile,
   onDeletePost,
+  onDeleteAllPosts,
 }) => {
   const [activeProfileTab, setActiveProfileTab] = useState<'myPosts' | 'saved'>('myPosts');
   const [visiblePostsCount, setVisiblePostsCount] = useState<number>(ITEMS_PER_PAGE);
@@ -52,6 +55,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   const [isSavingWebsite, setIsSavingWebsite] = useState(false);
   const [websiteSuccessMsg, setWebsiteSuccessMsg] = useState('');
   const [postToDelete, setPostToDelete] = useState<PostItem | null>(null);
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   // Full Edit Business Profile Modal States
@@ -846,6 +850,23 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
                 </div>
               ) : (
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+                    <span className="text-xs font-bold text-slate-700">
+                      Catalog Listings ({allEffectiveUserPosts.length})
+                    </span>
+                    {onDeleteAllPosts && (
+                      <button
+                        type="button"
+                        onClick={() => setIsDeleteAllModalOpen(true)}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition cursor-pointer active:scale-95 shadow-2xs"
+                        title="Permanently remove all posts for this account"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Delete All Posts</span>
+                      </button>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     {visibleUserPosts.map((post, pIdx) => (
                       <div
@@ -1425,6 +1446,20 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           setDirectUserPosts((prev) => prev.filter((p) => String(p.id) !== String(postId)));
           if (onDeletePost) {
             await onDeletePost(postId);
+          }
+        }}
+      />
+
+      {/* DELETE ALL POSTS MODAL */}
+      <DeleteAllPostsModal
+        isOpen={isDeleteAllModalOpen}
+        user={user}
+        postCount={allEffectiveUserPosts.length}
+        onClose={() => setIsDeleteAllModalOpen(false)}
+        onConfirm={async () => {
+          setDirectUserPosts([]);
+          if (onDeleteAllPosts) {
+            await onDeleteAllPosts();
           }
         }}
       />

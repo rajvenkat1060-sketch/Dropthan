@@ -23,6 +23,158 @@ export const GENERIC_AUTHOR_NAMES = new Set([
   '',
 ]);
 
+export const BANNED_PATTERNS = [
+  '9444743465',
+  '+9444743465',
+  '919444743465',
+  '+919444743465',
+  'prabhu traders',
+  'prabhu_traders',
+  '@prabhu_traders',
+  'maxywalk',
+  'kovilpadhagai',
+];
+
+export const isBannedAccountOrPost = (item: any): boolean => {
+  if (!item) return false;
+
+  const phoneStr = (
+    (typeof item === 'string' && /^\+?\d+$/.test(item))
+      ? item
+      : (item.phone || item.mobile || item.contact_number || item.contact || '')
+  )
+    .toString()
+    .toLowerCase();
+
+  const phoneDigits = phoneStr.replace(/\D/g, '');
+  if (phoneDigits.includes('9444743465')) return true;
+
+  const id = (item.id || item.user_id || item.userId || item.vendor_id || '').toString().toLowerCase();
+  if (id.includes('9444743465') || id.includes('prabhu')) return true;
+
+  const textToScan = [
+    typeof item === 'string' ? item : '',
+    item.displayName,
+    item.display_name,
+    item.companyName,
+    item.company_name,
+    item.fullName,
+    item.full_name,
+    item.name,
+    item.author,
+    item.username,
+    item.user_name,
+    item.handle,
+    item.instagram,
+    item.instagram_handle,
+    item.instagramHandle,
+    item.bio,
+    item.business_bio,
+    item.description,
+    item.caption,
+    item.title,
+    item.productName,
+    item.product_name,
+    item.location,
+    item.storeAddress,
+    item.store_address,
+    item.address,
+    item.vendorName,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  for (const pattern of BANNED_PATTERNS) {
+    if (textToScan.includes(pattern)) return true;
+  }
+
+  return false;
+};
+
+export const purgeBannedAccountsAndPosts = async () => {
+  console.log('🛡️ [Account Purge Pipeline] Enforcing permanent deletion of banned account "Prabhu Traders" & associated data...');
+
+  // 1. Local Storage Purge
+  try {
+    const curUser = localStorage.getItem('dropthan_user');
+    if (curUser) {
+      const parsed = JSON.parse(curUser);
+      if (isBannedAccountOrPost(parsed)) {
+        localStorage.removeItem('dropthan_user');
+        window.dispatchEvent(new CustomEvent('dropthan_session_cleared'));
+      }
+    }
+
+    const localKey = 'dropthan_all_profiles';
+    const stored = localStorage.getItem(localKey);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(localKey, JSON.stringify(parsed.filter((p) => !isBannedAccountOrPost(p))));
+      }
+    }
+
+    const customKey = 'dropthan_custom_posts';
+    const storedCustom = localStorage.getItem(customKey);
+    if (storedCustom) {
+      const parsed = JSON.parse(storedCustom);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(customKey, JSON.stringify(parsed.filter((p) => !isBannedAccountOrPost(p))));
+      }
+    }
+
+    const cacheKey = 'dropthan_cached_supabase_posts';
+    const storedCache = localStorage.getItem(cacheKey);
+    if (storedCache) {
+      const parsed = JSON.parse(storedCache);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(cacheKey, JSON.stringify(parsed.filter((p) => !isBannedAccountOrPost(p))));
+      }
+    }
+
+    const postsKey = 'dropthan_posts';
+    const storedPosts = localStorage.getItem(postsKey);
+    if (storedPosts) {
+      const parsed = JSON.parse(storedPosts);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(postsKey, JSON.stringify(parsed.filter((p) => !isBannedAccountOrPost(p))));
+      }
+    }
+  } catch (e) {}
+
+  // 2. Supabase Backend Permanent Delete
+  try {
+    // A. Delete matching profiles
+    await supabase.from('profiles').delete().ilike('phone', '%9444743465%');
+    await supabase.from('profiles').delete().ilike('company_name', '%prabhu%');
+    await supabase.from('profiles').delete().ilike('display_name', '%prabhu%');
+
+    // B. Delete matching posts
+    await supabase.from('posts').delete().ilike('phone', '%9444743465%');
+    await supabase.from('posts').delete().ilike('author', '%prabhu%');
+    await supabase.from('posts').delete().ilike('title', '%maxywalk%');
+    await supabase.from('posts').delete().ilike('description', '%maxywalk%');
+    await supabase.from('posts').delete().ilike('description', '%prabhu%');
+
+    // C. Delete ratings & reviews
+    await supabase.from('reviews').delete().ilike('target_id', '%prabhu%');
+    await supabase.from('reviews').delete().ilike('reviewer_id', '%9444743465%');
+    await supabase.from('ratings').delete().ilike('target_id', '%prabhu%');
+
+    // D. Soft-delete fallback to guarantee exclusion
+    try {
+      await supabase.from('profiles').update({ status: 'banned', is_deleted: true }).ilike('company_name', '%prabhu%');
+      await supabase.from('posts').update({ is_deleted: true, is_active: false, status: 'deleted' }).ilike('author', '%prabhu%');
+    } catch (e) {}
+  } catch (e) {
+    console.warn('Backend purge notice:', e);
+  }
+};
+
+// Immediately execute purge on bundle execution
+purgeBannedAccountsAndPosts().catch(() => {});
+
 export const generateValidUUID = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
@@ -323,23 +475,25 @@ export const fetchSupabasePosts = async (): Promise<PostItem[]> => {
     };
   });
 
-  // Merge remote and cached posts deduplicating by ID (strictly excluding any deleted post IDs)
+  // Merge remote and cached posts deduplicating by ID (strictly excluding any deleted post IDs and banned accounts)
   const mergedMap = new Map<string, PostItem>();
   localCache.forEach((p) => {
-    if (!deletedIds.has(String(p.id))) {
+    if (!deletedIds.has(String(p.id)) && !isBannedAccountOrPost(p)) {
       mergedMap.set(String(p.id), p);
     }
   });
   mapped.forEach((p) => {
-    if (!deletedIds.has(String(p.id))) {
+    if (!deletedIds.has(String(p.id)) && !isBannedAccountOrPost(p)) {
       mergedMap.set(String(p.id), p);
     }
   });
-  const allCombined = Array.from(mergedMap.values()).sort((a, b) => {
-    const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
-    const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
-    return timeB - timeA;
-  });
+  const allCombined = Array.from(mergedMap.values())
+    .filter((p) => !isBannedAccountOrPost(p))
+    .sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
 
   if (allCombined.length > 0) {
     try {
@@ -655,6 +809,98 @@ export const deleteSupabasePost = async (postId: string, userId?: string): Promi
   }
 
   return { success: true };
+};
+
+export const deleteSupabaseAllPostsForUser = async (
+  user: UserProfile,
+  postIds?: string[]
+): Promise<{ success: boolean; count: number; error?: string }> => {
+  console.log(`🗑️ [Supabase Delete All Posts] Initiating total post removal for user: ${user.displayName || user.companyName} (${user.phone})`);
+  let deletedCount = 0;
+
+  // 1. Fetch current posts for this vendor if postIds not supplied
+  let targetIds = postIds ? [...postIds] : [];
+  if (targetIds.length === 0) {
+    try {
+      const vendorPosts = await fetchPostsByVendor(user);
+      if (vendorPosts && vendorPosts.length > 0) {
+        targetIds = vendorPosts.map((p) => String(p.id));
+      }
+    } catch (e) {
+      console.warn('Notice loading vendor posts for deletion:', e);
+    }
+  }
+
+  // 2. Add all to persistent deleted tombstones
+  try {
+    const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+    const delList: string[] = delStr ? JSON.parse(delStr) : [];
+    targetIds.forEach((id) => {
+      if (!delList.includes(String(id))) delList.push(String(id));
+    });
+    localStorage.setItem('dropthan_deleted_post_ids', JSON.stringify(delList));
+  } catch (e) {}
+
+  // 3. Clear local storage caches
+  try {
+    const idSet = new Set(targetIds.map(String));
+    const customStr = localStorage.getItem('dropthan_custom_posts');
+    if (customStr) {
+      const parsed: any[] = JSON.parse(customStr);
+      const filtered = parsed.filter((p) => !idSet.has(String(p.id)));
+      localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
+    }
+    const cachedSupabaseStr = localStorage.getItem('dropthan_cached_supabase_posts');
+    if (cachedSupabaseStr) {
+      const parsed: any[] = JSON.parse(cachedSupabaseStr);
+      const filtered = parsed.filter((p) => !idSet.has(String(p.id)));
+      localStorage.setItem('dropthan_cached_supabase_posts', JSON.stringify(filtered));
+    }
+    const postsLocal = localStorage.getItem('dropthan_posts');
+    if (postsLocal) {
+      const parsed: any[] = JSON.parse(postsLocal);
+      const filtered = parsed.filter((p) => !idSet.has(String(p.id)));
+      localStorage.setItem('dropthan_posts', JSON.stringify(filtered));
+    }
+    const savedStr = localStorage.getItem('dropthan_saved_ids');
+    if (savedStr) {
+      const saved: string[] = JSON.parse(savedStr);
+      const filtered = saved.filter((id) => !idSet.has(String(id)));
+      localStorage.setItem('dropthan_saved_ids', JSON.stringify(filtered));
+    }
+    const likedStr = localStorage.getItem('dropthan_liked_ids');
+    if (likedStr) {
+      const liked: string[] = JSON.parse(likedStr);
+      const filtered = liked.filter((id) => !idSet.has(String(id)));
+      localStorage.setItem('dropthan_liked_ids', JSON.stringify(liked));
+    }
+  } catch (e) {
+    console.error('Error updating local storage caches on delete all:', e);
+  }
+
+  // 4. Delete individually & batch in Supabase
+  for (const id of targetIds) {
+    try {
+      await deleteSupabasePost(id, user.id);
+      deletedCount++;
+    } catch (e) {
+      console.warn(`Error deleting individual post ${id}:`, e);
+    }
+  }
+
+  // 5. If user has a valid UUID, also run direct delete by user_id
+  if (user.id && isUuid(user.id)) {
+    try {
+      await supabase.from('posts').delete().eq('user_id', user.id);
+    } catch (e) {}
+  }
+
+  // 6. Dispatch events
+  try {
+    window.dispatchEvent(new CustomEvent('dropthan_posts_updated'));
+  } catch (e) {}
+
+  return { success: true, count: deletedCount };
 };
 
 export const clearAllSupabaseData = async (): Promise<{ success: boolean; error?: string }> => {
@@ -1750,7 +1996,7 @@ export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] 
   const nameToId = new Map<string, string>();
 
   for (const prof of profiles) {
-    if (!prof) continue;
+    if (!prof || isBannedAccountOrPost(prof)) continue;
     const rawId = (prof.id || '').trim();
     const phoneDigits = (prof.phone || '').replace(/\D/g, '');
     const cleanPhone = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
@@ -1815,7 +2061,7 @@ export const deduplicateUserProfiles = (profiles: UserProfile[]): UserProfile[] 
     }
   }
 
-  return Array.from(byId.values());
+  return Array.from(byId.values()).filter((p) => !isBannedAccountOrPost(p));
 };
 
 export const fetchAllUserProfilesFromSupabase = async (): Promise<UserProfile[]> => {
@@ -2369,7 +2615,7 @@ export const fetchUserProfileStatus = async (
 export const fetchFullUserProfile = async (
   identifier: string | { id?: string; userId?: string; phone?: string; displayName?: string; companyName?: string; fullName?: string; author?: string }
 ): Promise<UserProfile | null> => {
-  if (!identifier) return null;
+  if (!identifier || isBannedAccountOrPost(identifier)) return null;
 
   let targetId = '';
   let targetPhone = '';
@@ -2544,7 +2790,7 @@ export const fetchFullUserProfile = async (
 };
 
 export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostItem[]> => {
-  if (!userId) return [];
+  if (!userId || isBannedAccountOrPost(userId)) return [];
   try {
     const cleanUid = userId.trim();
     let deletedIds = new Set<string>();
@@ -2646,7 +2892,7 @@ export const fetchSupabasePostsByUserId = async (userId: string): Promise<PostIt
 export const fetchPostsByVendor = async (
   vendorIdentifier: string | { id?: string; phone?: string; displayName?: string; companyName?: string; fullName?: string; author?: string }
 ): Promise<PostItem[]> => {
-  if (!vendorIdentifier) return [];
+  if (!vendorIdentifier || isBannedAccountOrPost(vendorIdentifier)) return [];
 
   let cleanId = '';
   let cleanPhone = '';

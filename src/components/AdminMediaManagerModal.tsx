@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, PostItem } from '../types';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { saveSupabasePost, deleteSupabasePost, fetchPostsByVendor, saveUserProfileToSupabase } from '../lib/supabase';
+import { saveSupabasePost, deleteSupabasePost, deleteSupabaseAllPostsForUser, fetchPostsByVendor, saveUserProfileToSupabase } from '../lib/supabase';
 import {
   X,
   Upload,
@@ -56,6 +56,7 @@ export const AdminMediaManagerModal: React.FC<AdminMediaManagerModalProps> = ({
   const [vendorPosts, setVendorPosts] = useState<PostItem[]>([]);
   const [isLoadingPosts, setIsLoadingPosts] = useState<boolean>(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState<boolean>(false);
 
   useEffect(() => {
     if (user) {
@@ -231,6 +232,25 @@ export const AdminMediaManagerModal: React.FC<AdminMediaManagerModalProps> = ({
       console.error('Delete post failed:', e);
     } finally {
       setDeletingPostId(null);
+    }
+  };
+
+  // Delete All Posts for Vendor
+  const handleDeleteAllVendorPosts = async () => {
+    if (!user || vendorPosts.length === 0) return;
+    if (!window.confirm(`Are you sure you want to completely remove all ${vendorPosts.length} posts for ${displayName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeletingAll(true);
+    try {
+      const postIds = vendorPosts.map((p) => String(p.id));
+      await deleteSupabaseAllPostsForUser(user, postIds);
+      setVendorPosts([]);
+    } catch (e: any) {
+      console.error('Delete all vendor posts failed:', e);
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -595,13 +615,26 @@ export const AdminMediaManagerModal: React.FC<AdminMediaManagerModalProps> = ({
               <h4 className="font-extrabold text-slate-800">
                 Live Products Listed by {displayName} ({vendorPosts.length})
               </h4>
-              <button
-                onClick={loadVendorPosts}
-                className="text-slate-500 hover:text-slate-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <RefreshCw className={`w-3 h-3 ${isLoadingPosts ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {vendorPosts.length > 0 && (
+                  <button
+                    disabled={isDeletingAll}
+                    onClick={handleDeleteAllVendorPosts}
+                    className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    title="Remove all posts for this vendor"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>{isDeletingAll ? 'Deleting All...' : 'Delete All Posts'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={loadVendorPosts}
+                  className="text-slate-500 hover:text-slate-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoadingPosts ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
             </div>
 
             {isLoadingPosts ? (

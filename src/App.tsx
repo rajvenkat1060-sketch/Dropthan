@@ -16,6 +16,7 @@ import {
   fetchSupabasePosts,
   saveSupabasePost,
   deleteSupabasePost,
+  deleteSupabaseAllPostsForUser,
   fetchUserLikesFromSupabase,
   fetchAllLikesCountsFromSupabase,
   toggleSupabaseLike,
@@ -25,6 +26,7 @@ import {
   subscribeToSupabasePosts,
   saveUserProfileToSupabase,
   hardClearUserSession,
+  isBannedAccountOrPost,
 } from './lib/supabase';
 
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
@@ -35,6 +37,10 @@ export default function App() {
       const savedUserStr = localStorage.getItem('dropthan_user');
       if (savedUserStr) {
         const parsedUser: UserProfile = JSON.parse(savedUserStr);
+        if (isBannedAccountOrPost(parsedUser)) {
+          localStorage.removeItem('dropthan_user');
+          return null;
+        }
         if (!parsedUser.id) {
           parsedUser.id = parsedUser.phone
             ? `usr_${parsedUser.phone.replace(/\D/g, '')}`
@@ -66,7 +72,7 @@ export default function App() {
         const parsedCustomPosts: PostItem[] = JSON.parse(savedPostsStr);
         if (Array.isArray(parsedCustomPosts) && parsedCustomPosts.length > 0) {
           return [...parsedCustomPosts, ...INITIAL_POSTS].filter(
-            (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+            (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted' && !isBannedAccountOrPost(p)
           );
         }
       }
@@ -74,7 +80,7 @@ export default function App() {
       console.error('Failed to parse saved custom posts:', err);
     }
     return INITIAL_POSTS.filter(
-      (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted'
+      (p) => !deletedIds.has(String(p.id)) && !p.is_deleted && p.is_active !== false && p.status !== 'deleted' && !isBannedAccountOrPost(p)
     );
   });
 
@@ -202,24 +208,26 @@ export default function App() {
 
         setPosts(() => {
           const postMap = new Map<string, PostItem>();
-          // Base fallback posts (excluding deleted)
+          // Base fallback posts (excluding deleted & banned)
           INITIAL_POSTS.forEach((p) => {
-            if (!deletedIds.has(String(p.id))) {
+            if (!deletedIds.has(String(p.id)) && !isBannedAccountOrPost(p)) {
               postMap.set(String(p.id), p);
             }
           });
-          // All historical and newly fetched posts from Supabase cloud (excluding deleted)
+          // All historical and newly fetched posts from Supabase cloud (excluding deleted & banned)
           remotePosts.forEach((p) => {
-            if (!deletedIds.has(String(p.id))) {
+            if (!deletedIds.has(String(p.id)) && !isBannedAccountOrPost(p)) {
               postMap.set(String(p.id), p);
             }
           });
 
-          return Array.from(postMap.values()).sort((a, b) => {
-            const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
-            const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
-            return timeB - timeA;
-          });
+          return Array.from(postMap.values())
+            .filter((p) => !isBannedAccountOrPost(p))
+            .sort((a, b) => {
+              const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+              const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+              return timeB - timeA;
+            });
         });
       }
     } catch (err) {
@@ -583,6 +591,63 @@ export default function App() {
     });
   }, [postsWithInteraction, currentUser]);
 
+  const handleDeleteAllPosts = useCallback(async () => {
+    if (!currentUser) return;
+
+    try {
+      console.log(`🗑️ [App.tsx handleDeleteAllPosts] Removing all posts for user: ${currentUser.displayName || currentUser.companyName}`);
+
+      const postsToDelete = userPosts;
+      const postIdsToDelete = postsToDelete.map((p) => String(p.id));
+
+      if (postIdsToDelete.length === 0) {
+        showToast('ℹ️ No active posts found for this account.');
+        return;
+      }
+
+      const idSet = new Set(postIdsToDelete);
+
+      // 1. Instant local frontend state removal so UI updates immediately
+      setPosts((prev) => prev.filter((p) => !idSet.has(String(p.id))));
+      setSavedPostIds((prev) => prev.filter((id) => !idSet.has(id)));
+      setLikedPostIds((prev) => prev.filter((id) => !idSet.has(id)));
+
+      // 2. Persist in deleted tombstones registry
+      try {
+        const delStr = localStorage.getItem('dropthan_deleted_post_ids');
+        const delList: string[] = delStr ? JSON.parse(delStr) : [];
+        postIdsToDelete.forEach((id) => {
+          if (!delList.includes(id)) delList.push(id);
+        });
+        localStorage.setItem('dropthan_deleted_post_ids', JSON.stringify(delList));
+      } catch (e) {}
+
+      // 3. Remove from custom & cached posts
+      try {
+        const savedCustomStr = localStorage.getItem('dropthan_custom_posts');
+        if (savedCustomStr) {
+          const parsed: PostItem[] = JSON.parse(savedCustomStr);
+          const filtered = parsed.filter((p) => !idSet.has(String(p.id)));
+          localStorage.setItem('dropthan_custom_posts', JSON.stringify(filtered));
+        }
+        const cachedSupabaseStr = localStorage.getItem('dropthan_cached_supabase_posts');
+        if (cachedSupabaseStr) {
+          const parsed: PostItem[] = JSON.parse(cachedSupabaseStr);
+          const filtered = parsed.filter((p) => !idSet.has(String(p.id)));
+          localStorage.setItem('dropthan_cached_supabase_posts', JSON.stringify(filtered));
+        }
+      } catch (e) {}
+
+      // 4. Batch delete in Supabase
+      await deleteSupabaseAllPostsForUser(currentUser, postIdsToDelete);
+
+      showToast(`🗑️ All ${postIdsToDelete.length} posts have been totally removed from your account.`);
+    } catch (err: any) {
+      console.error('❌ Error in handleDeleteAllPosts:', err);
+      showToast('❌ Failed to remove all posts: ' + (err?.message || 'Please try again.'));
+    }
+  }, [currentUser, userPosts]);
+
   // 1. FIRST-TIME VISITOR INTRO SPLASH SCREEN:
   // Plays ONLY on first visit. Automatically redirects directly to the Login page when text reveal finishes.
   if (showIntro) {
@@ -664,6 +729,7 @@ export default function App() {
             onEditDetails={() => setCurrentUser(null)}
             onUpdateProfile={handleUpdateProfile}
             onDeletePost={handleDeletePost}
+            onDeleteAllPosts={handleDeleteAllPosts}
           />
         )}
         {/* OFFICIAL PLATFORM FOOTER */}
