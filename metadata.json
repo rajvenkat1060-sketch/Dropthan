@@ -1,6 +1,6 @@
 {
   "name": "Dropthan",
-  "description": "B2B Marketplace, Sourcing & Business Services Ecosystem with GST verification, direct supplier contact, supplier catalogs, Meta Ads management, and Billing software.",
+  "description": "Dropthan is a powerful free online dropshipping app and B2B marketplace connecting organic wholesalers, exporters, and online sellers.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
