@@ -7,6 +7,7 @@ import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { Trash2 } from 'lucide-react';
+import { trackLeadLensProductView } from '../lib/leadlens';
 import {
   fetchAllUserProfilesFromSupabase,
   subscribeToSupabaseProfiles,
@@ -627,6 +628,12 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
   const openPublicProfile = (post: PostItem) => {
     const resolved = resolvePostAuthor(post);
+    trackLeadLensProductView(post.title || `${resolved.authorName} Product Offer`, {
+      category: post.category,
+      price: post.price,
+      author: resolved.authorName,
+      postId: post.id,
+    });
     setPublicProfileState({
       isOpen: true,
       vendorName: resolved.authorName,
@@ -648,6 +655,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({
   };
 
   const openSupplierProfile = (profile: UserProfile) => {
+    const vendorTitle = profile.companyName || profile.displayName || 'Supplier Catalog';
+    trackLeadLensProductView(vendorTitle, {
+      category: profile.role,
+      author: vendorTitle,
+    });
     const pseudoPost: PostItem = {
       id: `vendor-${profile.phone || profile.id}`,
       user_id: profile.id,
@@ -1138,6 +1150,8 @@ export const FeedTab: React.FC<FeedTabProps> = ({
                 return (
                   <div
                     key={`feed-post-${post.id || pIdx}`}
+                    data-product-title={post.title || `${resolved.authorName} Product Offer`}
+                    data-item-name={post.title || `${resolved.authorName} Product Offer`}
                     className="flex flex-col justify-between h-full bg-white border border-blue-100 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-sm hover:shadow-md hover:border-blue-200 transition"
                   >
                   {/* AUTHOR HEADER -> PUBLIC PROFILE TRIGGER */}

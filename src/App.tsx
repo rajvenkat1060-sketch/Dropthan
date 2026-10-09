@@ -28,6 +28,7 @@ import {
   hardClearUserSession,
   isBannedAccountOrPost,
 } from './lib/supabase';
+import { recordLeadLensContact } from './lib/leadlens';
 
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
 
@@ -141,8 +142,14 @@ export default function App() {
 
   // Background non-blocking sync with Supabase for user profile, likes & posts
   useEffect(() => {
-    // 1. Silent profile verification in background
+    // 1. Silent profile verification in background and LeadLens contact sync
     if (currentUser?.phone) {
+      recordLeadLensContact({
+        phone: currentUser.phone,
+        name: currentUser.fullName || currentUser.companyName || currentUser.displayName,
+        email: (currentUser as any).email || undefined,
+      });
+
       fetchFullUserProfileByPhone(currentUser.phone).then((latestProfile) => {
         if (latestProfile) {
           const updated = {

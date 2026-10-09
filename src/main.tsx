@@ -2,6 +2,10 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { initLeadLensTracking } from './lib/leadlens';
+
+// Initialize LeadLens real-time session tracking, input detection & abandonment monitoring
+initLeadLensTracking();
 
 // Prevent benign disabled HMR websocket disconnections from triggering unhandled rejection overlays
 if (typeof window !== 'undefined') {
