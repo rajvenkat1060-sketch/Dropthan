@@ -118,16 +118,3 @@ export interface LikeRecord {
   user_phone?: string;
   created_at?: string;
 }
-
-export type LeadStatus = 'Abandoned' | 'Contacted' | 'Recovered' | 'Closed' | 'Archived';
-
-export interface LeadRecord {
-  id: string;
-  brand_id: string;
-  visitor_name?: string | null;
-  phone_number?: string | null;
-  email?: string | null;
-  clicked_item?: string | null;
-  status: string;
-  created_at: string;
-}

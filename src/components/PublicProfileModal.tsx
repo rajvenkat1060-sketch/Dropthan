@@ -6,7 +6,6 @@ import { fetchUserRatingsFromSupabase, fetchFullUserProfile, fetchPostsByVendor,
 import { LocationMapModal } from './LocationMapModal';
 import { ImageCarousel } from './ImageCarousel';
 import { Instagram } from 'lucide-react';
-import { trackLeadLensProductView } from '../lib/leadlens';
 
 interface PublicProfileModalProps {
   isOpen: boolean;
@@ -85,14 +84,8 @@ export const PublicProfileModal: React.FC<PublicProfileModalProps> = ({
   useEffect(() => {
     if (isOpen && isBanned) {
       onClose();
-    } else if (isOpen) {
-      const title = vendorProfile?.companyName || vendorProfile?.displayName || vendorName || 'Vendor Catalog';
-      trackLeadLensProductView(`${title} Catalog`, {
-        category: vendorRole || vendorProfile?.role,
-        author: title,
-      });
     }
-  }, [isOpen, isBanned, onClose, vendorProfile, vendorName, vendorRole]);
+  }, [isOpen, isBanned, onClose]);
 
   if (isBanned) return null;
 

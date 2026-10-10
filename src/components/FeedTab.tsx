@@ -7,7 +7,6 @@ import { LocationMapModal } from './LocationMapModal';
 import { PublicProfileModal } from './PublicProfileModal';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { Trash2 } from 'lucide-react';
-import { trackLeadLensProductView } from '../lib/leadlens';
 import {
   fetchAllUserProfilesFromSupabase,
   subscribeToSupabaseProfiles,
@@ -628,12 +627,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
   const openPublicProfile = (post: PostItem) => {
     const resolved = resolvePostAuthor(post);
-    trackLeadLensProductView(post.title || `${resolved.authorName} Product Offer`, {
-      category: post.category,
-      price: post.price,
-      author: resolved.authorName,
-      postId: post.id,
-    });
     setPublicProfileState({
       isOpen: true,
       vendorName: resolved.authorName,
@@ -656,10 +649,6 @@ export const FeedTab: React.FC<FeedTabProps> = ({
 
   const openSupplierProfile = (profile: UserProfile) => {
     const vendorTitle = profile.companyName || profile.displayName || 'Supplier Catalog';
-    trackLeadLensProductView(vendorTitle, {
-      category: profile.role,
-      author: vendorTitle,
-    });
     const pseudoPost: PostItem = {
       id: `vendor-${profile.phone || profile.id}`,
       user_id: profile.id,

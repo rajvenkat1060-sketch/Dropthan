@@ -12,7 +12,6 @@ import { PendingVerificationView } from './components/PendingVerificationView';
 import { AdminVerificationModal } from './components/AdminVerificationModal';
 import { AboutUsModal } from './components/AboutUsModal';
 import { IntroSplashScreen } from './components/IntroSplashScreen';
-import { LeadLensDashboard } from './components/LeadLensDashboard';
 import {
   fetchSupabasePosts,
   saveSupabasePost,
@@ -29,8 +28,6 @@ import {
   hardClearUserSession,
   isBannedAccountOrPost,
 } from './lib/supabase';
-import { recordLeadLensContact } from './lib/leadlens';
-
 import { GoogleMapsWrapper } from './components/GoogleMapsWrapper';
 
 export default function App() {
@@ -143,14 +140,8 @@ export default function App() {
 
   // Background non-blocking sync with Supabase for user profile, likes & posts
   useEffect(() => {
-    // 1. Silent profile verification in background and LeadLens contact sync
+    // 1. Silent profile verification in background
     if (currentUser?.phone) {
-      recordLeadLensContact({
-        phone: currentUser.phone,
-        name: currentUser.fullName || currentUser.companyName || currentUser.displayName,
-        email: (currentUser as any).email || undefined,
-      });
-
       fetchFullUserProfileByPhone(currentUser.phone).then((latestProfile) => {
         if (latestProfile) {
           const updated = {
@@ -720,10 +711,6 @@ export default function App() {
 
         {activeTab === 'services' && (
           <ServicesTab user={currentUser} />
-        )}
-
-        {activeTab === 'leadlens' && (
-          <LeadLensDashboard user={currentUser} onSelectTab={setActiveTab} />
         )}
 
         {activeTab === 'profile' && (

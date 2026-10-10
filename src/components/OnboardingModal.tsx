@@ -9,7 +9,6 @@ import { InternationalPhoneInput, isPhoneValid as checkInternationalPhoneValid }
 import { GoogleLocationInput } from './GoogleLocationInput';
 import { Instagram, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import { ImageCropModal } from './ImageCropModal';
-import { recordLeadLensContact, trackLeadLensConversion } from '../lib/leadlens';
 
 interface OnboardingModalProps {
   onComplete: (user: UserProfile, isNewUser?: boolean) => void;
@@ -234,16 +233,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
       } else {
         setAuthSuccessMsg('✓ Logged in successfully! Loading your account...');
       }
-
-      // Record conversion with LeadLens
-      trackLeadLensConversion({
-        userId: authenticatedUser.id,
-        phone: authenticatedUser.phone,
-        email: email || (authenticatedUser as any).email,
-        visitorName: authenticatedUser.fullName || authenticatedUser.companyName || authenticatedUser.displayName,
-        role: authenticatedUser.role,
-        isNewUser: Boolean(result.isNewUser),
-      });
 
       try {
         window.dispatchEvent(new CustomEvent('dropthan_profiles_updated'));
@@ -624,15 +613,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
               type="email"
               inputMode="email"
               autoComplete="email"
-              data-leadlens="email"
               value={email}
-              onChange={(e) => {
-                const val = e.target.value;
-                setEmail(val);
-                if (val.includes('@')) {
-                  recordLeadLensContact({ email: val });
-                }
-              }}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="e.g. contact@business.com"
               className="w-full bg-white border border-blue-200 rounded-xl p-3 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#0d47a1] focus:ring-1 focus:ring-[#0d47a1]"
             />

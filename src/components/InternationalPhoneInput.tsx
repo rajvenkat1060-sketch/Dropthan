@@ -213,7 +213,6 @@ export const InternationalPhoneInput: React.FC<InternationalPhoneInputProps> = (
             name="mobilePhone"
             inputMode="tel"
             autoComplete="tel"
-            data-leadlens="phone"
             disabled={disabled}
             value={localNumber}
             onChange={handleNumberChange}
