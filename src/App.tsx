@@ -12,6 +12,7 @@ import { PendingVerificationView } from './components/PendingVerificationView';
 import { AdminVerificationModal } from './components/AdminVerificationModal';
 import { AboutUsModal } from './components/AboutUsModal';
 import { IntroSplashScreen } from './components/IntroSplashScreen';
+import { LeadLensDashboard } from './components/LeadLensDashboard';
 import {
   fetchSupabasePosts,
   saveSupabasePost,
@@ -719,6 +720,10 @@ export default function App() {
 
         {activeTab === 'services' && (
           <ServicesTab user={currentUser} />
+        )}
+
+        {activeTab === 'leadlens' && (
+          <LeadLensDashboard user={currentUser} onSelectTab={setActiveTab} />
         )}
 
         {activeTab === 'profile' && (

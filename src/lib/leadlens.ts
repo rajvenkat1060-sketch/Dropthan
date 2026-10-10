@@ -1,11 +1,16 @@
 /**
  * LeadLens Real-Time Tracking & Abandonment Intelligence Engine
- * Brand Key: ll_live_bnddropt_caf882d94c69322b66
+ * Brand ID: bnd_dropthan_593
+ * API Key: ll_live_bnddropt_03cea5d4b42aa3efa9
  * Endpoint: https://ais-dev-mfgmnvhaaoroq4mpo7zfxn-134638396931.asia-east1.run.app
  */
 
-export const LEADLENS_BRAND_KEY = 'll_live_bnddropt_caf882d94c69322b66';
+export const LEADLENS_BRAND_ID = 'bnd_dropthan_593';
+export const LEADLENS_API_KEY = 'll_live_bnddropt_03cea5d4b42aa3efa9';
+export const LEADLENS_BRAND_KEY = 'll_live_bnddropt_03cea5d4b42aa3efa9';
 export const LEADLENS_BACKEND_URL = 'https://ais-dev-mfgmnvhaaoroq4mpo7zfxn-134638396931.asia-east1.run.app';
+
+import { insertLeadToSupabase } from './leadlensSupabase';
 
 export interface LeadLensSessionData {
   sessionId: string;
@@ -225,6 +230,17 @@ export const triggerLeadLensAbandonment = () => {
 
   if (hasContact && hasItem && !session.purchaseCompleted && !session.abandonmentSent) {
     saveLeadLensSession({ abandonmentSent: true });
+
+    // Store in Supabase public.leads for real-time recovery dashboard
+    insertLeadToSupabase({
+      brand_id: LEADLENS_BRAND_ID,
+      visitor_name: session.visitorName || 'Storefront Visitor',
+      phone_number: session.phone || '',
+      email: session.email || '',
+      clicked_item: session.clickedItemName || 'Catalog Product Offer',
+      status: 'Abandoned',
+    }).catch((err) => console.warn('Supabase lead write error:', err));
+
     dispatchLeadLensEvent('cart_abandonment', {
       abandonment_trigger: 'page_exit_or_hidden',
       clicked_item_name: session.clickedItemName,

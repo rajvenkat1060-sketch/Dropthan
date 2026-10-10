@@ -1,7 +1,7 @@
 import React from 'react';
 import { UserProfile } from '../types';
 import { getAvatarUrl } from '../utils/avatar';
-import { Home, Sparkles, User, ShieldCheck } from 'lucide-react';
+import { Home, Sparkles, User, ShieldCheck, Activity } from 'lucide-react';
 
 interface HeaderProps {
   user: UserProfile | null;
@@ -28,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const desktopNavItems = [
     { id: 'feed', icon: <Home className="w-4 h-4" />, label: 'Marketplace' },
+    { id: 'leadlens', icon: <Activity className="w-4 h-4 text-cyan-300 animate-pulse" />, label: 'LeadLens Tracker' },
     { id: 'services', icon: <Sparkles className="w-4 h-4 text-amber-300" />, label: 'Digital Services' },
     { id: 'profile', icon: <User className="w-4 h-4" />, label: 'My Account' },
   ];
@@ -192,8 +193,21 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </button>
 
-            {/* RIGHT: ADMIN BADGE & USER AVATAR */}
-            <div className="flex items-center space-x-2">
+            {/* RIGHT: LEADLENS TRACKER, ADMIN BADGE & USER AVATAR */}
+            <div className="flex items-center space-x-1.5">
+              <button
+                onClick={() => onSelectTab('leadlens')}
+                className={`text-[10px] font-black px-2 py-1 rounded-xl transition cursor-pointer shadow-sm flex items-center gap-1 active:scale-95 border ${
+                  activeTab === 'leadlens'
+                    ? 'bg-[#00E5FF] text-slate-950 border-[#00E5FF]'
+                    : 'bg-blue-950/80 text-cyan-200 border-cyan-400/40 hover:bg-blue-900'
+                }`}
+                title="LeadLens Live Abandoned Leads"
+              >
+                <Activity className="w-3 h-3 text-cyan-300 animate-pulse" />
+                <span>Leads</span>
+              </button>
+
               {isAdminAuthorized && onOpenAdmin && (
                 <button
                   onClick={onOpenAdmin}
