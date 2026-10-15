@@ -252,11 +252,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
   return (
     <div
       id="dropthan-onboarding-modal-overlay"
-      className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto w-full min-h-screen flex flex-col"
+      className="w-full min-h-screen bg-slate-50 overflow-y-auto overflow-x-hidden flex flex-col"
     >
       <div
         id="dropthan-onboarding-card"
-        className="w-full min-h-screen flex-1 bg-white flex flex-col p-4 sm:p-8 md:p-10 lg:p-12 space-y-6"
+        className="w-full min-h-screen bg-white flex flex-col p-4 sm:p-8 md:p-10 lg:p-12 space-y-6 pb-20 sm:pb-24"
       >
         {/* CONDITIONAL BACK BUTTON - SHOWN ONLY IF EDITING */}
         {currentUser && onCancel && (
@@ -340,7 +340,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
         {/* STEP 1: BUSINESS CATEGORY SELECTION ONLY */}
         {/* ========================================================================= */}
         {currentStep === 1 && (
-          <div className="space-y-6 animate-in fade-in duration-200 flex-1 flex flex-col justify-between">
+          <div className="space-y-6 animate-in fade-in duration-200 flex flex-col pb-12 sm:pb-16">
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 pb-1 border-b border-slate-100">
                 <div>
@@ -485,7 +485,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
             </div>
 
             {/* STEP 1 ACTION BUTTON */}
-            <div className="pt-6 border-t border-slate-100 flex justify-end">
+            <div className="pt-6 border-t border-slate-100 flex justify-end pb-8">
               <button
                 type="button"
                 id="btn-step1-continue"
@@ -503,7 +503,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
         {/* STEP 2: BUSINESS & ACCOUNT DETAILS FORM */}
         {/* ========================================================================= */}
         {currentStep === 2 && (
-          <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-200 flex-1 flex flex-col justify-between">
+          <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-200 flex flex-col pb-20 sm:pb-24">
             <div className="space-y-6">
               {/* STEP 2 HEADER WITH BACK NAVIGATION & SELECTED ROLE BADGE */}
               <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
@@ -900,7 +900,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete, on
             </div>
 
             {/* SUBMIT BUTTON */}
-            <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3">
+            <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3 pb-12 sm:pb-16 mb-6">
               <button
                 type="submit"
                 id="btn-auth-submit"
