@@ -193,8 +193,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* RIGHT: ADMIN BADGE & USER AVATAR */}
-            <div className="flex items-center space-x-2">
-
+            <div className="flex items-center space-x-1.5">
               {isAdminAuthorized && onOpenAdmin && (
                 <button
                   onClick={onOpenAdmin}

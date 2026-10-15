@@ -6,6 +6,7 @@ export interface UserProfile {
   id?: string;
   role: UserRole;
   phone: string;
+  email?: string;
   password?: string;
   country: string;
   location: string;
@@ -118,3 +119,4 @@ export interface LikeRecord {
   user_phone?: string;
   created_at?: string;
 }
+

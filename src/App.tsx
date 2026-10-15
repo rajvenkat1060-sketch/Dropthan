@@ -110,6 +110,7 @@ export default function App() {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
 
+
   // INTRO SPLASH SCREEN LOGIC:
   // Plays automatically for first-time visitors, then smoothly transitions to Login.
   // Returning visitors bypass the intro entirely and land directly on the Login page.
@@ -787,6 +788,8 @@ export default function App() {
         posts={posts}
         onStatusChanged={handleStatusChanged}
       />
+
+
 
       {/* FLOATING TOAST NOTIFICATION */}
       {toastMessage && (
